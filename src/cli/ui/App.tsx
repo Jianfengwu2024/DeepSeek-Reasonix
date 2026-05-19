@@ -260,6 +260,12 @@ export interface AppProps {
     reBootstrapSemantic?: (rootDir: string) => Promise<{ enabled: boolean }>;
     /** Notify the launcher/root wrapper that the workspace root changed so session switches remount into the new root. */
     onRootChange?: (newRoot: string) => void;
+    /** TriadMind status text for `/triadmind status`. */
+    triadmindStatus?: () => string;
+    /** Run an in-process TriadMind operation from the TUI slash layer. */
+    runTriadMindInternal?: (args: string[]) => Promise<string>;
+    /** Optional post-edit architecture advisory hook. */
+    runTriadMindAdvisory?: (cause: string) => Promise<string | null>;
   };
   /**
    * When `true`, suppress the auto-launch of the embedded web dashboard
@@ -1022,6 +1028,21 @@ function AppInner({
       });
     },
     [currentRootDir, loop.client, loop.log.entries, loop.model, model, onSwitchSession, session],
+  );
+
+  const runTriadMindAdvisory = useCallback(
+    (cause: string) => {
+      const run = codeMode?.runTriadMindAdvisory;
+      if (!run) return;
+      void run(cause)
+        .then((message) => {
+          if (message) log.pushInfo(message);
+        })
+        .catch((error) => {
+          log.pushInfo(`TriadMind advisory failed after ${cause}: ${(error as Error).message}`);
+        });
+    },
+    [codeMode, log],
   );
 
   const switchWorkspaceRoot = useCallback(
@@ -1948,6 +1969,7 @@ function AppInner({
         if (good) {
           recordEdit("auto", [block], results, snaps);
           armUndoBanner(results);
+          runTriadMindAdvisory("tool-auto");
         }
         return formatEditResults(results);
       };
@@ -1994,7 +2016,16 @@ function AppInner({
     return () => {
       tools.setToolInterceptor(null);
     };
-  }, [tools, codeMode, session, recordEdit, armUndoBanner, syncPendingCount, setEditMode]);
+  }, [
+    tools,
+    codeMode,
+    session,
+    recordEdit,
+    armUndoBanner,
+    syncPendingCount,
+    setEditMode,
+    runTriadMindAdvisory,
+  ]);
 
   const { codeApply, codeDiscard } = useCodeMode({
     codeMode: !!codeMode,
@@ -2003,6 +2034,7 @@ function AppInner({
     session: session ?? null,
     syncPendingCount,
     recordEdit,
+    runTriadMindAdvisory,
   });
 
   const prefixHash = loop.prefix.fingerprint;
@@ -2831,6 +2863,8 @@ function AppInner({
           },
           reloadHooks: () => reloadHooks(codeMode ? currentRootDir : undefined),
           switchCwd: codeMode?.reregisterTools ? switchWorkspaceRoot : undefined,
+          triadmindStatus: codeMode?.triadmindStatus,
+          runTriadMindInternal: codeMode?.runTriadMindInternal,
           reloadMcp: mcpRuntime
             ? async () => {
                 const r = await mcpRuntime.reloadFromConfig(loop);
@@ -3170,6 +3204,7 @@ function AppInner({
               pendingEdits,
               syncPendingCount,
               ctxMax: DEEPSEEK_CONTEXT_TOKENS[loop.model] ?? DEFAULT_CONTEXT_TOKENS,
+              runTriadMindAdvisory,
             });
             if (session) {
               const m = loadSessionMeta(session);
@@ -3363,6 +3398,7 @@ function AppInner({
       liveMcpServers,
       generateCurrentSessionTitle,
       switchWorkspaceRoot,
+      runTriadMindAdvisory,
     ],
   );
 

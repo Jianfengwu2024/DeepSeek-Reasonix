@@ -81,6 +81,8 @@ export interface SlashContext {
   /** stop_job is async; handlers return synchronously and let the registry resolve in the background. */
   jobs?: JobRegistry;
   postInfo?: (text: string) => void;
+  triadmindStatus?: () => string;
+  runTriadMindInternal?: (args: string[]) => Promise<string>;
   /** Push a structured Doctor card with check-by-check status; used by `/doctor`. */
   postDoctor?: (
     checks: ReadonlyArray<{ label: string; level: "ok" | "warn" | "fail"; detail: string }>,

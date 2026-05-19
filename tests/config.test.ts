@@ -23,6 +23,7 @@ import {
   loadReasoningEffort,
   loadSemanticEmbeddingUserConfig,
   loadTheme,
+  loadTriadMindMode,
   markEditModeHintShown,
   readConfig,
   redactKey,
@@ -39,6 +40,7 @@ import {
   saveReasoningEffort,
   saveSemanticEmbeddingConfig,
   saveTheme,
+  saveTriadMindConfig,
   searchEnabled,
   writeConfig,
 } from "../src/config.js";
@@ -385,6 +387,32 @@ describe("config", () => {
   it("loadReasoningEffort coerces unknown values back to 'max'", () => {
     writeConfig({ reasoningEffort: "turbo" as any }, path);
     expect(loadReasoningEffort(path)).toBe("max");
+  });
+
+  it("loadTriadMindMode defaults disabled and normalizes known modes", () => {
+    expect(loadTriadMindMode(path)).toBe("disabled");
+    writeConfig({ triadmind: { mode: "advisory" } }, path);
+    expect(loadTriadMindMode(path)).toBe("advisory");
+    writeConfig({ triadmind: { mode: "bad" as never } }, path);
+    expect(loadTriadMindMode(path)).toBe("disabled");
+  });
+
+  it("saveTriadMindConfig normalizes mode and preserves existing fields", () => {
+    saveTriadMindConfig({ command: "triadmind", args: ["--profile", "dev"] }, path);
+    saveTriadMindConfig({ mode: "tools-only" as never, advisoryForceSync: true }, path);
+    expect(readConfig(path).triadmind).toEqual({
+      command: "triadmind",
+      args: ["--profile", "dev"],
+      mode: "tools_only",
+      advisoryForceSync: true,
+    });
+  });
+
+  it("saveTriadMindConfig rejects invalid mode and timeout", () => {
+    expect(() => saveTriadMindConfig({ mode: "bad" as never }, path)).toThrow(
+      /Invalid triadmind\.mode/,
+    );
+    expect(() => saveTriadMindConfig({ timeoutMs: 0 }, path)).toThrow(/timeoutMs/);
   });
 
   it("saveReasoningEffort doesn't clobber other persisted fields", () => {

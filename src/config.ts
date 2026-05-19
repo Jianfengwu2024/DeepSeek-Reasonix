@@ -100,6 +100,37 @@ export interface QQBotConfig {
   allowlist?: string[];
 }
 
+export type TriadMindMode = "disabled" | "tools_only" | "advisory";
+
+export function normalizeTriadMindMode(value: string | undefined): TriadMindMode | null {
+  switch (value?.trim().toLowerCase()) {
+    case "disabled":
+      return "disabled";
+    case "tools_only":
+    case "toolsonly":
+    case "tools-only":
+      return "tools_only";
+    case "advisory":
+      return "advisory";
+    default:
+      return null;
+  }
+}
+
+export interface TriadMindConfig {
+  /** disabled = no tools/advisory; tools_only = register triadmind_* tools; advisory = tools + post-edit sync/verify. */
+  mode?: TriadMindMode;
+  /** Optional TriadMind core library root or dist directory. Defaults to bundled/vendor core, then adjacent triadmind-core/dist in development. */
+  corePath?: string;
+  /** Legacy CLI fields are ignored by the in-process Reasonix engine and kept only for config migration compatibility. */
+  command?: string;
+  args?: string[];
+  /** Per-invocation timeout in milliseconds. Defaults to 120000. */
+  timeoutMs?: number;
+  /** Advisory mode: when true, use `triadmind sync --force` after edits. Defaults to false. */
+  advisoryForceSync?: boolean;
+}
+
 export interface PricingOverride {
   inputCacheHit?: number;
   inputCacheMiss?: number;
@@ -195,6 +226,8 @@ export interface ReasonixConfig {
   rateLimit?: RateLimitConfig;
   /** QQ Bot configuration */
   qq?: QQBotConfig;
+  /** Optional TriadMind architecture-governance integration for code mode. */
+  triadmind?: TriadMindConfig;
 }
 
 export interface CustomMemoryTypeConfig {
@@ -479,6 +512,49 @@ export function loadRateLimit(path: string = defaultConfigPath()): RateLimitConf
   const rpm = readConfig(path).rateLimit?.rpm;
   if (typeof rpm !== "number" || !Number.isInteger(rpm) || rpm <= 0) return undefined;
   return { rpm };
+}
+
+/** Unknown / missing fall back to disabled so the default runtime remains methodology-neutral. */
+export function loadTriadMindMode(path: string = defaultConfigPath()): TriadMindMode {
+  return normalizeTriadMindMode(readConfig(path).triadmind?.mode) ?? "disabled";
+}
+
+export function saveTriadMindConfig(
+  patch: Partial<TriadMindConfig>,
+  path: string = defaultConfigPath(),
+): TriadMindConfig {
+  const cfg = readConfig(path);
+  const current = cfg.triadmind ?? {};
+  const next: TriadMindConfig = { ...current, ...patch };
+  if (next.mode !== undefined) {
+    const normalized = normalizeTriadMindMode(next.mode);
+    if (!normalized) {
+      throw new Error("Invalid triadmind.mode. Use: disabled, tools_only, advisory.");
+    }
+    next.mode = normalized;
+  }
+  if (next.corePath !== undefined) {
+    const corePath = next.corePath.trim();
+    next.corePath = corePath || undefined;
+  }
+  if (next.command !== undefined) {
+    const command = next.command.trim();
+    next.command = command || undefined;
+  }
+  if (next.args !== undefined) {
+    next.args = next.args.map((arg) => arg.trim()).filter(Boolean);
+    if (next.args.length === 0) next.args = undefined;
+  }
+  if (next.timeoutMs !== undefined) {
+    if (!Number.isInteger(next.timeoutMs) || next.timeoutMs <= 0) {
+      throw new Error(
+        "Invalid triadmind.timeoutMs. Use a positive integer number of milliseconds.",
+      );
+    }
+  }
+  cfg.triadmind = Object.values(next).some((value) => value !== undefined) ? next : undefined;
+  writeConfig(cfg, path);
+  return next;
 }
 
 export function saveBaseUrl(url: string, path: string = defaultConfigPath()): void {

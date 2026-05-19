@@ -400,6 +400,10 @@ export const EN: TranslationSchema = {
         "edit-gate: review (queue) · auto (apply+undo) · yolo (apply+auto-shell). Shift+Tab cycles.",
       argsHint: "[review|auto|yolo]",
     },
+    triadmind: {
+      description: "inspect or run TriadMind architecture-governance commands for this workspace",
+      argsHint: "[status|config|sync|verify|visualize|memory|toolkit] [...]",
+    },
     jobs: { description: "list background jobs started by run_background" },
     kill: {
       description: "stop a background job by id (SIGTERM → SIGKILL after grace)",

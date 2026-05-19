@@ -17,6 +17,8 @@
   },
   "files": [
     "dist",
+    "vendor/triadmind-core/dist",
+    "vendor/triadmind-core/package.json",
     "data/deepseek-tokenizer.json.gz",
     "dashboard/index.html",
     "dashboard/app.css",

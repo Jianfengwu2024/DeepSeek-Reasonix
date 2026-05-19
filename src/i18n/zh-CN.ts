@@ -389,6 +389,10 @@ export const zhCN: TranslationSchema = {
         "编辑门控：review（排队）· auto（应用+撤消）· yolo（应用+自动 shell）。Shift+Tab 循环。",
       argsHint: "[review|auto|yolo]",
     },
+    triadmind: {
+      description: "查看或运行当前工作区的 TriadMind 架构治理命令",
+      argsHint: "[status|config|sync|verify|visualize|memory|toolkit] [...]",
+    },
     jobs: { description: "列出 run_background 启动的后台作业" },
     kill: {
       description: "按 ID 停止后台作业（SIGTERM → 宽限期后 SIGKILL）",

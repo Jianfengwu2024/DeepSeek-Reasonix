@@ -88,9 +88,10 @@ export async function codeCommand(opts: CodeOptions = {}): Promise<void> {
   const session = opts.noSession ? undefined : `code-${sanitizeName(basename(rootDir))}`;
 
   markPhase("semantic_bootstrap_start");
-  const { tools, jobs, registerRooted, reBootstrapSemantic, semantic } = await buildCodeToolset({
-    rootDir,
-  });
+  const { tools, jobs, registerRooted, reBootstrapSemantic, semantic, triadmind } =
+    await buildCodeToolset({
+      rootDir,
+    });
   markPhase(
     semantic.enabled ? "semantic_bootstrap_done_enabled" : "semantic_bootstrap_done_skipped",
   );
@@ -103,6 +104,10 @@ export async function codeCommand(opts: CodeOptions = {}): Promise<void> {
       semantic: semantic.enabled ? t("startup.semanticOn") : "",
     })}\n`,
   );
+
+  if (triadmind.enabled()) {
+    process.stderr.write(`> triadmind: ${triadmind.mode()}\n`);
+  }
 
   const foreign = detectForeignAgentPlatform(rootDir);
   if (foreign) {
@@ -146,6 +151,7 @@ export async function codeCommand(opts: CodeOptions = {}): Promise<void> {
   const codeRebuildSystem = () =>
     codeSystemPrompt(currentRoot, {
       hasSemanticSearch: semanticEnabled,
+      hasTriadMind: triadmind.enabled(),
       systemAppend: opts.systemAppend,
       systemAppendFile: systemAppendFileContents,
       modelId: resolvedModel,
@@ -172,6 +178,9 @@ export async function codeCommand(opts: CodeOptions = {}): Promise<void> {
       onRootChange: (newRoot: string) => {
         currentRoot = newRoot;
       },
+      triadmindStatus: () => triadmind.status(),
+      runTriadMindInternal: (args: string[]) => triadmind.runInternalText(args),
+      runTriadMindAdvisory: (cause: string) => triadmind.runAdvisory(cause),
     },
     mcp: readConfig().mcp,
     forceResume: opts.forceResume,

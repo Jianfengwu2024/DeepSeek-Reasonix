@@ -45,6 +45,7 @@ export interface AssistantFinalContext {
   armUndoBanner: (results: ApplyResult[]) => void;
   pendingEdits: MutableRefObject<EditBlock[]>;
   syncPendingCount: () => void;
+  runTriadMindAdvisory?: (cause: string) => void;
   /** Used to gate the ctx-pressure warn/err cards; 0 disables the check. */
   ctxMax: number;
 }
@@ -104,6 +105,7 @@ export function handleAssistantFinal(ev: LoopEvent, ctx: AssistantFinalContext):
     if (good) {
       ctx.recordEdit("auto-text", blocks, results, snaps);
       ctx.armUndoBanner(results);
+      ctx.runTriadMindAdvisory?.("auto-text");
     }
     ctx.log.pushInfo(formatEditResults(results));
   } else {

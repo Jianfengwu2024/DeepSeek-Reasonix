@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { handleSlash } from "../src/cli/ui/slash/dispatch.js";
 import { nearestCommands } from "../src/cli/ui/slash/nearest.js";
 import { DeepSeekClient } from "../src/client.js";
@@ -48,5 +51,56 @@ describe("handleSlash unknown suggestions", () => {
     const r = handleSlash("xyz123", [], makeLoop());
     expect(r.unknown).toBe(true);
     expect(r.info).toBe("unknown command: /xyz123  (try /help)");
+  });
+});
+
+describe("handleSlash /triadmind", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("routes /triadmind status to the injected status provider", () => {
+    const r = handleSlash("triadmind", ["status"], makeLoop(), {
+      triadmindStatus: () => "triadmind ok",
+      runTriadMindInternal: async () => "unused",
+    });
+
+    expect(r.info).toBe("triadmind ok");
+  });
+
+  it("writes /triadmind config mode to the supplied config path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reasonix-triadmind-slash-"));
+    tempDirs.push(dir);
+    const configPath = join(dir, "config.json");
+
+    const r = handleSlash("triadmind", ["config", "mode", "advisory"], makeLoop(), {
+      configPath,
+    });
+
+    expect(r.info).toContain("triadmind.mode = advisory");
+    expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({
+      triadmind: { mode: "advisory" },
+    });
+  });
+
+  it("shows config guidance even when TriadMind runtime tools are disabled", () => {
+    const r = handleSlash("triadmind", [], makeLoop(), {});
+    expect(r.info).toContain("/triadmind config mode tools_only");
+  });
+
+  it("maps toolkit commands to triadmind memory toolkit", () => {
+    const calls: string[][] = [];
+    const r = handleSlash("triadmind", ["toolkit", "sync"], makeLoop(), {
+      runTriadMindInternal: async (args) => {
+        calls.push(args);
+        return "synced";
+      },
+      postInfo: () => {},
+    });
+
+    expect(r.info).toBe("> internal triadmind memory toolkit sync started");
+    expect(calls).toEqual([["memory", "toolkit", "sync"]]);
   });
 });

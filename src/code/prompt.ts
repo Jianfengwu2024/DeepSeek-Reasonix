@@ -253,11 +253,25 @@ You have BOTH \`semantic_search\` (vector index) and \`search_content\` (literal
 
 If \`semantic_search\` returns nothing useful (low scores, off-topic), THEN fall back to \`search_content\`. Don't go the other way — grepping a paraphrased question wastes turns.`;
 
+const TRIADMIND_ROUTING = [
+  "",
+  "# Architecture routing",
+  "",
+  "If TriadMind tools are available in this session, use them deliberately:",
+  "",
+  "- Before introducing a new module, abstraction, or workflow, prefer `triadmind_memory_search` / `triadmind_memory_recommend` to look for reuse opportunities first.",
+  "- For architecture-heavy changes, use `triadmind_navigate` before editing so you can preview the impact shape instead of inventing structure ad hoc.",
+  "- After topology-heavy edits, use `triadmind_verify` (and, when explicitly asked for deeper diagnostics, `triadmind_dream` / `triadmind_govern`) to check whether the architecture still holds together.",
+  "",
+  "Don't call TriadMind for tiny local edits. Reach for it when the work changes boundaries, reuse strategy, or topology.",
+].join("\n");
 export interface CodeSystemPromptOptions {
   /** True when semantic_search is registered for this run. Adds an
    *  explicit routing fragment so the model picks it for intent-style
    *  queries instead of defaulting to grep. */
   hasSemanticSearch?: boolean;
+  /** True when TriadMind architecture-governance tools are registered for this run. */
+  hasTriadMind?: boolean;
   /** Inline string appended after the generated code system prompt.
    *  Preserves the default prompt — this is append-only, not a replacement. */
   systemAppend?: string;
@@ -270,7 +284,9 @@ export interface CodeSystemPromptOptions {
 
 export function codeSystemPrompt(rootDir: string, opts: CodeSystemPromptOptions = {}): string {
   const codeBase = codeSystemBase(opts.modelId ?? DEFAULT_CODE_MODEL);
-  const base = opts.hasSemanticSearch ? `${codeBase}${SEMANTIC_SEARCH_ROUTING}` : codeBase;
+  let base = codeBase;
+  if (opts.hasSemanticSearch) base += SEMANTIC_SEARCH_ROUTING;
+  if (opts.hasTriadMind) base += TRIADMIND_ROUTING;
   const withMemory = applyMemoryStack(base, rootDir);
   const gitignorePath = join(rootDir, ".gitignore");
   let result = withMemory;

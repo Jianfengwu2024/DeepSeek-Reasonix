@@ -86,6 +86,12 @@ export interface ChatOptions {
     reBootstrapSemantic?: (rootDir: string) => Promise<{ enabled: boolean }>;
     /** Notify the launcher that the workspace root just changed — lets the rebuildSystem closure see the new dir. */
     onRootChange?: (newRoot: string) => void;
+    /** TriadMind status text for `/triadmind status`. */
+    triadmindStatus?: () => string;
+    /** Run an in-process TriadMind operation from the TUI slash layer. */
+    runTriadMindInternal?: (args: string[]) => Promise<string>;
+    /** Optional post-edit architecture advisory hook. */
+    runTriadMindAdvisory?: (cause: string) => Promise<string | null>;
   };
   /** Skip the session picker — assume "Resume" (backwards-compatible auto-continue). */
   forceResume?: boolean;

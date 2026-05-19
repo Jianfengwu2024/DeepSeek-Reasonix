@@ -28,11 +28,20 @@ export interface UseCodeModeOptions {
     results: readonly ApplyResult[],
     snaps: readonly EditSnapshot[],
   ) => void;
+  runTriadMindAdvisory?: (cause: string) => void;
 }
 
 /** Slash-command callbacks for `/apply` and `/discard` over the pending-edits queue. Owns the partition / snapshot / save / sync sequence; AppInner just forwards the strings to its log. */
 export function useCodeMode(opts: UseCodeModeOptions): UseCodeModeResult {
-  const { codeMode, pendingEdits, currentRootDir, session, syncPendingCount, recordEdit } = opts;
+  const {
+    codeMode,
+    pendingEdits,
+    currentRootDir,
+    session,
+    syncPendingCount,
+    recordEdit,
+    runTriadMindAdvisory,
+  } = opts;
 
   const codeApply = useCallback(
     (indices?: readonly number[]): string => {
@@ -51,7 +60,10 @@ export function useCodeMode(opts: UseCodeModeOptions): UseCodeModeResult {
       const snaps = snapshotBeforeEdits(selected, currentRootDir);
       const results = applyEditBlocks(selected, currentRootDir);
       const anyApplied = results.some((r) => r.status === "applied" || r.status === "created");
-      if (anyApplied) recordEdit("review-apply", selected, results, snaps);
+      if (anyApplied) {
+        recordEdit("review-apply", selected, results, snaps);
+        runTriadMindAdvisory?.("review-apply");
+      }
       pendingEdits.current = remaining;
       if (remaining.length === 0) clearPendingEdits(session ?? null);
       else savePendingEdits(session ?? null, remaining);
@@ -62,7 +74,15 @@ export function useCodeMode(opts: UseCodeModeOptions): UseCodeModeResult {
           : "";
       return formatEditResults(results) + tail;
     },
-    [codeMode, currentRootDir, session, syncPendingCount, recordEdit, pendingEdits],
+    [
+      codeMode,
+      currentRootDir,
+      session,
+      syncPendingCount,
+      recordEdit,
+      pendingEdits,
+      runTriadMindAdvisory,
+    ],
   );
 
   const codeDiscard = useCallback(

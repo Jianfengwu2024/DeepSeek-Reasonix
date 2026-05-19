@@ -1,5 +1,6 @@
 import { DeepSeekClient } from "../client.js";
 import {
+  type TriadMindMode,
   loadBaseUrl,
   loadEditMode,
   loadProjectShellAllowed,
@@ -21,6 +22,11 @@ import { registerShellTools } from "../tools/shell.js";
 import { type SkillInstalledHook, registerSkillTools } from "../tools/skills.js";
 import { formatSubagentResult, spawnSubagent } from "../tools/subagent.js";
 import { registerTodoTool } from "../tools/todo.js";
+import {
+  TRIADMIND_TOOL_NAMES,
+  type TriadMindSupport,
+  registerTriadMindTools,
+} from "../tools/triadmind.js";
 import { registerWebTools } from "../tools/web.js";
 
 export interface CodeToolsetOpts {
@@ -37,11 +43,22 @@ export interface CodeToolset {
   registerRooted: (root: string) => void;
   reBootstrapSemantic: (root: string) => Promise<{ enabled: boolean }>;
   semantic: { enabled: boolean };
+  triadmind: {
+    enabled: () => boolean;
+    mode: () => TriadMindMode;
+    status: () => string;
+    runInternalText: (args: string[]) => Promise<string>;
+    runAdvisory: (cause: string) => Promise<string | null>;
+  };
 }
 
 export async function buildCodeToolset(opts: CodeToolsetOpts): Promise<CodeToolset> {
   const tools = new ToolRegistry();
   const jobs = new JobRegistry();
+  let triadmindSupport: TriadMindSupport = registerTriadMindTools(tools, {
+    rootDir: opts.rootDir,
+    config: readConfig(),
+  });
 
   const registerRooted = (root: string): void => {
     registerFilesystemTools(tools, { rootDir: root });
@@ -55,6 +72,8 @@ export async function buildCodeToolset(opts: CodeToolsetOpts): Promise<CodeTools
       sensitivePaths: cfg.sensitivePaths,
     });
     registerMemoryTools(tools, { projectRoot: root });
+    for (const toolName of TRIADMIND_TOOL_NAMES) tools.unregister(toolName);
+    triadmindSupport = registerTriadMindTools(tools, { rootDir: root, config: cfg });
   };
 
   const reBootstrapSemantic = async (root: string): Promise<{ enabled: boolean }> => {
@@ -101,5 +120,18 @@ export async function buildCodeToolset(opts: CodeToolsetOpts): Promise<CodeTools
 
   const semantic = await reBootstrapSemantic(opts.rootDir);
 
-  return { tools, jobs, registerRooted, reBootstrapSemantic, semantic };
+  return {
+    tools,
+    jobs,
+    registerRooted,
+    reBootstrapSemantic,
+    semantic,
+    triadmind: {
+      enabled: () => triadmindSupport.enabled,
+      mode: () => triadmindSupport.mode,
+      status: () => triadmindSupport.status(),
+      runInternalText: (args: string[]) => triadmindSupport.runInternalText(args),
+      runAdvisory: (cause: string) => triadmindSupport.runAdvisory(cause),
+    },
+  };
 }

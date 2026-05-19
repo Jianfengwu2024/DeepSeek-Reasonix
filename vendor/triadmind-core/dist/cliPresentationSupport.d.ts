@@ -1,0 +1,16 @@
+import { TriadScanMode } from './config';
+import { BootstrapDoctorReport, BootstrapScaffoldInitResult } from './bootstrapScaffoldService';
+import { WorkspacePaths } from './workflow';
+export type SplitPromptStage = 'macro' | 'meso' | 'micro';
+export declare function printPassPrompt(stage: SplitPromptStage, demandParts: string[], optionDemand?: string): void;
+export declare function reportBootstrapInitResult(paths: WorkspacePaths, result: BootstrapScaffoldInitResult): void;
+export declare function formatBootstrapDoctorReport(report: BootstrapDoctorReport): string;
+export declare function resolveBootstrapCliCommand(paths: WorkspacePaths): "triadmind" | "node --import tsx cli.ts" | "node dist/cli.js";
+export declare function normalizeScanModeOption(value?: string): TriadScanMode | undefined;
+export declare function normalizePositiveCliInteger(value: string | undefined, fallback: number): number;
+export declare function parseOptionalPositiveCliInteger(value: string | undefined): number | undefined;
+export declare function parseOptionalNonNegativeCliInteger(value: string | undefined): number | undefined;
+export declare function parseOptionalRatioCliNumber(value: string | undefined): number | undefined;
+export declare function resolveHealingInput(paths: WorkspacePaths, errorFile?: string, inlineMessage?: string): string;
+export declare function collectManualSnapshotFiles(paths: WorkspacePaths): string[];
+export declare function normalizeDreamDefaultSubcommandArgv(argv: string[]): string[];
