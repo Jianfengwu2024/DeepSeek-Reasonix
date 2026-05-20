@@ -408,6 +408,7 @@ export function createTriadMindSupport(opts: TriadMindSupportOptions): TriadMind
         const verify = await runTriadMindJson(triadmind, ["verify", "--json", "--strict"]);
         return formatAdvisoryMessage(cause, syncOutput, verify);
       } catch (error) {
+        if (isSkippableAdvisoryError(error)) return null;
         return `TriadMind advisory (${cause}) failed: ${(error as Error).message}`;
       } finally {
         advisoryRunning = false;
@@ -774,6 +775,11 @@ function resolveTriadMindEngine(opts: {
 
 function normalizeMode(mode: string | undefined): TriadMindMode {
   return mode === "tools_only" || mode === "advisory" ? mode : "disabled";
+}
+
+function isSkippableAdvisoryError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /缺少\s*tsconfig\.json|missing\s+tsconfig\.json/i.test(message);
 }
 
 function renderInternalOperation(engineLabel: string, toolArgs: string[]): string {

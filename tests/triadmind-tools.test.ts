@@ -211,4 +211,19 @@ describe("TriadMind tools", () => {
       ["verify", "--strict"],
     ]);
   });
+
+  it("silently skips advisory when the workspace is not a valid TriadMind project root", async () => {
+    const calls: string[][] = [];
+    const support = createTriadMindSupport({
+      rootDir: root,
+      config: { triadmind: { mode: "advisory" } },
+      engine: fakeEngine(() => {
+        throw new Error("目标目录下缺少 tsconfig.json：D:\\TraidMind\\tsconfig.json");
+      }, calls),
+    });
+
+    const message = await support.runAdvisory("tool-auto");
+    expect(message).toBeNull();
+    expect(calls).toEqual([["sync", "--force"]]);
+  });
 });
