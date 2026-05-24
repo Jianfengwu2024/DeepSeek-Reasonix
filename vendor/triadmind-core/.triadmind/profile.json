@@ -1,0 +1,253 @@
+{
+  "schemaVersion": "1.0",
+  "categories": {
+    "core": [],
+    "workflow": [],
+    "runtime": [
+      "runtime"
+    ],
+    "adapters": [],
+    "bootstrap": [],
+    "governance": [],
+    "visualization": [],
+    "dream": []
+  },
+  "scanScopes": [
+    {
+      "name": "tests",
+      "kind": "tests",
+      "priority": 100,
+      "match": {
+        "pathPrefixes": [],
+        "pathSegments": [
+          "test",
+          "tests",
+          "__tests__"
+        ],
+        "filePatterns": [
+          "*.test.ts",
+          "*.test.tsx",
+          "*.spec.ts",
+          "*.spec.tsx",
+          "*.test.js",
+          "*.spec.js"
+        ],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    },
+    {
+      "name": "migrations",
+      "kind": "migrations",
+      "priority": 95,
+      "match": {
+        "pathPrefixes": [],
+        "pathSegments": [
+          "migration",
+          "migrations",
+          "alembic"
+        ],
+        "filePatterns": [],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    },
+    {
+      "name": "triadmind-core",
+      "kind": "services",
+      "priority": 70,
+      "category": "core",
+      "match": {
+        "pathPrefixes": [],
+        "pathSegments": [],
+        "filePatterns": [
+          "analyzer.ts",
+          "artifactPathContracts.ts",
+          "artifactReaders.ts",
+          "config.ts",
+          "ir.ts",
+          "parser.ts",
+          "protocol.ts",
+          "protocolRightBranch.ts",
+          "sourceWalker.ts",
+          "stage.ts",
+          "sync.ts",
+          "treeSitterBindingSupport.ts",
+          "topologyQuality.ts",
+          "treeSitterGhostScanner.ts",
+          "treeSitterParser.ts",
+          "treeSitterPythonSupport.ts",
+          "treeSitterScanPlanSupport.ts",
+          "triadization.ts",
+          "triadizationAnalysis.ts",
+          "triadizationFocus.ts",
+          "triadizationSessionStore.ts",
+          "triadizationTypes.ts",
+          "typescriptParser.ts",
+          "workspace.ts"
+        ],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    },
+    {
+      "name": "triadmind-workflow",
+      "kind": "tasks",
+      "priority": 75,
+      "category": "workflow",
+      "match": {
+        "pathPrefixes": [],
+        "pathSegments": [],
+        "filePatterns": [
+          "cli.ts",
+          "cliSupport.ts",
+          "cliWorkflowSupport.ts",
+          "maintenanceCommands.ts",
+          "promptWorkflowCommands.ts",
+          "runtimeGovernanceCommands.ts",
+          "triadizationWorkflowCommands.ts",
+          "workflow.ts",
+          "workflowPromptBuilders.ts",
+          "workflowPromptSupport.ts",
+          "workflowRightBranch.ts",
+          "workflowWorkspaceSnapshot.ts"
+        ],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    },
+    {
+      "name": "triadmind-runtime",
+      "kind": "services",
+      "priority": 80,
+      "category": "runtime",
+      "match": {
+        "pathPrefixes": [
+          "runtime"
+        ],
+        "pathSegments": [
+          "runtime"
+        ],
+        "filePatterns": [
+          "healing.ts",
+          "healingRightBranch.ts",
+          "snapshot.ts"
+        ],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    },
+    {
+      "name": "triadmind-adapters",
+      "kind": "services",
+      "priority": 78,
+      "category": "adapters",
+      "match": {
+        "pathPrefixes": [],
+        "pathSegments": [],
+        "filePatterns": [
+          "adapter.ts",
+          "adapterRegistry.ts",
+          "generator.ts",
+          "generatorRightBranch.ts",
+          "languageAdapter.ts",
+          "polyglotAdapter.ts",
+          "typescriptAdapter.ts",
+          "typescriptGenerator.ts"
+        ],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    },
+    {
+      "name": "triadmind-bootstrap",
+      "kind": "other",
+      "priority": 74,
+      "category": "bootstrap",
+      "match": {
+        "pathPrefixes": [],
+        "pathSegments": [],
+        "filePatterns": [
+          "bootstrap.ts",
+          "bootstrapRightBranch.ts",
+          "bootstrapScaffoldService.ts",
+          "cliPresentationSupport.ts",
+          "rules.ts",
+          "workspaceLifecycleCommands.ts"
+        ],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    },
+    {
+      "name": "triadmind-governance",
+      "kind": "other",
+      "priority": 76,
+      "category": "governance",
+      "match": {
+        "pathPrefixes": [],
+        "pathSegments": [],
+        "filePatterns": [
+          "coverage.ts",
+          "govern.ts",
+          "governPolicy.ts",
+          "trend.ts",
+          "verify.ts"
+        ],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    },
+    {
+      "name": "triadmind-visualization",
+      "kind": "ui",
+      "priority": 72,
+      "category": "visualization",
+      "match": {
+        "pathPrefixes": [],
+        "pathSegments": [],
+        "filePatterns": [
+          "viewMap.ts",
+          "visualizer.ts"
+        ],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    },
+    {
+      "name": "triadmind-dream",
+      "kind": "agent",
+      "priority": 73,
+      "category": "dream",
+      "match": {
+        "pathPrefixes": [],
+        "pathSegments": [],
+        "filePatterns": [
+          "dream.ts",
+          "dreamCommands.ts",
+          "dreamDaemon.ts",
+          "dreamScheduler.ts",
+          "dreamVisualizer.ts"
+        ],
+        "includePatterns": [],
+        "excludePatterns": []
+      }
+    }
+  ],
+  "languageAdapters": {
+    "typescript": "@triadmind/plugin-ts",
+    "javascript": "@triadmind/plugin-js",
+    "python": "@triadmind/plugin-python",
+    "go": "@triadmind/plugin-go",
+    "rust": "@triadmind/plugin-rust",
+    "cpp": "@triadmind/plugin-cpp",
+    "java": "@triadmind/plugin-java"
+  },
+  "extractors": {
+    "parser": [],
+    "runtime": []
+  },
+  "governance": {
+    "coverageGates": []
+  }
+}

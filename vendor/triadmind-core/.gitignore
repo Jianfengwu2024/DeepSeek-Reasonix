@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.tgz
+
+# Keep declarative project inputs and learned Dream feedback under .triadmind.
+# Reports, maps, prompts, dashboards, locks, and session state are regenerated locally.
+.triadmind/*
+!.triadmind/config.json
+!.triadmind/profile.json
+!.triadmind/govern-policy.json
+!.triadmind/verify-baseline.json
+!.triadmind/dream-feedback.json
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0",
+  "project": "triadmind-core",
+  "updatedAt": "2026-05-09T07:45:00.000Z",
+  "rejections": [
+    {
+      "decisionId": "dream_reject_20260509074500_test_proposal",
+      "decision": "reject",
+      "proposalId": "test_proposal",
+      "proposalFamily": "DREAM_UNKNOWN",
+      "proposalSignature": "{\"family\":\"DREAM_UNKNOWN\",\"sourcePath\":\"\",\"targetNodeIds\":[],\"linkedFindings\":[]}",
+      "proposalTitle": "Test Proposal to Modify Core",
+      "reason": "This is a stable core module and should not be modified.",
+      "reasonCode": "stable_core_module",
+      "extractedRule": "Do not modify core modules unless absolutely necessary.",
+      "reviewer": "project-maintainer",
+      "reviewerRole": "maintainer",
+      "recordedAt": "2026-05-09T07:45:00.000Z",
+      "isStableAnchor": true
+    }
+  ]
+}

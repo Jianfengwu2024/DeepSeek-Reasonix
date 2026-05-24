@@ -1,0 +1,272 @@
+{
+  "schemaVersion": "1.1",
+  "architecture": {
+    "language": "typescript",
+    "parserEngine": "tree-sitter",
+    "adapter": "@triadmind/plugin-ts"
+  },
+  "categories": {
+    "core": []
+  },
+  "parser": {
+    "excludePatterns": [
+      "node_modules",
+      ".triadmind"
+    ],
+    "excludePathPatterns": [
+      "tests",
+      "test",
+      "schema",
+      "schemas",
+      "model",
+      "models",
+      "entity",
+      "entities",
+      "dto",
+      "vo",
+      "types",
+      "types.py",
+      "migrations",
+      "alembic/versions",
+      "__pycache__",
+      "node_modules",
+      "venv",
+      ".venv",
+      ".next",
+      "dist",
+      "build"
+    ],
+    "scanCategories": [
+      "core"
+    ],
+    "scanMode": "capability",
+    "leafOutputFile": ".triadmind/leaf-map.json",
+    "capabilityOutputFile": ".triadmind/triad-map.json",
+    "capabilityThreshold": 4,
+    "excludeTestFiles": true,
+    "excludeMagicMethods": true,
+    "excludePrivateMethods": true,
+    "helperVerbPolicy": "suppress",
+    "foldHelpersIntoOwner": true,
+    "entryMethodNames": [
+      "execute",
+      "run",
+      "handle",
+      "process",
+      "dispatch",
+      "apply",
+      "invoke",
+      "plan",
+      "schedule",
+      "orchestrate"
+    ],
+    "excludeNodeNamePatterns": [
+      "^(__.*__|_(?!_).*)$",
+      "^(test_.+)$",
+      "^__.*__$",
+      "^(upgrade|downgrade)$"
+    ],
+    "ignoreGenericContracts": true,
+    "genericContractIgnoreList": [
+      "str",
+      "string",
+      "int",
+      "number",
+      "bool",
+      "boolean",
+      "float",
+      "dict",
+      "object",
+      "list",
+      "array",
+      "any",
+      "unknown",
+      "json",
+      "request",
+      "response",
+      "path",
+      "void",
+      "none",
+      "dict[str,any]",
+      "optional[str]",
+      "optional[int]",
+      "list[str]",
+      "list[any]",
+      "WorkspacePaths",
+      "TriadConfigPaths",
+      "BootstrapPaths",
+      "WorkflowPaths",
+      "TriadizationPaths",
+      "CoveragePaths",
+      "ViewMapPaths",
+      "VerifyPaths",
+      "GovernPaths",
+      "RuntimeArtifactPaths",
+      "DreamPaths"
+    ],
+    "includeUntaggedExports": true,
+    "ghostPolicyByLanguage": {
+      "default": {
+        "includeInDemand": true,
+        "topK": 5,
+        "minConfidence": 4
+      },
+      "typescript": {
+        "includeInDemand": true,
+        "topK": 4,
+        "minConfidence": 4
+      },
+      "javascript": {
+        "includeInDemand": false,
+        "topK": 0,
+        "minConfidence": 5
+      },
+      "python": {
+        "includeInDemand": false,
+        "topK": 0,
+        "minConfidence": 5
+      },
+      "go": {
+        "includeInDemand": true,
+        "topK": 4,
+        "minConfidence": 4
+      },
+      "rust": {
+        "includeInDemand": true,
+        "topK": 4,
+        "minConfidence": 5
+      },
+      "cpp": {
+        "includeInDemand": true,
+        "topK": 3,
+        "minConfidence": 4
+      },
+      "java": {
+        "includeInDemand": true,
+        "topK": 4,
+        "minConfidence": 4
+      }
+    },
+    "jsDocTags": {
+      "triadNode": "TriadNode",
+      "leftBranch": "LeftBranch",
+      "rightBranch": "RightBranch"
+    }
+  },
+  "visualizer": {
+    "defaultView": "architecture",
+    "showIsolatedCapabilities": false,
+    "maxContractEdges": 1200,
+    "maxPrimaryEdges": 1500,
+    "fastMode": true,
+    "strictFingerprint": false,
+    "fastMayaThreshold": 0,
+    "fastFingerprintThreshold": 0,
+    "maxFingerprintNodes": 8,
+    "maxFingerprintOwners": 50,
+    "fingerprintTimeoutMs": 50,
+    "maxRenderNodes": 400,
+    "showFoldedLeaves": false
+  },
+  "protocol": {
+    "minConfidence": 0.6,
+    "requireConfidence": false
+  },
+  "navigator": {
+    "autoGenerateProtocol": false,
+    "provider": "openai",
+    "model": "gpt-5",
+    "apiKeyEnv": "OPENAI_API_KEY",
+    "baseUrl": "https://api.openai.com/v1",
+    "timeoutMs": 60000,
+    "maxOutputTokens": 4000,
+    "temperature": 0.1,
+    "maxRepairRounds": 1,
+    "failOnLlmError": false
+  },
+  "runtime": {
+    "enabled": true,
+    "defaultView": "full",
+    "includeFrontend": true,
+    "includeInfra": true,
+    "frameworkHints": [],
+    "excludePathPatterns": [
+      "node_modules",
+      ".git",
+      ".triadmind",
+      "venv",
+      ".venv",
+      "__pycache__",
+      ".pytest_cache",
+      ".next",
+      "dist",
+      "build",
+      "tests",
+      "test",
+      "logs",
+      "uploads",
+      "fastgpt_data",
+      ".run_state",
+      "tmp"
+    ],
+    "maxSourceFileBytes": 500000,
+    "maxScannedFiles": 5000,
+    "failOnExtractorError": false,
+    "minConfidence": 0.4
+  },
+  "dream": {
+    "enabled": true,
+    "idleOnly": false,
+    "minHoursBetweenRuns": 24,
+    "minConfidence": 0.55,
+    "maxProposals": 5,
+    "autoTriggerEnabled": true,
+    "autoTriggerCommands": [
+      "init",
+      "sync",
+      "runtime",
+      "plan",
+      "apply",
+      "verify",
+      "govern",
+      "trend"
+    ],
+    "minEventsBetweenRuns": 5,
+    "scanThrottleMinutes": 10,
+    "lockTimeoutMinutes": 30,
+    "daemonEnabled": true,
+    "daemonIntervalSeconds": 180,
+    "daemonMaxTicksPerRun": 0,
+    "failOnDreamError": false
+  },
+  "runtimeHealing": {
+    "enabled": true,
+    "maxAutoRetries": 3,
+    "requireHumanApprovalForContractChanges": true,
+    "snapshotStrategy": "manual"
+  },
+  "abstractionMemory": {
+    "enabled": true,
+    "autoSyncOnPrompt": true,
+    "excludeMatureStableSources": true,
+    "excludeSourcePaths": [],
+    "excludeSourcePathPatterns": [],
+    "minAbstractionRatio": 0.2,
+    "maxPromptEntries": 6,
+    "maxSearchResults": 10
+  },
+  "topologyRisk": {
+    "matureStableNodeIds": [],
+    "matureStableNodePatterns": [],
+    "matureStableSourcePaths": [],
+    "matureStableSourcePathPatterns": []
+  },
+  "impactTiers": {
+    "shortChainMax": 2,
+    "mediumChainMax": 5,
+    "forceTier": {}
+  },
+  "governance": {
+    "scope": "full"
+  }
+}

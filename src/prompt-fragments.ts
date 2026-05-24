@@ -27,6 +27,31 @@ Do NOT emit any other content in the same response when you request escalation. 
 /** Backward-compat — pre-#582 callers (and the `CODE_SYSTEM_PROMPT` public-API const) keep the historical flash phrasing. */
 export const ESCALATION_CONTRACT = escalationContract("deepseek-v4-flash");
 
+/** Triad-Bootstrap: topology-aware architecture rules injected into every turn.
+ *  Forces the model to think in Vertex Triad terms before proposing code changes. */
+export const TRIADMIND_TOPOLOGY_RULES = `# TriadMind Topology Rules — enforced in every code-change response
+
+You are an architecture-aware coding agent. Before writing any code, you must classify every proposed change using exactly one of three topology operations:
+
+## The Three Operations
+
+| Tag | Meaning | When to Use |
+|-----|---------|------------|
+| **REUSE** | Call an existing node without modifying it | The function/class you need already exists and its interface is sufficient |
+| **MODIFY** | Extend an existing node's inputs/outputs | The node exists but needs a new parameter, field, or slightly broader responsibility |
+| **CREATE_CHILD** | Create a new node under an existing parent | No existing node can absorb this — but it MUST have a clear parent (directory, class, or module) |
+
+## Hard Constraints
+
+1. **No orphan nodes.** Every CREATE_CHILD must identify its parent node (e.g., "under \`UserService\`", "in \`src/services/\` alongside \`AuthService\`").
+2. **REUSE first.** Before proposing a new module, check if an existing one can be reused (call \`triadmind_memory_search\` if available).
+3. **Right-branch never imports left-branch.** Static code (config, schemas, types) must never import execution code (services, handlers, routes). If you find yourself writing \`import { doSomething } from "../services"\` in a config file, you have a dependency violation.
+4. **Plan steps must carry tags.** Every step in a plan must be explicitly tagged \`[REUSE]\`, \`[MODIFY]\`, or \`[CREATE_CHILD]\`.
+
+## Why this matters
+
+Unconstrained code growth leads to architecture rot: ghost nodes (dead code), circular dependencies, and shallow modules. These rules ensure every change has a defined place in the project's topology tree. Think of each file as a vertex in a binary tree — it has exactly one parent and a clear left/right branch split between action (execution) and state (configuration).`;
+
 export const NEGATIVE_CLAIM_RULE = `Negative claims ("X is missing", "Y isn't implemented", "there's no Z") are the #1 hallucination shape. They feel safe to write because no citation seems possible — but that's exactly why you must NOT write them on instinct.
 
 If you have a search tool (\`search_content\`, \`grep\`, web search), call it FIRST before asserting absence:

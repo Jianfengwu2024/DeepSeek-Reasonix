@@ -1,0 +1,4641 @@
+{
+  "schemaVersion": "1.0",
+  "project": "DeepSeek-Reasonix",
+  "generatedAt": "2026-05-20T01:54:10.115Z",
+  "view": "full",
+  "nodes": [
+    {
+      "id": "ApiRoute.UNKNOWN./:param",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /:param",
+      "category": "backend",
+      "metadata": {
+        "method": "GET",
+        "path": "/:param",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 91,
+          "column": 22,
+          "kind": "inferred",
+          "text": "fetch(`${MOJEEK_ENDPOINT}?q=${encodeURIComponent(query)}`, {\n    headers: {\n      \"User-Agent\": USER_AGENT,\n      Accept: \"text/html,application/xhtml+xml,application/xml;q=0.9\",\n      \"Accept-Language\": \"en-US,en;q=0.9\",\n    },\n    signal:",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "ApiRoute.UNKNOWN./:param/chat/completions",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /:param/chat/completions",
+      "category": "backend",
+      "metadata": {
+        "method": "POST",
+        "path": "/:param/chat/completions",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs",
+          "line": 93,
+          "column": 22,
+          "kind": "inferred",
+          "text": "fetch(`${baseUrl}/chat/completions`, {\n    method: \"POST\",\n    headers: { Authorization: `Bearer ${apiKey}`, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({\n      model: \"deepseek-chat\",\n      messages,\n      temperature: 0",
+          "confidence": 0.45
+        },
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+          "line": 64,
+          "column": 22,
+          "kind": "inferred",
+          "text": "fetch(`${baseUrl}/chat/completions`, {\n    method: \"POST\",\n    headers: {\n      Authorization: `Bearer ${apiKey}`,\n      \"Content-Type\": \"application/json\",\n    },\n    body: JSON.stringify(body)",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "ApiRoute.UNKNOWN./:param/gateway",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /:param/gateway",
+      "category": "backend",
+      "metadata": {
+        "method": "GET",
+        "path": "/:param/gateway",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 103,
+          "column": 23,
+          "kind": "inferred",
+          "text": "fetch(`${this.baseUrl}/gateway`, {\n      headers: { Authorization: `QQBot ${token}` },\n    })",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "ApiRoute.UNKNOWN./:param/models",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /:param/models",
+      "category": "backend",
+      "metadata": {
+        "method": "GET",
+        "path": "/:param/models",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/client.ts",
+          "line": 198,
+          "column": 32,
+          "kind": "inferred",
+          "text": "fetch(`${this.baseUrl}/models`, {\n        method: \"GET\",\n        headers: { Authorization: `Bearer ${this.apiKey}` },\n        signal: opts.signal,\n      })",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "ApiRoute.UNKNOWN./:param/search",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /:param/search",
+      "category": "backend",
+      "metadata": {
+        "method": "POST",
+        "path": "/:param/search",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 189,
+          "column": 18,
+          "kind": "inferred",
+          "text": "fetch(`${METASO_ENDPOINT}/search`, {\n      method: \"POST\",\n      headers: {\n        \"Content-Type\": \"application/json\",\n        Accept: \"application/json\",\n        Authorization: `Bearer ${apiKey}`,\n      },\n      body: JSON.stringify({\n   ",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "ApiRoute.UNKNOWN./:param/user/balance",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /:param/user/balance",
+      "category": "backend",
+      "metadata": {
+        "method": "GET",
+        "path": "/:param/user/balance",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/client.ts",
+          "line": 181,
+          "column": 32,
+          "kind": "inferred",
+          "text": "fetch(`${this.baseUrl}/user/balance`, {\n        method: \"GET\",\n        headers: { Authorization: `Bearer ${this.apiKey}` },\n        signal: opts.signal,\n      })",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "ApiRoute.UNKNOWN./:param/v2/users/:param/messages",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /:param/v2/users/:param/messages",
+      "category": "backend",
+      "metadata": {
+        "method": "POST",
+        "path": "/:param/v2/users/:param/messages",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 265,
+          "column": 23,
+          "kind": "inferred",
+          "text": "fetch(`${this.baseUrl}/v2/users/${encodeURIComponent(openid)}/messages`, {\n      method: \"POST\",\n      headers: {\n        Authorization: `QQBot ${token}`,\n        \"Content-Type\": \"application/json\",\n        \"X-Union-Appid\": this.config.appi",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "ApiRoute.UNKNOWN./api/embeddings",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /api/embeddings",
+      "category": "backend",
+      "metadata": {
+        "method": "POST",
+        "path": "/api/embeddings",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 96,
+          "column": 17,
+          "kind": "inferred",
+          "text": "fetch(`${baseUrl}/api/embeddings`, {\n      method: \"POST\",\n      headers: { \"content-type\": \"application/json\" },\n      body: JSON.stringify({ model, prompt: text })",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "ApiRoute.UNKNOWN./api/settings",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /api/settings",
+      "category": "backend",
+      "metadata": {
+        "method": "POST",
+        "path": "/api/settings",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/lib/i18n.ts",
+          "line": 72,
+          "column": 3,
+          "kind": "inferred",
+          "text": "fetch(`/api/settings?token=${TOKEN}`, {\n    method: \"POST\",\n    headers: { \"Content-Type\": \"application/json\", \"X-Reasonix-Token\": TOKEN },\n    body: JSON.stringify({ lang: toBackendLang(lang)",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "ApiRoute.UNKNOWN./api/tags",
+      "type": "ApiRoute",
+      "label": "UNKNOWN /api/tags",
+      "category": "backend",
+      "metadata": {
+        "method": "GET",
+        "path": "/api/tags",
+        "unresolved": true
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 72,
+          "column": 23,
+          "kind": "inferred",
+          "text": "fetch(`${baseUrl}/api/tags`, { signal: opts.signal })",
+          "confidence": 0.45
+        }
+      ]
+    },
+    {
+      "id": "Config.PackageJson",
+      "type": "Config",
+      "label": "package.json",
+      "sourcePath": "package.json",
+      "category": "infra",
+      "metadata": {
+        "scripts": [
+          "build",
+          "dev",
+          "chat",
+          "test",
+          "test:watch",
+          "test:coverage",
+          "test:mutation",
+          "lint",
+          "lint:fix",
+          "format",
+          "typecheck",
+          "verify",
+          "prepare",
+          "prepublishOnly"
+        ],
+        "dependencies": [
+          "cli-highlight",
+          "commander",
+          "eventsource-parser",
+          "ignore",
+          "ink",
+          "ink-text-input",
+          "node-html-parser",
+          "picomatch",
+          "react",
+          "string-width",
+          "undici",
+          "ws",
+          "zod"
+        ]
+      },
+      "evidence": [
+        {
+          "sourcePath": "desktop/package.json",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "package.json",
+          "confidence": 0.8
+        },
+        {
+          "sourcePath": "package.json",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "package.json",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "id": "DataStore.Postgres",
+      "type": "DataStore",
+      "label": "Postgres",
+      "category": "infra",
+      "sourcePath": "src/mcp/marketplace-overlay/zh-CN.json",
+      "evidence": [
+        {
+          "sourcePath": "docs/src/config.jsx",
+          "line": 36,
+          "column": 6,
+          "kind": "import",
+          "text": "postgres",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/marketplace-overlay/zh-CN.json",
+          "line": 18,
+          "column": 4,
+          "kind": "import",
+          "text": "postgres",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "ExternalApi.HTTP",
+      "type": "ExternalApi",
+      "label": "HTTP API",
+      "category": "external",
+      "sourcePath": "src/tools/web.ts",
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs",
+          "line": 93,
+          "column": 22,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+          "line": 64,
+          "column": 22,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/lib/api.ts",
+          "line": 27,
+          "column": 21,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/lib/i18n.ts",
+          "line": 72,
+          "column": 3,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "desktop/src/ui/about.tsx",
+          "line": 43,
+          "column": 26,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/i18n.js",
+          "line": 443,
+          "column": 23,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/src/community.jsx",
+          "line": 8,
+          "column": 5,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/src/community.jsx",
+          "line": 19,
+          "column": 5,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/src/mirrors.jsx",
+          "line": 73,
+          "column": 11,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 72,
+          "column": 23,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 96,
+          "column": 17,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 202,
+          "column": 17,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/sse.ts",
+          "line": 41,
+          "column": 23,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/sse.ts",
+          "line": 87,
+          "column": 19,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/streamable-http.ts",
+          "line": 47,
+          "column": 19,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 80,
+          "column": 23,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 103,
+          "column": 23,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 265,
+          "column": 23,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 91,
+          "column": 22,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 140,
+          "column": 18,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 189,
+          "column": 18,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 272,
+          "column": 18,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 419,
+          "column": 18,
+          "kind": "import",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "ExternalTool.subprocess",
+      "type": "ExternalTool",
+      "label": "subprocess",
+      "category": "external",
+      "sourcePath": "src/tools/shell-chain.ts",
+      "evidence": [
+        {
+          "sourcePath": "src/cli/commands/code.tsx",
+          "line": 117,
+          "column": 47,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/commit.ts",
+          "line": 227,
+          "column": 17,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/update.ts",
+          "line": 123,
+          "column": 19,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/edit/external-editor.ts",
+          "line": 64,
+          "column": 19,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/ui/open-url.ts",
+          "line": 30,
+          "column": 19,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/hooks.ts",
+          "line": 185,
+          "column": 16,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/hooks.ts",
+          "line": 199,
+          "column": 19,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/ollama-launcher.ts",
+          "line": 64,
+          "column": 17,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/ollama-launcher.ts",
+          "line": 88,
+          "column": 19,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/stdio.ts",
+          "line": 54,
+          "column": 20,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/stdio.ts",
+          "line": 61,
+          "column": 20,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/checkpoint-create.ts",
+          "line": 35,
+          "column": 20,
+          "kind": "import",
+          "text": "execSync(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/git-diffs.ts",
+          "line": 63,
+          "column": 18,
+          "kind": "import",
+          "text": "execSync(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/git-diffs.ts",
+          "line": 68,
+          "column": 20,
+          "kind": "import",
+          "text": "execSync(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/git-diffs.ts",
+          "line": 73,
+          "column": 17,
+          "kind": "import",
+          "text": "execSync(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/regex-runner.ts",
+          "line": 67,
+          "column": 44,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/regex-runner.ts",
+          "line": 110,
+          "column": 11,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/jobs.ts",
+          "line": 18,
+          "column": 22,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/jobs.ts",
+          "line": 104,
+          "column": 18,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/jobs.ts",
+          "line": 145,
+          "column": 15,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell/exec.ts",
+          "line": 108,
+          "column": 15,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 441,
+          "column": 17,
+          "kind": "import",
+          "text": "spawn(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "FileSystem.Local",
+      "type": "FileSystem",
+      "label": "Local file system",
+      "category": "infra",
+      "sourcePath": "src/tools/shell-chain.ts",
+      "evidence": [
+        {
+          "sourcePath": "desktop/src/Markdown.tsx",
+          "line": 193,
+          "column": 16,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/ui/Wizard.tsx",
+          "line": 370,
+          "column": 41,
+          "kind": "import",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/chunker.ts",
+          "line": 234,
+          "column": 25,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 38,
+          "column": 23,
+          "kind": "import",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 161,
+          "column": 11,
+          "kind": "import",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 174,
+          "column": 11,
+          "kind": "import",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 211,
+          "column": 17,
+          "kind": "import",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/filesystem.ts",
+          "line": 254,
+          "column": 27,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/filesystem.ts",
+          "line": 659,
+          "column": 13,
+          "kind": "import",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/edit.ts",
+          "line": 16,
+          "column": 24,
+          "kind": "import",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/edit.ts",
+          "line": 32,
+          "column": 9,
+          "kind": "import",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/edit.ts",
+          "line": 85,
+          "column": 24,
+          "kind": "import",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/edit.ts",
+          "line": 120,
+          "column": 11,
+          "kind": "import",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/search.ts",
+          "line": 176,
+          "column": 23,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 378,
+          "column": 35,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 379,
+          "column": 41,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 380,
+          "column": 42,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 381,
+          "column": 42,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 382,
+          "column": 43,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 384,
+          "column": 16,
+          "kind": "import",
+          "text": "open(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "FrontendEntry.benchmarks/spike-tdd-kernel/cost.mjs",
+      "type": "FrontendEntry",
+      "label": "cost.mjs entry",
+      "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs",
+      "category": "frontend",
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs",
+          "line": 93,
+          "column": 22,
+          "kind": "call",
+          "text": "fetch(`${baseUrl}/chat/completions`, {\n    method: \"POST\",\n    headers: { Authorization: `Bearer ${apiKey}`, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({\n      model: \"deepseek-chat\",\n      messages,\n      temperature: 0",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "FrontendEntry.benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+      "type": "FrontendEntry",
+      "label": "tdd eval.mjs entry",
+      "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+      "category": "frontend",
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+          "line": 64,
+          "column": 22,
+          "kind": "call",
+          "text": "fetch(`${baseUrl}/chat/completions`, {\n    method: \"POST\",\n    headers: {\n      Authorization: `Bearer ${apiKey}`,\n      \"Content-Type\": \"application/json\",\n    },\n    body: JSON.stringify(body)",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "FrontendEntry.dashboard/src/lib/i18n.ts",
+      "type": "FrontendEntry",
+      "label": "i18n entry",
+      "sourcePath": "dashboard/src/lib/i18n.ts",
+      "category": "frontend",
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/lib/i18n.ts",
+          "line": 72,
+          "column": 3,
+          "kind": "call",
+          "text": "fetch(`/api/settings?token=${TOKEN}`, {\n    method: \"POST\",\n    headers: { \"Content-Type\": \"application/json\", \"X-Reasonix-Token\": TOKEN },\n    body: JSON.stringify({ lang: toBackendLang(lang)",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "FrontendEntry.docs/i18n.js",
+      "type": "FrontendEntry",
+      "label": "i18n entry",
+      "sourcePath": "docs/i18n.js",
+      "category": "frontend",
+      "evidence": [
+        {
+          "sourcePath": "docs/i18n.js",
+          "line": 443,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(\"https://registry.npmjs.org/reasonix/latest\", {\n        cache: \"no-cache\",\n      })",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "FrontendEntry.docs/src/community.jsx",
+      "type": "FrontendEntry",
+      "label": "community entry",
+      "sourcePath": "docs/src/community.jsx",
+      "category": "frontend",
+      "evidence": [
+        {
+          "sourcePath": "docs/src/community.jsx",
+          "line": 8,
+          "column": 5,
+          "kind": "call",
+          "text": "fetch(\"https://api.github.com/repos/esengine/DeepSeek-Reasonix\")",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "docs/src/community.jsx",
+          "line": 19,
+          "column": 5,
+          "kind": "call",
+          "text": "fetch(\"https://api.github.com/repos/esengine/DeepSeek-Reasonix/contributors?per_page=24\")",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "FrontendEntry.src/client.ts",
+      "type": "FrontendEntry",
+      "label": "client entry",
+      "sourcePath": "src/client.ts",
+      "category": "frontend",
+      "evidence": [
+        {
+          "sourcePath": "src/client.ts",
+          "line": 181,
+          "column": 32,
+          "kind": "call",
+          "text": "fetch(`${this.baseUrl}/user/balance`, {\n        method: \"GET\",\n        headers: { Authorization: `Bearer ${this.apiKey}` },\n        signal: opts.signal,\n      })",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "src/client.ts",
+          "line": 198,
+          "column": 32,
+          "kind": "call",
+          "text": "fetch(`${this.baseUrl}/models`, {\n        method: \"GET\",\n        headers: { Authorization: `Bearer ${this.apiKey}` },\n        signal: opts.signal,\n      })",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "FrontendEntry.src/index/semantic/embedding.ts",
+      "type": "FrontendEntry",
+      "label": "embedding entry",
+      "sourcePath": "src/index/semantic/embedding.ts",
+      "category": "frontend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 72,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(`${baseUrl}/api/tags`, { signal: opts.signal })",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 96,
+          "column": 17,
+          "kind": "call",
+          "text": "fetch(`${baseUrl}/api/embeddings`, {\n      method: \"POST\",\n      headers: { \"content-type\": \"application/json\" },\n      body: JSON.stringify({ model, prompt: text })",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "FrontendEntry.src/qq/bot.ts",
+      "type": "FrontendEntry",
+      "label": "bot entry",
+      "sourcePath": "src/qq/bot.ts",
+      "category": "frontend",
+      "evidence": [
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 103,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(`${this.baseUrl}/gateway`, {\n      headers: { Authorization: `QQBot ${token}` },\n    })",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 265,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(`${this.baseUrl}/v2/users/${encodeURIComponent(openid)}/messages`, {\n      method: \"POST\",\n      headers: {\n        Authorization: `QQBot ${token}`,\n        \"Content-Type\": \"application/json\",\n        \"X-Union-Appid\": this.config.appi",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "FrontendEntry.src/tools/web.ts",
+      "type": "FrontendEntry",
+      "label": "web entry",
+      "sourcePath": "src/tools/web.ts",
+      "category": "frontend",
+      "evidence": [
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 91,
+          "column": 22,
+          "kind": "call",
+          "text": "fetch(`${MOJEEK_ENDPOINT}?q=${encodeURIComponent(query)}`, {\n    headers: {\n      \"User-Agent\": USER_AGENT,\n      Accept: \"text/html,application/xhtml+xml,application/xml;q=0.9\",\n      \"Accept-Language\": \"en-US,en;q=0.9\",\n    },\n    signal:",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 189,
+          "column": 18,
+          "kind": "call",
+          "text": "fetch(`${METASO_ENDPOINT}/search`, {\n      method: \"POST\",\n      headers: {\n        \"Content-Type\": \"application/json\",\n        Accept: \"application/json\",\n        Authorization: `Bearer ${apiKey}`,\n      },\n      body: JSON.stringify({\n   ",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "ModelProvider.OpenAI",
+      "type": "ModelProvider",
+      "label": "OpenAI",
+      "category": "external",
+      "sourcePath": "src/server/api/semantic.ts",
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/i18n/en.ts",
+          "line": 622,
+          "column": 20,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/i18n/en.ts",
+          "line": 635,
+          "column": 27,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/i18n/zh-CN.ts",
+          "line": 595,
+          "column": 20,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/i18n/zh-CN.ts",
+          "line": 608,
+          "column": 14,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 8,
+          "column": 25,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 27,
+          "column": 26,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 42,
+          "column": 16,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 65,
+          "column": 26,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 72,
+          "column": 39,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 73,
+          "column": 37,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 101,
+          "column": 25,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 288,
+          "column": 49,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 332,
+          "column": 82,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 337,
+          "column": 30,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 337,
+          "column": 45,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 366,
+          "column": 46,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 658,
+          "column": 27,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/arch-i18n.js",
+          "line": 123,
+          "column": 46,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/arch-i18n.js",
+          "line": 243,
+          "column": 53,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/guide-i18n.js",
+          "line": 166,
+          "column": 87,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/guide-i18n.js",
+          "line": 339,
+          "column": 53,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 334,
+          "column": 27,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 336,
+          "column": 32,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 341,
+          "column": 29,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 348,
+          "column": 16,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 398,
+          "column": 28,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 403,
+          "column": 38,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 403,
+          "column": 56,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/ui/Wizard.tsx",
+          "line": 505,
+          "column": 61,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/ui/Wizard.tsx",
+          "line": 506,
+          "column": 66,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/client.ts",
+          "line": 168,
+          "column": 60,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 24,
+          "column": 45,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 53,
+          "column": 14,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1061,
+          "column": 21,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1065,
+          "column": 36,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1066,
+          "column": 31,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1067,
+          "column": 35,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1068,
+          "column": 34,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1143,
+          "column": 34,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1143,
+          "column": 52,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 21,
+          "column": 26,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 212,
+          "column": 26,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 254,
+          "column": 34,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 262,
+          "column": 26,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 265,
+          "column": 10,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 269,
+          "column": 18,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 290,
+          "column": 26,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 309,
+          "column": 28,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 15,
+          "column": 18,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 36,
+          "column": 26,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 47,
+          "column": 26,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 135,
+          "column": 44,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 149,
+          "column": 44,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 188,
+          "column": 44,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 217,
+          "column": 44,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 227,
+          "column": 10,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 240,
+          "column": 31,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 247,
+          "column": 31,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 259,
+          "column": 33,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 263,
+          "column": 33,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/preflight.ts",
+          "line": 79,
+          "column": 28,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 284,
+          "column": 34,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 284,
+          "column": 52,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/tool.ts",
+          "line": 6,
+          "column": 26,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/repair/scavenge.ts",
+          "line": 173,
+          "column": 17,
+          "kind": "import",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 498,
+          "column": 36,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 498,
+          "column": 54,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 577,
+          "column": 14,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 586,
+          "column": 28,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 588,
+          "column": 14,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 632,
+          "column": 14,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 641,
+          "column": 30,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 643,
+          "column": 14,
+          "kind": "import",
+          "text": "openai",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Queue.classList",
+      "type": "Queue",
+      "label": "classList",
+      "sourcePath": "docs/i18n.js",
+      "framework": "bullmq",
+      "evidence": [
+        {
+          "sourcePath": "docs/arch-i18n.js",
+          "line": 284,
+          "column": 18,
+          "kind": "call",
+          "text": "classList.add(\"is-active\"",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "docs/cli-ref-i18n.js",
+          "line": 160,
+          "column": 18,
+          "kind": "call",
+          "text": "classList.add(\"is-active\"",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "docs/guide-i18n.js",
+          "line": 386,
+          "column": 18,
+          "kind": "call",
+          "text": "classList.add(\"is-active\"",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "docs/i18n.js",
+          "line": 543,
+          "column": 13,
+          "kind": "call",
+          "text": "classList.add(\"copied\"",
+          "confidence": 0.75
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.AboutModal",
+      "type": "Service",
+      "label": "AboutModal",
+      "sourcePath": "desktop/src/ui/about.tsx",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "desktop/src/ui/about.tsx",
+          "line": 30,
+          "column": 8,
+          "kind": "inferred",
+          "text": "function AboutModal(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.buildPayload",
+      "type": "Service",
+      "label": "buildPayload",
+      "sourcePath": "src/client.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/client.ts",
+          "line": 153,
+          "column": 11,
+          "kind": "inferred",
+          "text": "buildPayload(opts: ChatRequestOptions, stream: boolean) {",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.call",
+      "type": "Service",
+      "label": "call",
+      "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs",
+          "line": 91,
+          "column": 7,
+          "kind": "inferred",
+          "text": "function call(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.callModel",
+      "type": "Service",
+      "label": "callModel",
+      "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+          "line": 52,
+          "column": 7,
+          "kind": "inferred",
+          "text": "function callModel(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.channel",
+      "type": "Service",
+      "label": "channel",
+      "sourcePath": "docs/src/config.jsx",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "docs/src/config.jsx",
+          "line": 12,
+          "column": 29,
+          "kind": "inferred",
+          "text": "class channel",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.coerceToToolCall",
+      "type": "Service",
+      "label": "coerceToToolCall",
+      "sourcePath": "src/repair/scavenge.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/repair/scavenge.ts",
+          "line": 150,
+          "column": 1,
+          "kind": "inferred",
+          "text": "function coerceToToolCall(",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.commitWithMessage",
+      "type": "Service",
+      "label": "commitWithMessage",
+      "sourcePath": "src/cli/commands/commit.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/cli/commands/commit.ts",
+          "line": 223,
+          "column": 1,
+          "kind": "inferred",
+          "text": "function commitWithMessage(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.constructor",
+      "type": "Service",
+      "label": "constructor",
+      "sourcePath": "src/mcp/streamable-http.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/mcp/sse.ts",
+          "line": 26,
+          "column": 3,
+          "kind": "inferred",
+          "text": "constructor(opts: SseTransportOptions) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/mcp/streamable-http.ts",
+          "line": 28,
+          "column": 3,
+          "kind": "inferred",
+          "text": "constructor(opts: StreamableHttpTransportOptions) {",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.dashboard/src/i18n/en",
+      "type": "Service",
+      "label": "dashboard/src/i18n/en",
+      "sourcePath": "dashboard/src/i18n/en.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/i18n/en.ts",
+          "line": 1,
+          "column": 1,
+          "kind": "inferred",
+          "text": "dashboard/src/i18n/en.ts",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.dashboard/src/i18n/zh-CN",
+      "type": "Service",
+      "label": "dashboard/src/i18n/zh-CN",
+      "sourcePath": "dashboard/src/i18n/zh-CN.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/i18n/zh-CN.ts",
+          "line": 1,
+          "column": 1,
+          "kind": "inferred",
+          "text": "dashboard/src/i18n/zh-CN.ts",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.dashboard/src/lib/api",
+      "type": "Service",
+      "label": "dashboard/src/lib/api",
+      "sourcePath": "dashboard/src/lib/api.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/lib/api.ts",
+          "line": 1,
+          "column": 1,
+          "kind": "inferred",
+          "text": "dashboard/src/lib/api.ts",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.dashboard/src/panels/semantic",
+      "type": "Service",
+      "label": "dashboard/src/panels/semantic",
+      "sourcePath": "dashboard/src/panels/semantic.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 1,
+          "column": 1,
+          "kind": "inferred",
+          "text": "dashboard/src/panels/semantic.ts",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.defaultSpawn",
+      "type": "Service",
+      "label": "defaultSpawn",
+      "sourcePath": "src/cli/commands/update.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/cli/commands/update.ts",
+          "line": 116,
+          "column": 1,
+          "kind": "inferred",
+          "text": "function defaultSpawn(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.for",
+      "type": "Service",
+      "label": "for",
+      "sourcePath": "src/tools/shell-chain.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/tools/fs/search.ts",
+          "line": 161,
+          "column": 5,
+          "kind": "inferred",
+          "text": "for (const e of entries) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 416,
+          "column": 5,
+          "kind": "inferred",
+          "text": "for (let i = 0; i < segments.length; i++) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 377,
+          "column": 3,
+          "kind": "inferred",
+          "text": "for (const r of redirects) {",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.function",
+      "type": "Service",
+      "label": "function",
+      "sourcePath": "docs/guide-i18n.js",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "docs/arch-i18n.js",
+          "line": 3,
+          "column": 2,
+          "kind": "inferred",
+          "text": "function () {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "docs/guide-i18n.js",
+          "line": 3,
+          "column": 2,
+          "kind": "inferred",
+          "text": "function () {",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.handleCheckpointCreate",
+      "type": "Service",
+      "label": "handleCheckpointCreate",
+      "sourcePath": "src/server/api/checkpoint-create.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/server/api/checkpoint-create.ts",
+          "line": 5,
+          "column": 14,
+          "kind": "inferred",
+          "text": "function handleCheckpointCreate(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.handleGitDiffs",
+      "type": "Service",
+      "label": "handleGitDiffs",
+      "sourcePath": "src/server/api/git-diffs.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/server/api/git-diffs.ts",
+          "line": 51,
+          "column": 14,
+          "kind": "inferred",
+          "text": "function handleGitDiffs(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.if",
+      "type": "Service",
+      "label": "if",
+      "sourcePath": "src/tools/shell/exec.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "desktop/src/Markdown.tsx",
+          "line": 189,
+          "column": 5,
+          "kind": "inferred",
+          "text": "if (isExternal) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/cli/commands/code.tsx",
+          "line": 113,
+          "column": 3,
+          "kind": "inferred",
+          "text": "if (foreign) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 325,
+          "column": 3,
+          "kind": "inferred",
+          "text": "if (!exists) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/cli/ui/open-url.ts",
+          "line": 21,
+          "column": 10,
+          "kind": "inferred",
+          "text": "if (os === \"darwin\") {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/cli/ui/Wizard.tsx",
+          "line": 472,
+          "column": 15,
+          "kind": "inferred",
+          "text": "if (!result.ok) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/cli/ui/Wizard.tsx",
+          "line": 329,
+          "column": 12,
+          "kind": "inferred",
+          "text": "if (key.return) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/mcp/stdio.ts",
+          "line": 44,
+          "column": 5,
+          "kind": "inferred",
+          "text": "if (shell) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 63,
+          "column": 5,
+          "kind": "inferred",
+          "text": "if (\n      url.protocol !== \"wss:\" ||\n      !trustedHost ||\n      url.username ||\n      url.password ||\n      url.search ||\n      url.hash\n    ) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/tools/filesystem.ts",
+          "line": 448,
+          "column": 11,
+          "kind": "inferred",
+          "text": "if (totalBytes > maxListBytes) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/tools/fs/edit.ts",
+          "line": 13,
+          "column": 3,
+          "kind": "inferred",
+          "text": "if (args.search.length === 0) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/tools/fs/regex-runner.ts",
+          "line": 63,
+          "column": 7,
+          "kind": "inferred",
+          "text": "if (opts.signal?.aborted) {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/tools/jobs.ts",
+          "line": 9,
+          "column": 3,
+          "kind": "inferred",
+          "text": "if (process.platform === \"win32\") {",
+          "confidence": 0.5
+        },
+        {
+          "sourcePath": "src/tools/shell/exec.ts",
+          "line": 59,
+          "column": 3,
+          "kind": "inferred",
+          "text": "if (chain !== null) {",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.loadVersion",
+      "type": "Service",
+      "label": "loadVersion",
+      "sourcePath": "docs/i18n.js",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "docs/i18n.js",
+          "line": 441,
+          "column": 9,
+          "kind": "inferred",
+          "text": "function loadVersion(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.matchesTool",
+      "type": "Service",
+      "label": "matchesTool",
+      "sourcePath": "src/hooks.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/hooks.ts",
+          "line": 147,
+          "column": 8,
+          "kind": "inferred",
+          "text": "function matchesTool(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.normalizeMeta",
+      "type": "Service",
+      "label": "normalizeMeta",
+      "sourcePath": "src/index/semantic/store.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 281,
+          "column": 1,
+          "kind": "inferred",
+          "text": "function normalizeMeta(",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.probeMirror",
+      "type": "Service",
+      "label": "probeMirror",
+      "sourcePath": "docs/src/mirrors.jsx",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "docs/src/mirrors.jsx",
+          "line": 68,
+          "column": 7,
+          "kind": "inferred",
+          "text": "function probeMirror(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.probeOllama",
+      "type": "Service",
+      "label": "probeOllama",
+      "sourcePath": "src/index/semantic/embedding.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 67,
+          "column": 14,
+          "kind": "inferred",
+          "text": "function probeOllama(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.readIndexMeta",
+      "type": "Service",
+      "label": "readIndexMeta",
+      "sourcePath": "src/index/semantic/store.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 36,
+          "column": 14,
+          "kind": "inferred",
+          "text": "function readIndexMeta(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.readSizeBoundedFile",
+      "type": "Service",
+      "label": "readSizeBoundedFile",
+      "sourcePath": "src/index/semantic/chunker.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/chunker.ts",
+          "line": 232,
+          "column": 7,
+          "kind": "inferred",
+          "text": "function readSizeBoundedFile(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.safeLstat",
+      "type": "Service",
+      "label": "safeLstat",
+      "sourcePath": "src/tools/filesystem.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/tools/filesystem.ts",
+          "line": 214,
+          "column": 9,
+          "kind": "inferred",
+          "text": "function safeLstat(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.saveSemanticConfigApi",
+      "type": "Service",
+      "label": "saveSemanticConfigApi",
+      "sourcePath": "src/server/api/semantic.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 479,
+          "column": 1,
+          "kind": "inferred",
+          "text": "function saveSemanticConfigApi(",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.searchMojeek",
+      "type": "Service",
+      "label": "searchMojeek",
+      "sourcePath": "src/tools/web.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 89,
+          "column": 7,
+          "kind": "inferred",
+          "text": "function searchMojeek(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.semanticPreflight",
+      "type": "Service",
+      "label": "semanticPreflight",
+      "sourcePath": "src/index/semantic/preflight.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/preflight.ts",
+          "line": 75,
+          "column": 14,
+          "kind": "inferred",
+          "text": "function semanticPreflight(",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.setLang",
+      "type": "Service",
+      "label": "setLang",
+      "sourcePath": "dashboard/src/lib/i18n.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/lib/i18n.ts",
+          "line": 62,
+          "column": 8,
+          "kind": "inferred",
+          "text": "function setLang(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.spawnEditor",
+      "type": "Service",
+      "label": "spawnEditor",
+      "sourcePath": "src/cli/edit/external-editor.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/cli/edit/external-editor.ts",
+          "line": 59,
+          "column": 1,
+          "kind": "inferred",
+          "text": "function spawnEditor(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.src/config",
+      "type": "Service",
+      "label": "src/config",
+      "sourcePath": "src/config.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1,
+          "column": 1,
+          "kind": "inferred",
+          "text": "src/config.ts",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.src/index/semantic/builder",
+      "type": "Service",
+      "label": "src/index/semantic/builder",
+      "sourcePath": "src/index/semantic/builder.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 1,
+          "column": 1,
+          "kind": "inferred",
+          "text": "src/index/semantic/builder.ts",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.src/index/semantic/embedding",
+      "type": "Service",
+      "label": "src/index/semantic/embedding",
+      "sourcePath": "src/index/semantic/embedding.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 1,
+          "column": 1,
+          "kind": "inferred",
+          "text": "src/index/semantic/embedding.ts",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.src/index/semantic/tool",
+      "type": "Service",
+      "label": "src/index/semantic/tool",
+      "sourcePath": "src/index/semantic/tool.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/tool.ts",
+          "line": 1,
+          "column": 1,
+          "kind": "inferred",
+          "text": "src/index/semantic/tool.ts",
+          "confidence": 0.5
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Service.src/mcp/marketplace-overlay/zh-CN",
+      "type": "Service",
+      "label": "src/mcp/marketplace-overlay/zh-CN",
+      "sourcePath": "src/mcp/marketplace-overlay/zh-CN.json",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/mcp/marketplace-overlay/zh-CN.json",
+          "line": 1,
+          "column": 1,
+          "kind": "inferred",
+          "text": "src/mcp/marketplace-overlay/zh-CN.json",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.startOllamaDaemon",
+      "type": "Service",
+      "label": "startOllamaDaemon",
+      "sourcePath": "src/index/semantic/ollama-launcher.ts",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/ollama-launcher.ts",
+          "line": 60,
+          "column": 14,
+          "kind": "inferred",
+          "text": "function startOllamaDaemon(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Service.useGithubStats",
+      "type": "Service",
+      "label": "useGithubStats",
+      "sourcePath": "docs/src/community.jsx",
+      "category": "backend",
+      "evidence": [
+        {
+          "sourcePath": "docs/src/community.jsx",
+          "line": 3,
+          "column": 1,
+          "kind": "inferred",
+          "text": "function useGithubStats(",
+          "confidence": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Task.copied",
+      "type": "Task",
+      "label": "copied",
+      "sourcePath": "docs/i18n.js",
+      "framework": "bullmq",
+      "evidence": [
+        {
+          "sourcePath": "docs/i18n.js",
+          "line": 543,
+          "column": 13,
+          "kind": "call",
+          "text": "classList.add(\"copied\"",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "id": "Task.is-active",
+      "type": "Task",
+      "label": "is-active",
+      "sourcePath": "docs/guide-i18n.js",
+      "framework": "bullmq",
+      "evidence": [
+        {
+          "sourcePath": "docs/arch-i18n.js",
+          "line": 284,
+          "column": 18,
+          "kind": "call",
+          "text": "classList.add(\"is-active\"",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "docs/cli-ref-i18n.js",
+          "line": 160,
+          "column": 18,
+          "kind": "call",
+          "text": "classList.add(\"is-active\"",
+          "confidence": 0.75
+        },
+        {
+          "sourcePath": "docs/guide-i18n.js",
+          "line": 386,
+          "column": 18,
+          "kind": "call",
+          "text": "classList.add(\"is-active\"",
+          "confidence": 0.75
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "Workflow.ci",
+      "type": "Workflow",
+      "label": "ci",
+      "sourcePath": ".github/workflows/ci.yml",
+      "category": "core",
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/ci.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "workflow manifest",
+          "confidence": 0.6
+        }
+      ]
+    },
+    {
+      "id": "Workflow.codeql",
+      "type": "Workflow",
+      "label": "codeql",
+      "sourcePath": ".github/workflows/codeql.yml",
+      "category": "core",
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/codeql.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "workflow manifest",
+          "confidence": 0.6
+        }
+      ]
+    },
+    {
+      "id": "Workflow.issue-labeler",
+      "type": "Workflow",
+      "label": "issue-labeler",
+      "sourcePath": ".github/workflows/issue-labeler.yml",
+      "category": "core",
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/issue-labeler.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "workflow manifest",
+          "confidence": 0.6
+        }
+      ]
+    },
+    {
+      "id": "Workflow.issue-similarity",
+      "type": "Workflow",
+      "label": "issue-similarity",
+      "sourcePath": ".github/workflows/issue-similarity.yml",
+      "category": "core",
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/issue-similarity.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "workflow manifest",
+          "confidence": 0.6
+        }
+      ]
+    },
+    {
+      "id": "Workflow.oosmetrics",
+      "type": "Workflow",
+      "label": "oosmetrics",
+      "sourcePath": ".github/workflows/oosmetrics.yml",
+      "category": "core",
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/oosmetrics.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "workflow manifest",
+          "confidence": 0.6
+        }
+      ]
+    },
+    {
+      "id": "Workflow.publish-npm",
+      "type": "Workflow",
+      "label": "publish-npm",
+      "sourcePath": ".github/workflows/publish-npm.yml",
+      "category": "core",
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/publish-npm.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "workflow manifest",
+          "confidence": 0.6
+        }
+      ]
+    },
+    {
+      "id": "Workflow.release",
+      "type": "Workflow",
+      "label": "release",
+      "sourcePath": ".github/workflows/release.yml",
+      "category": "core",
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/release.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "workflow manifest",
+          "confidence": 0.6
+        }
+      ]
+    },
+    {
+      "id": "Workflow.release-mirror",
+      "type": "Workflow",
+      "label": "release-mirror",
+      "sourcePath": ".github/workflows/release-mirror.yml",
+      "category": "core",
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/release-mirror.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "workflow manifest",
+          "confidence": 0.6
+        }
+      ]
+    },
+    {
+      "id": "WorkflowNode.22",
+      "type": "WorkflowNode",
+      "label": "22",
+      "sourcePath": ".github/workflows/ci.yml",
+      "category": "core",
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/ci.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "\"22\"",
+          "confidence": 0.6
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "FrontendEntry.benchmarks/spike-tdd-kernel/cost.mjs",
+      "to": "ApiRoute.UNKNOWN./:param/chat/completions",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "POST",
+        "path": "/:param/chat/completions",
+        "rawPath": "${baseUrl}/chat/completions"
+      },
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs",
+          "line": 93,
+          "column": 22,
+          "kind": "call",
+          "text": "fetch(`${baseUrl}/chat/completions`, {\n    method: \"POST\",\n    headers: { Authorization: `Bearer ${apiKey}`, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({\n      model: \"deepseek-chat\",\n      messages,\n      temperature: 0",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.benchmarks/spike-tdd-kernel/cost.mjs.calls.ApiRoute.UNKNOWN./:param/chat/completions"
+    },
+    {
+      "from": "FrontendEntry.benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+      "to": "ApiRoute.UNKNOWN./:param/chat/completions",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "POST",
+        "path": "/:param/chat/completions",
+        "rawPath": "${baseUrl}/chat/completions"
+      },
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+          "line": 64,
+          "column": 22,
+          "kind": "call",
+          "text": "fetch(`${baseUrl}/chat/completions`, {\n    method: \"POST\",\n    headers: {\n      Authorization: `Bearer ${apiKey}`,\n      \"Content-Type\": \"application/json\",\n    },\n    body: JSON.stringify(body)",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.benchmarks/spike-tdd-kernel/tdd-eval.mjs.calls.ApiRoute.UNKNOWN./:param/chat/completions"
+    },
+    {
+      "from": "FrontendEntry.dashboard/src/lib/i18n.ts",
+      "to": "ApiRoute.UNKNOWN./api/settings",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "POST",
+        "path": "/api/settings",
+        "rawPath": "/api/settings?token=${TOKEN}"
+      },
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/lib/i18n.ts",
+          "line": 72,
+          "column": 3,
+          "kind": "call",
+          "text": "fetch(`/api/settings?token=${TOKEN}`, {\n    method: \"POST\",\n    headers: { \"Content-Type\": \"application/json\", \"X-Reasonix-Token\": TOKEN },\n    body: JSON.stringify({ lang: toBackendLang(lang)",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.dashboard/src/lib/i18n.ts.calls.ApiRoute.UNKNOWN./api/settings"
+    },
+    {
+      "from": "FrontendEntry.src/client.ts",
+      "to": "ApiRoute.UNKNOWN./:param/models",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "GET",
+        "path": "/:param/models",
+        "rawPath": "${this.baseUrl}/models"
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/client.ts",
+          "line": 198,
+          "column": 32,
+          "kind": "call",
+          "text": "fetch(`${this.baseUrl}/models`, {\n        method: \"GET\",\n        headers: { Authorization: `Bearer ${this.apiKey}` },\n        signal: opts.signal,\n      })",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.src/client.ts.calls.ApiRoute.UNKNOWN./:param/models"
+    },
+    {
+      "from": "FrontendEntry.src/client.ts",
+      "to": "ApiRoute.UNKNOWN./:param/user/balance",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "GET",
+        "path": "/:param/user/balance",
+        "rawPath": "${this.baseUrl}/user/balance"
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/client.ts",
+          "line": 181,
+          "column": 32,
+          "kind": "call",
+          "text": "fetch(`${this.baseUrl}/user/balance`, {\n        method: \"GET\",\n        headers: { Authorization: `Bearer ${this.apiKey}` },\n        signal: opts.signal,\n      })",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.src/client.ts.calls.ApiRoute.UNKNOWN./:param/user/balance"
+    },
+    {
+      "from": "FrontendEntry.src/index/semantic/embedding.ts",
+      "to": "ApiRoute.UNKNOWN./api/embeddings",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "POST",
+        "path": "/api/embeddings",
+        "rawPath": "${baseUrl}/api/embeddings"
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 96,
+          "column": 17,
+          "kind": "call",
+          "text": "fetch(`${baseUrl}/api/embeddings`, {\n      method: \"POST\",\n      headers: { \"content-type\": \"application/json\" },\n      body: JSON.stringify({ model, prompt: text })",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.src/index/semantic/embedding.ts.calls.ApiRoute.UNKNOWN./api/embeddings"
+    },
+    {
+      "from": "FrontendEntry.src/index/semantic/embedding.ts",
+      "to": "ApiRoute.UNKNOWN./api/tags",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "GET",
+        "path": "/api/tags",
+        "rawPath": "${baseUrl}/api/tags"
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 72,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(`${baseUrl}/api/tags`, { signal: opts.signal })",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.src/index/semantic/embedding.ts.calls.ApiRoute.UNKNOWN./api/tags"
+    },
+    {
+      "from": "FrontendEntry.src/qq/bot.ts",
+      "to": "ApiRoute.UNKNOWN./:param/gateway",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "GET",
+        "path": "/:param/gateway",
+        "rawPath": "${this.baseUrl}/gateway"
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 103,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(`${this.baseUrl}/gateway`, {\n      headers: { Authorization: `QQBot ${token}` },\n    })",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.src/qq/bot.ts.calls.ApiRoute.UNKNOWN./:param/gateway"
+    },
+    {
+      "from": "FrontendEntry.src/qq/bot.ts",
+      "to": "ApiRoute.UNKNOWN./:param/v2/users/:param/messages",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "POST",
+        "path": "/:param/v2/users/:param/messages",
+        "rawPath": "${this.baseUrl}/v2/users/${encodeURIComponent(openid)}/messages"
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 265,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(`${this.baseUrl}/v2/users/${encodeURIComponent(openid)}/messages`, {\n      method: \"POST\",\n      headers: {\n        Authorization: `QQBot ${token}`,\n        \"Content-Type\": \"application/json\",\n        \"X-Union-Appid\": this.config.appi",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.src/qq/bot.ts.calls.ApiRoute.UNKNOWN./:param/v2/users/:param/messages"
+    },
+    {
+      "from": "FrontendEntry.src/tools/web.ts",
+      "to": "ApiRoute.UNKNOWN./:param",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "GET",
+        "path": "/:param",
+        "rawPath": "${MOJEEK_ENDPOINT}?q=${encodeURIComponent(query)}"
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 91,
+          "column": 22,
+          "kind": "call",
+          "text": "fetch(`${MOJEEK_ENDPOINT}?q=${encodeURIComponent(query)}`, {\n    headers: {\n      \"User-Agent\": USER_AGENT,\n      Accept: \"text/html,application/xhtml+xml,application/xml;q=0.9\",\n      \"Accept-Language\": \"en-US,en;q=0.9\",\n    },\n    signal:",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.src/tools/web.ts.calls.ApiRoute.UNKNOWN./:param"
+    },
+    {
+      "from": "FrontendEntry.src/tools/web.ts",
+      "to": "ApiRoute.UNKNOWN./:param/search",
+      "type": "calls",
+      "confidence": 0.45,
+      "metadata": {
+        "method": "POST",
+        "path": "/:param/search",
+        "rawPath": "${METASO_ENDPOINT}/search"
+      },
+      "evidence": [
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 189,
+          "column": 18,
+          "kind": "call",
+          "text": "fetch(`${METASO_ENDPOINT}/search`, {\n      method: \"POST\",\n      headers: {\n        \"Content-Type\": \"application/json\",\n        Accept: \"application/json\",\n        Authorization: `Bearer ${apiKey}`,\n      },\n      body: JSON.stringify({\n   ",
+          "confidence": 0.45
+        }
+      ],
+      "id": "RuntimeEdge.FrontendEntry.src/tools/web.ts.calls.ApiRoute.UNKNOWN./:param/search"
+    },
+    {
+      "from": "Service.AboutModal",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "desktop/src/ui/about.tsx",
+          "line": 43,
+          "column": 26,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.AboutModal.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.buildPayload",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/client.ts",
+          "line": 168,
+          "column": 60,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.buildPayload.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.call",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs",
+          "line": 93,
+          "column": 22,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.call.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.callModel",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs",
+          "line": 64,
+          "column": 22,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.callModel.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.channel",
+      "to": "DataStore.Postgres",
+      "type": "writes",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "docs/src/config.jsx",
+          "line": 36,
+          "column": 6,
+          "kind": "call",
+          "text": "postgres",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.channel.writes.DataStore.Postgres"
+    },
+    {
+      "from": "Service.coerceToToolCall",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/repair/scavenge.ts",
+          "line": 173,
+          "column": 17,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.coerceToToolCall.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.commitWithMessage",
+      "to": "ExternalTool.subprocess",
+      "type": "uses_tool",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/cli/commands/commit.ts",
+          "line": 227,
+          "column": 17,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.commitWithMessage.uses_tool.ExternalTool.subprocess"
+    },
+    {
+      "from": "Service.constructor",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/mcp/sse.ts",
+          "line": 41,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/sse.ts",
+          "line": 87,
+          "column": 19,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/streamable-http.ts",
+          "line": 47,
+          "column": 19,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.constructor.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.dashboard/src/i18n/en",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/i18n/en.ts",
+          "line": 622,
+          "column": 20,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/i18n/en.ts",
+          "line": 635,
+          "column": 27,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.dashboard/src/i18n/en.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.dashboard/src/i18n/zh-CN",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/i18n/zh-CN.ts",
+          "line": 595,
+          "column": 20,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/i18n/zh-CN.ts",
+          "line": 608,
+          "column": 14,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.dashboard/src/i18n/zh-CN.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.dashboard/src/lib/api",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/lib/api.ts",
+          "line": 27,
+          "column": 21,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.dashboard/src/lib/api.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.dashboard/src/panels/semantic",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 8,
+          "column": 25,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 27,
+          "column": 26,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 42,
+          "column": 16,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 65,
+          "column": 26,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 72,
+          "column": 39,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 73,
+          "column": 37,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 101,
+          "column": 25,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 288,
+          "column": 49,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 332,
+          "column": 82,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 337,
+          "column": 30,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 337,
+          "column": 45,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 366,
+          "column": 46,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "dashboard/src/panels/semantic.ts",
+          "line": 658,
+          "column": 27,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.dashboard/src/panels/semantic.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.defaultSpawn",
+      "to": "ExternalTool.subprocess",
+      "type": "uses_tool",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/cli/commands/update.ts",
+          "line": 123,
+          "column": 19,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.defaultSpawn.uses_tool.ExternalTool.subprocess"
+    },
+    {
+      "from": "Service.docs/arch-i18n",
+      "to": "Task.is-active",
+      "type": "enqueues",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "docs/arch-i18n.js",
+          "line": 284,
+          "column": 18,
+          "kind": "call",
+          "text": "classList.add(\"is-active\"",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.docs/arch-i18n.enqueues.Task.is-active"
+    },
+    {
+      "from": "Service.docs/cli-ref-i18n",
+      "to": "Task.is-active",
+      "type": "enqueues",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "docs/cli-ref-i18n.js",
+          "line": 160,
+          "column": 18,
+          "kind": "call",
+          "text": "classList.add(\"is-active\"",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.docs/cli-ref-i18n.enqueues.Task.is-active"
+    },
+    {
+      "from": "Service.docs/guide-i18n",
+      "to": "Task.is-active",
+      "type": "enqueues",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "docs/guide-i18n.js",
+          "line": 386,
+          "column": 18,
+          "kind": "call",
+          "text": "classList.add(\"is-active\"",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.docs/guide-i18n.enqueues.Task.is-active"
+    },
+    {
+      "from": "Service.docs/i18n",
+      "to": "Task.copied",
+      "type": "enqueues",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "docs/i18n.js",
+          "line": 543,
+          "column": 13,
+          "kind": "call",
+          "text": "classList.add(\"copied\"",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.docs/i18n.enqueues.Task.copied"
+    },
+    {
+      "from": "Service.for",
+      "to": "ExternalTool.subprocess",
+      "type": "uses_tool",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 441,
+          "column": 17,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.for.uses_tool.ExternalTool.subprocess"
+    },
+    {
+      "from": "Service.for",
+      "to": "FileSystem.Local",
+      "type": "writes",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/tools/fs/search.ts",
+          "line": 176,
+          "column": 23,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 378,
+          "column": 35,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 379,
+          "column": 41,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 380,
+          "column": 42,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 381,
+          "column": 42,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 382,
+          "column": 43,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell-chain.ts",
+          "line": 384,
+          "column": 16,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.for.writes.FileSystem.Local"
+    },
+    {
+      "from": "Service.function",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "docs/arch-i18n.js",
+          "line": 123,
+          "column": 46,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/arch-i18n.js",
+          "line": 243,
+          "column": 53,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/guide-i18n.js",
+          "line": 166,
+          "column": 87,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/guide-i18n.js",
+          "line": 339,
+          "column": 53,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.function.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.handleCheckpointCreate",
+      "to": "ExternalTool.subprocess",
+      "type": "uses_tool",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/server/api/checkpoint-create.ts",
+          "line": 35,
+          "column": 20,
+          "kind": "call",
+          "text": "execSync(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.handleCheckpointCreate.uses_tool.ExternalTool.subprocess"
+    },
+    {
+      "from": "Service.handleGitDiffs",
+      "to": "ExternalTool.subprocess",
+      "type": "uses_tool",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/server/api/git-diffs.ts",
+          "line": 63,
+          "column": 18,
+          "kind": "call",
+          "text": "execSync(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/git-diffs.ts",
+          "line": 68,
+          "column": 20,
+          "kind": "call",
+          "text": "execSync(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/git-diffs.ts",
+          "line": 73,
+          "column": 17,
+          "kind": "call",
+          "text": "execSync(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.handleGitDiffs.uses_tool.ExternalTool.subprocess"
+    },
+    {
+      "from": "Service.if",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 80,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 103,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/qq/bot.ts",
+          "line": 265,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.if.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.if",
+      "to": "FileSystem.Local",
+      "type": "reads",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/cli/ui/Wizard.tsx",
+          "line": 370,
+          "column": 41,
+          "kind": "call",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/edit.ts",
+          "line": 16,
+          "column": 24,
+          "kind": "call",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/edit.ts",
+          "line": 85,
+          "column": 24,
+          "kind": "call",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.if.reads.FileSystem.Local"
+    },
+    {
+      "from": "Service.if",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 334,
+          "column": 27,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 336,
+          "column": 32,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 341,
+          "column": 29,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 348,
+          "column": 16,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 398,
+          "column": 28,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 403,
+          "column": 38,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/commands/doctor.ts",
+          "line": 403,
+          "column": 56,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/ui/Wizard.tsx",
+          "line": 505,
+          "column": 61,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/ui/Wizard.tsx",
+          "line": 506,
+          "column": 66,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.if.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.if",
+      "to": "ExternalTool.subprocess",
+      "type": "uses_tool",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/cli/commands/code.tsx",
+          "line": 117,
+          "column": 47,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/cli/ui/open-url.ts",
+          "line": 30,
+          "column": 19,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/stdio.ts",
+          "line": 54,
+          "column": 20,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/mcp/stdio.ts",
+          "line": 61,
+          "column": 20,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/regex-runner.ts",
+          "line": 67,
+          "column": 44,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/regex-runner.ts",
+          "line": 110,
+          "column": 11,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/jobs.ts",
+          "line": 18,
+          "column": 22,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/jobs.ts",
+          "line": 104,
+          "column": 18,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/jobs.ts",
+          "line": 145,
+          "column": 15,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/shell/exec.ts",
+          "line": 108,
+          "column": 15,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.if.uses_tool.ExternalTool.subprocess"
+    },
+    {
+      "from": "Service.if",
+      "to": "FileSystem.Local",
+      "type": "writes",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "desktop/src/Markdown.tsx",
+          "line": 193,
+          "column": 16,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/filesystem.ts",
+          "line": 659,
+          "column": 13,
+          "kind": "call",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/edit.ts",
+          "line": 32,
+          "column": 9,
+          "kind": "call",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/fs/edit.ts",
+          "line": 120,
+          "column": 11,
+          "kind": "call",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.if.writes.FileSystem.Local"
+    },
+    {
+      "from": "Service.loadVersion",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "docs/i18n.js",
+          "line": 443,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.loadVersion.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.matchesTool",
+      "to": "ExternalTool.subprocess",
+      "type": "uses_tool",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/hooks.ts",
+          "line": 185,
+          "column": 16,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/hooks.ts",
+          "line": 199,
+          "column": 19,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.matchesTool.uses_tool.ExternalTool.subprocess"
+    },
+    {
+      "from": "Service.normalizeMeta",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 284,
+          "column": 34,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 284,
+          "column": 52,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.normalizeMeta.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.probeMirror",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "docs/src/mirrors.jsx",
+          "line": 73,
+          "column": 11,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.probeMirror.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.probeOllama",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 72,
+          "column": 23,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 96,
+          "column": 17,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 202,
+          "column": 17,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.probeOllama.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.readIndexMeta",
+      "to": "FileSystem.Local",
+      "type": "reads",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 38,
+          "column": 23,
+          "kind": "call",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 211,
+          "column": 17,
+          "kind": "call",
+          "text": "fs.readFile(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.readIndexMeta.reads.FileSystem.Local"
+    },
+    {
+      "from": "Service.readIndexMeta",
+      "to": "FileSystem.Local",
+      "type": "writes",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 161,
+          "column": 11,
+          "kind": "call",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/store.ts",
+          "line": 174,
+          "column": 11,
+          "kind": "call",
+          "text": "fs.writeFile(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.readIndexMeta.writes.FileSystem.Local"
+    },
+    {
+      "from": "Service.readSizeBoundedFile",
+      "to": "FileSystem.Local",
+      "type": "writes",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/chunker.ts",
+          "line": 234,
+          "column": 25,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.readSizeBoundedFile.writes.FileSystem.Local"
+    },
+    {
+      "from": "Service.safeLstat",
+      "to": "FileSystem.Local",
+      "type": "writes",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/tools/filesystem.ts",
+          "line": 254,
+          "column": 27,
+          "kind": "call",
+          "text": "open(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.safeLstat.writes.FileSystem.Local"
+    },
+    {
+      "from": "Service.saveSemanticConfigApi",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 498,
+          "column": 36,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 498,
+          "column": 54,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 577,
+          "column": 14,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 586,
+          "column": 28,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 588,
+          "column": 14,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 632,
+          "column": 14,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 641,
+          "column": 30,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/server/api/semantic.ts",
+          "line": 643,
+          "column": 14,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.saveSemanticConfigApi.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.searchMojeek",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 91,
+          "column": 22,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 140,
+          "column": 18,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 189,
+          "column": 18,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 272,
+          "column": 18,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/tools/web.ts",
+          "line": 419,
+          "column": 18,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.searchMojeek.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.semanticPreflight",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/preflight.ts",
+          "line": 79,
+          "column": 28,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.semanticPreflight.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.setLang",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "dashboard/src/lib/i18n.ts",
+          "line": 72,
+          "column": 3,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.setLang.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Service.spawnEditor",
+      "to": "ExternalTool.subprocess",
+      "type": "uses_tool",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/cli/edit/external-editor.ts",
+          "line": 64,
+          "column": 19,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.spawnEditor.uses_tool.ExternalTool.subprocess"
+    },
+    {
+      "from": "Service.src/config",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/config.ts",
+          "line": 24,
+          "column": 45,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 53,
+          "column": 14,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1061,
+          "column": 21,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1065,
+          "column": 36,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1066,
+          "column": 31,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1067,
+          "column": 35,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1068,
+          "column": 34,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1143,
+          "column": 34,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/config.ts",
+          "line": 1143,
+          "column": 52,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.src/config.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.src/index/semantic/builder",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 21,
+          "column": 26,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 212,
+          "column": 26,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 254,
+          "column": 34,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 262,
+          "column": 26,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 265,
+          "column": 10,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 269,
+          "column": 18,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 290,
+          "column": 26,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/builder.ts",
+          "line": 309,
+          "column": 28,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.src/index/semantic/builder.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.src/index/semantic/embedding",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 15,
+          "column": 18,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 36,
+          "column": 26,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 47,
+          "column": 26,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 135,
+          "column": 44,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 149,
+          "column": 44,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 188,
+          "column": 44,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 217,
+          "column": 44,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 227,
+          "column": 10,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 240,
+          "column": 31,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 247,
+          "column": 31,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 259,
+          "column": 33,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/embedding.ts",
+          "line": 263,
+          "column": 33,
+          "kind": "call",
+          "text": "OpenAI",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.src/index/semantic/embedding.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.src/index/semantic/tool",
+      "to": "ModelProvider.OpenAI",
+      "type": "uses_model",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/tool.ts",
+          "line": 6,
+          "column": 26,
+          "kind": "call",
+          "text": "openai",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.src/index/semantic/tool.uses_model.ModelProvider.OpenAI"
+    },
+    {
+      "from": "Service.src/mcp/marketplace-overlay/zh-CN",
+      "to": "DataStore.Postgres",
+      "type": "writes",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/mcp/marketplace-overlay/zh-CN.json",
+          "line": 18,
+          "column": 4,
+          "kind": "call",
+          "text": "postgres",
+          "confidence": 0.65
+        }
+      ],
+      "id": "RuntimeEdge.Service.src/mcp/marketplace-overlay/zh-CN.writes.DataStore.Postgres"
+    },
+    {
+      "from": "Service.startOllamaDaemon",
+      "to": "ExternalTool.subprocess",
+      "type": "uses_tool",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "src/index/semantic/ollama-launcher.ts",
+          "line": 64,
+          "column": 17,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "src/index/semantic/ollama-launcher.ts",
+          "line": 88,
+          "column": 19,
+          "kind": "call",
+          "text": "spawn(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.startOllamaDaemon.uses_tool.ExternalTool.subprocess"
+    },
+    {
+      "from": "Service.useGithubStats",
+      "to": "ExternalApi.HTTP",
+      "type": "calls",
+      "confidence": 0.65,
+      "evidence": [
+        {
+          "sourcePath": "docs/src/community.jsx",
+          "line": 8,
+          "column": 5,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        },
+        {
+          "sourcePath": "docs/src/community.jsx",
+          "line": 19,
+          "column": 5,
+          "kind": "call",
+          "text": "fetch(",
+          "confidence": 0.65
+        }
+      ],
+      "metadata": {},
+      "id": "RuntimeEdge.Service.useGithubStats.calls.ExternalApi.HTTP"
+    },
+    {
+      "from": "Workflow.ci",
+      "to": "WorkflowNode.22",
+      "type": "contains",
+      "confidence": 0.6,
+      "evidence": [
+        {
+          "sourcePath": ".github/workflows/ci.yml",
+          "line": 1,
+          "column": 1,
+          "kind": "manifest",
+          "text": "\"22\"",
+          "confidence": 0.6
+        }
+      ],
+      "id": "RuntimeEdge.Workflow.ci.contains.WorkflowNode.22"
+    }
+  ],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "RUNTIME_EXCLUDED_PATHS_SUMMARY",
+      "extractor": "RuntimeSourceCollector",
+      "message": "Skipped runtime paths by exclude rules: 71 [.env.example, .git, .github/sponsor/wechat-pay.jpg, .triadmind, benchmarks/real-world-cache/2026-05-01-deepseek-dashboard.png (+66 more)]"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${baseUrl}/chat/completions normalized=/:param/chat/completions to a known ApiRoute",
+      "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${baseUrl}/chat/completions normalized=/:param/chat/completions to a known ApiRoute",
+      "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=/api/settings?token=${TOKEN} normalized=/api/settings to a known ApiRoute",
+      "sourcePath": "dashboard/src/lib/i18n.ts"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${this.baseUrl}/user/balance normalized=/:param/user/balance to a known ApiRoute",
+      "sourcePath": "src/client.ts"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${this.baseUrl}/models normalized=/:param/models to a known ApiRoute",
+      "sourcePath": "src/client.ts"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${baseUrl}/api/tags normalized=/api/tags to a known ApiRoute",
+      "sourcePath": "src/index/semantic/embedding.ts"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${baseUrl}/api/embeddings normalized=/api/embeddings to a known ApiRoute",
+      "sourcePath": "src/index/semantic/embedding.ts"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${this.baseUrl}/gateway normalized=/:param/gateway to a known ApiRoute",
+      "sourcePath": "src/qq/bot.ts"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${this.baseUrl}/v2/users/${encodeURIComponent(openid)}/messages normalized=/:param/v2/users/:param/messages to a known ApiRoute",
+      "sourcePath": "src/qq/bot.ts"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${MOJEEK_ENDPOINT}?q=${encodeURIComponent(query)} normalized=/:param to a known ApiRoute",
+      "sourcePath": "src/tools/web.ts"
+    },
+    {
+      "level": "warning",
+      "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+      "extractor": "FrontendApiCallExtractor",
+      "message": "Could not match frontend API call raw=${METASO_ENDPOINT}/search normalized=/:param/search to a known ApiRoute",
+      "sourcePath": "src/tools/web.ts"
+    }
+  ]
+}

@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { applyMemoryStack } from "../memory/user.js";
-import { TUI_FORMATTING_RULES, escalationContract } from "../prompt-fragments.js";
+import {
+  TRIADMIND_TOPOLOGY_RULES,
+  TUI_FORMATTING_RULES,
+  escalationContract,
+} from "../prompt-fragments.js";
 
 const DEFAULT_CODE_MODEL = "deepseek-v4-flash";
 
@@ -236,6 +240,8 @@ If you notice an obvious issue, MENTION it in one sentence and wait for the user
 __ESCALATION_CONTRACT__
 
 ${TUI_FORMATTING_RULES}
+
+${TRIADMIND_TOPOLOGY_RULES}
 `;
 
 /** Backward-compat — public-API const, frozen at the historical flash phrasing. Internal callers use codeSystemPrompt(rootDir, { modelId }) so the contract names the real tier (#582). */

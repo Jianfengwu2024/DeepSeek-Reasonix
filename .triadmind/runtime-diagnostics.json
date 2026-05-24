@@ -1,0 +1,85 @@
+[
+  {
+    "level": "info",
+    "code": "RUNTIME_EXCLUDED_PATHS_SUMMARY",
+    "extractor": "RuntimeSourceCollector",
+    "message": "Skipped runtime paths by exclude rules: 71 [.env.example, .git, .github/sponsor/wechat-pay.jpg, .triadmind, benchmarks/real-world-cache/2026-05-01-deepseek-dashboard.png (+66 more)]"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${baseUrl}/chat/completions normalized=/:param/chat/completions to a known ApiRoute",
+    "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${baseUrl}/chat/completions normalized=/:param/chat/completions to a known ApiRoute",
+    "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=/api/settings?token=${TOKEN} normalized=/api/settings to a known ApiRoute",
+    "sourcePath": "dashboard/src/lib/i18n.ts"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${this.baseUrl}/user/balance normalized=/:param/user/balance to a known ApiRoute",
+    "sourcePath": "src/client.ts"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${this.baseUrl}/models normalized=/:param/models to a known ApiRoute",
+    "sourcePath": "src/client.ts"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${baseUrl}/api/tags normalized=/api/tags to a known ApiRoute",
+    "sourcePath": "src/index/semantic/embedding.ts"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${baseUrl}/api/embeddings normalized=/api/embeddings to a known ApiRoute",
+    "sourcePath": "src/index/semantic/embedding.ts"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${this.baseUrl}/gateway normalized=/:param/gateway to a known ApiRoute",
+    "sourcePath": "src/qq/bot.ts"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${this.baseUrl}/v2/users/${encodeURIComponent(openid)}/messages normalized=/:param/v2/users/:param/messages to a known ApiRoute",
+    "sourcePath": "src/qq/bot.ts"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${MOJEEK_ENDPOINT}?q=${encodeURIComponent(query)} normalized=/:param to a known ApiRoute",
+    "sourcePath": "src/tools/web.ts"
+  },
+  {
+    "level": "warning",
+    "code": "RUNTIME_FRONTEND_API_ROUTE_UNMATCHED",
+    "extractor": "FrontendApiCallExtractor",
+    "message": "Could not match frontend API call raw=${METASO_ENDPOINT}/search normalized=/:param/search to a known ApiRoute",
+    "sourcePath": "src/tools/web.ts"
+  }
+]

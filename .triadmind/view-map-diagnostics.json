@@ -1,0 +1,400 @@
+[
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/web.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/qq/bot.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/client.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/web.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/client.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/qq/bot.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/embedding.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "dashboard/src/lib/i18n.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/embedding.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "package.json"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/mcp/marketplace-overlay/zh-cn.json"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/web.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/shell-chain.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/shell-chain.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "dashboard/src/lib/i18n.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "docs/i18n.js"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "docs/src/community.jsx"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/client.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/embedding.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/qq/bot.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/web.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/server/api/semantic.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "desktop/src/ui/about.tsx"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/client.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "benchmarks/spike-tdd-kernel/cost.mjs"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "benchmarks/spike-tdd-kernel/tdd-eval.mjs"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "docs/src/config.jsx"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/repair/scavenge.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/cli/commands/commit.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/mcp/streamable-http.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "dashboard/src/i18n/en.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "dashboard/src/i18n/zh-cn.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "dashboard/src/lib/api.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "dashboard/src/panels/semantic.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/cli/commands/update.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/shell-chain.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "docs/guide-i18n.js"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/server/api/checkpoint-create.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/server/api/git-diffs.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/shell/exec.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "docs/i18n.js"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/hooks.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/store.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "docs/src/mirrors.jsx"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/embedding.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/store.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/chunker.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/filesystem.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/server/api/semantic.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/tools/web.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/preflight.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "dashboard/src/lib/i18n.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/cli/edit/external-editor.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/config.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/builder.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/embedding.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/tool.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/mcp/marketplace-overlay/zh-cn.json"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "src/index/semantic/ollama-launcher.ts"
+  },
+  {
+    "level": "warning",
+    "code": "VIEW_MAP_RUNTIME_CATEGORY_MISMATCH_AUTO_FIXED",
+    "message": "runtime category/sourcePath mismatch auto-fixed by category resolver",
+    "sourcePath": "docs/src/community.jsx"
+  },
+  {
+    "level": "info",
+    "code": "VIEW_MAP_RUNTIME_NODE_UNMATCHED_SUMMARY",
+    "message": "Runtime nodes without cross-view match: 20 [ApiRoute.UNKNOWN./:param/gateway, ApiRoute.UNKNOWN./:param/v2/users/:param/messages, Config.PackageJson, FrontendEntry.docs/i18n.js, FrontendEntry.src/qq/bot.ts, Queue.classList, Service.constructor, Service.function, Service.loadVersion, Task.copied]"
+  },
+  {
+    "level": "info",
+    "code": "VIEW_MAP_RUNTIME_MATCH_SUMMARY",
+    "message": "Runtime match rate: 55/75 (0.733)"
+  },
+  {
+    "level": "info",
+    "code": "VIEW_MAP_CAPABILITY_LEAF_SUMMARY",
+    "message": "Capability-to-leaf traceability: 1076/1082 (0.994)"
+  },
+  {
+    "level": "info",
+    "code": "VIEW_MAP_END_TO_END_SUMMARY",
+    "message": "Runtime-to-capability-to-leaf traceability: 55/75 (0.733)"
+  }
+]

@@ -1,0 +1,55 @@
+import { loadTriadConfig, TriadConfig } from './config';
+import { buildTopologyIR, TriadTopologyIR } from './ir';
+import { LanguageAdapter } from './languageAdapter';
+import { readTriadMap } from './protocol';
+import { runTreeSitterParser } from './treeSitterParser';
+import { applyTypeScriptProtocol } from './typescriptGenerator';
+import { runTypeScriptParser } from './typescriptParser';
+import { getWorkspacePaths } from './workspace';
+
+export function createTypeScriptAdapter(): LanguageAdapter {
+    return {
+        language: 'typescript',
+        displayName: 'TypeScript',
+        parserEngine: 'tree-sitter',
+        adapterPackage: '@triadmind/plugin-ts',
+        status: 'stable',
+        readTopologyIR,
+        parseTopology,
+        applyUpgradeProtocol,
+        supportsRuntimeHealing: true
+    };
+}
+
+/**
+ * TriadMind 自动生成骨架
+ * 职责：执行 readTopologyIR 流程
+ */
+export function readTopologyIR(projectRoot: string): TriadTopologyIR {
+    const paths = getWorkspacePaths(projectRoot);
+    return buildTopologyIR(readTriadMap(paths.mapFile), 'typescript');
+}
+
+/**
+ * TriadMind 自动生成骨架
+ * 职责：执行 parseTopology 流程
+ */
+export function parseTopology(projectRoot: string, outputPath?: string, configOverride?: TriadConfig): void {
+    const paths = getWorkspacePaths(projectRoot);
+    const config = configOverride ?? loadTriadConfig(paths);
+
+    if (config.architecture.parserEngine === 'native') {
+        runTypeScriptParser(projectRoot, outputPath);
+        return;
+    }
+
+    runTreeSitterParser('typescript', projectRoot, outputPath ?? paths.mapFile, config);
+}
+
+/**
+ * TriadMind 自动生成骨架
+ * 职责：执行 applyUpgradeProtocol 流程
+ */
+export function applyUpgradeProtocol(projectRoot: string, protocolPath?: string): { changedFiles: string[] } {
+    return applyTypeScriptProtocol(projectRoot, protocolPath);
+}
