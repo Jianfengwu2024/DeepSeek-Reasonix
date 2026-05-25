@@ -1,7 +1,9 @@
+import { extractToolExitCode } from "../tool-summary.js";
 import type {
   Card,
   CardId,
   LiveCard,
+  PlanStep,
   ReasoningCard,
   StreamingCard,
   ToolCard,
@@ -61,17 +63,19 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
       return mutateCard(state, event.id, "tool", (c) => ({ ...c, output: c.output + event.text }));
 
     case "tool.end": {
-      const finalOutput = event.output ?? "";
-      const rejected = isPlanModeRejection(finalOutput);
-      return mutateCard(state, event.id, "tool", (c) => ({
-        ...c,
-        done: true,
-        output: event.output ?? c.output,
-        exitCode: event.exitCode,
-        elapsedMs: event.elapsedMs,
-        ...(event.aborted ? { aborted: true } : {}),
-        ...(rejected ? { rejected: true } : {}),
-      }));
+      return mutateCard(state, event.id, "tool", (c) => {
+        const finalOutput = event.output ?? c.output;
+        const rejected = isPlanModeRejection(finalOutput);
+        return {
+          ...c,
+          done: true,
+          output: finalOutput,
+          exitCode: event.exitCode ?? extractToolExitCode(c.name, finalOutput),
+          elapsedMs: event.elapsedMs,
+          ...(event.aborted ? { aborted: true } : {}),
+          ...(rejected ? { rejected: true } : {}),
+        };
+      });
     }
 
     case "tool.retry":
@@ -128,10 +132,10 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
         ? state
         : { ...state, session: { ...state.session, model: event.model } };
 
-    case "session.preset.change":
-      return state.status.preset === event.preset
+    case "session.effort.change":
+      return state.status.reasoningEffort === event.reasoningEffort
         ? state
-        : { ...state, status: { ...state.status, preset: event.preset } };
+        : { ...state, status: { ...state.status, reasoningEffort: event.reasoningEffort } };
 
     case "mcp.loading": {
       const current = state.status.mcpLoading;
@@ -188,8 +192,8 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
     case "toast.hide":
       return { ...state, toasts: state.toasts.filter((t) => t.id !== event.id) };
 
-    case "live.show":
-      return appendCard(state, {
+    case "live.show": {
+      const card: LiveCard = {
         kind: "live",
         id: event.id,
         ts: event.ts,
@@ -197,7 +201,10 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
         tone: event.tone,
         text: event.text,
         meta: event.meta,
-      });
+      };
+      const replaced = mutateCard(state, event.id, "live", () => card);
+      return replaced === state ? appendCard(state, card) : replaced;
+    }
 
     case "tip.show":
       return appendCard(state, {
@@ -226,6 +233,12 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
         },
       };
 
+    case "session.fork": {
+      const idx = state.cards.findIndex((c) => c.id === event.cardId);
+      if (idx < 0) return state;
+      return { ...state, cards: state.cards.slice(0, idx), focusedCardId: null };
+    }
+
     case "session.workspace.change":
       return state.session.id === event.id && state.session.workspace === event.workspace
         ? state
@@ -240,7 +253,7 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
         id: event.id,
         ts: Date.now(),
         title: event.title,
-        steps: event.steps,
+        steps: event.variant === "active" ? advanceActivePlanSteps(event.steps) : event.steps,
         variant: event.variant,
       });
 
@@ -273,7 +286,7 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
         });
         if (!stepChanged) return c;
         changed = true;
-        return { ...c, steps: next };
+        return { ...c, steps: c.variant === "active" ? advanceActivePlanSteps(next) : next };
       });
       return changed ? { ...state, cards } : state;
     }
@@ -319,37 +332,70 @@ export function reduce(state: AgentState, event: AgentEvent): AgentState {
   }
 }
 
-/** Tool outputs older than this many cards get stubbed so a 7-hour session doesn't drag GBs of one-off file reads / search results / screenshots through the heap (issue #1031). */
+/** Heavy card fields older than this many cards get stubbed so a 7-hour session doesn't drag GBs of one-off file reads / reasoning streams / diff hunks through the heap (issue #1031). */
 const RECENT_CARDS_WINDOW = 200;
-/** Don't bother eliding tiny outputs — the stub is itself ~150 chars and the savings aren't worth the lost context. */
+/** Don't bother eliding tiny payloads — the stub is itself ~150 chars and the savings aren't worth the lost context. */
 const MIN_ELIDE_OUTPUT_LENGTH = 4096;
-/** Marker for already-elided outputs so we don't re-stub on every subsequent append. */
+/** Marker for already-elided fields so we don't re-stub on every subsequent append. */
 const ELIDED_TOOL_OUTPUT_PREFIX = "[elided — older than the last ";
 
-function elideOldToolOutputs(cards: ReadonlyArray<Card>): ReadonlyArray<Card> {
-  // Caller is about to append a new card. Anticipate that — so once
+function elidedStub(originalChars: number): string {
+  return `${ELIDED_TOOL_OUTPUT_PREFIX}${RECENT_CARDS_WINDOW} cards; ${originalChars.toLocaleString()} chars dropped to save memory. Full output is on disk in the session log.]`;
+}
+
+function stubHeavyContent(c: Card): Card {
+  switch (c.kind) {
+    case "tool": {
+      const out = (c as ToolCard).output;
+      if (typeof out !== "string") return c;
+      if (out.length <= MIN_ELIDE_OUTPUT_LENGTH) return c;
+      if (out.startsWith(ELIDED_TOOL_OUTPUT_PREFIX)) return c;
+      return { ...(c as ToolCard), output: elidedStub(out.length) };
+    }
+    case "reasoning": {
+      const r = c as ReasoningCard;
+      if (r.streaming) return c;
+      if (r.text.length <= MIN_ELIDE_OUTPUT_LENGTH) return c;
+      if (r.text.startsWith(ELIDED_TOOL_OUTPUT_PREFIX)) return c;
+      return { ...r, text: elidedStub(r.text.length) };
+    }
+    case "streaming": {
+      const s = c as StreamingCard;
+      if (!s.done) return c;
+      if (s.text.length <= MIN_ELIDE_OUTPUT_LENGTH) return c;
+      if (s.text.startsWith(ELIDED_TOOL_OUTPUT_PREFIX)) return c;
+      return { ...s, text: elidedStub(s.text.length) };
+    }
+    case "diff": {
+      if (c.hunks.length === 0) return c;
+      let totalChars = 0;
+      for (const h of c.hunks) for (const l of h.lines) totalChars += l.text.length;
+      if (totalChars <= MIN_ELIDE_OUTPUT_LENGTH) return c;
+      return { ...c, hunks: [] };
+    }
+    default:
+      return c;
+  }
+}
+
+function elideOldCardContent(cards: ReadonlyArray<Card>): ReadonlyArray<Card> {
+  // Caller is about to append a new card. Anticipate that — once
   // cards.length hits the window, the very next append starts eliding.
   if (cards.length < RECENT_CARDS_WINDOW) return cards;
   const cutoff = cards.length + 1 - RECENT_CARDS_WINDOW;
   let next: Card[] | null = null;
   for (let i = 0; i < cutoff; i++) {
     const c = cards[i]!;
-    if (c.kind !== "tool") continue;
-    const out = (c as ToolCard).output;
-    if (typeof out !== "string") continue;
-    if (out.length <= MIN_ELIDE_OUTPUT_LENGTH) continue;
-    if (out.startsWith(ELIDED_TOOL_OUTPUT_PREFIX)) continue;
+    const stubbed = stubHeavyContent(c);
+    if (stubbed === c) continue;
     if (next === null) next = cards.slice();
-    next[i] = {
-      ...(c as ToolCard),
-      output: `${ELIDED_TOOL_OUTPUT_PREFIX}${RECENT_CARDS_WINDOW} cards; ${out.length.toLocaleString()} chars dropped to save memory. Full output is on disk in the session log.]`,
-    };
+    next[i] = stubbed;
   }
   return next ?? cards;
 }
 
 function appendCard(state: AgentState, card: Card): AgentState {
-  return { ...state, cards: [...elideOldToolOutputs(state.cards), card] };
+  return { ...state, cards: [...elideOldCardContent(state.cards), card] };
 }
 
 function mutateCard<K extends Card["kind"]>(
@@ -401,6 +447,19 @@ function nextId(prefix: string): string {
 
 function makeUserCard(text: string): UserCard {
   return { kind: "user", id: nextId("user"), ts: Date.now(), text };
+}
+
+function isSettledPlanStatus(status: PlanStep["status"]): boolean {
+  return status === "done" || status === "failed" || status === "blocked" || status === "skipped";
+}
+
+function advanceActivePlanSteps(steps: ReadonlyArray<PlanStep>): PlanStep[] {
+  const runningIndex = steps.findIndex((s) => !isSettledPlanStatus(s.status));
+  return steps.map((s, i) => {
+    if (isSettledPlanStatus(s.status)) return s;
+    const status: PlanStep["status"] = i === runningIndex ? "running" : "queued";
+    return s.status === status ? s : { ...s, status };
+  });
 }
 
 function makeReasoningCard(id: string, model?: string): ReasoningCard {

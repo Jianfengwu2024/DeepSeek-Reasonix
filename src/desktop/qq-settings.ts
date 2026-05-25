@@ -5,7 +5,8 @@ export interface DesktopQQSettingsState extends Omit<LoadedQQConfig, "sandbox" |
   sandbox: boolean;
   enabled: boolean;
   configured: boolean;
-  connected: boolean;
+  runtimeState: "disconnected" | "connecting" | "connected" | "failed";
+  lastError?: string;
   appIdPreview?: string;
   access: string;
 }
@@ -41,7 +42,7 @@ export function loadDesktopQQState(path?: string): DesktopQQSettingsState {
     sandbox: config.sandbox ?? false,
     enabled: config.enabled === true,
     configured,
-    connected: configured && config.enabled === true,
+    runtimeState: "disconnected",
     appIdPreview: toPreview(config.appId),
     access: toAccess(config),
   };

@@ -166,13 +166,25 @@ export class DeepSeekClient {
     // ignored — we don't strip them here because the server's explicit
     // "setting won't report an error" contract means leaving them in is
     // safe and keeps the request payload diffable against OpenAI tooling.
-    if (opts.thinking) {
+    if (opts.thinking && !this._isAzureEndpoint()) {
       payload.extra_body = { thinking: { type: opts.thinking } };
     }
     if (opts.reasoningEffort) {
       payload.reasoning_effort = opts.reasoningEffort;
     }
     return payload;
+  }
+
+  /** Azure OpenAI-compatible endpoints do not accept DeepSeek's proprietary
+   *  `extra_body.thinking` field (they reject the request with 400).  We still
+   *  send `reasoning_effort`, which Azure *does* support. */
+  private _isAzureEndpoint(): boolean {
+    try {
+      const host = new URL(this.baseUrl).hostname;
+      return host === "azure.com" || host.endsWith(".azure.com");
+    } catch {
+      return false;
+    }
   }
 
   /** Returns null on failure so callers can degrade — session must keep working without balance UI. */
@@ -211,8 +223,13 @@ export class DeepSeekClient {
 
   async chat(opts: ChatRequestOptions): Promise<ChatResponse> {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    const signal = opts.signal ?? ctrl.signal;
+    const timer = setTimeout(
+      () => ctrl.abort(new Error(`DeepSeek request timed out after ${this.timeoutMs}ms`)),
+      this.timeoutMs,
+    );
+    // Combine — `opts.signal ?? ctrl.signal` orphans the timer when the
+    // caller passes a signal, so timeoutMs never reaches fetch.
+    const signal = opts.signal ? AbortSignal.any([opts.signal, ctrl.signal]) : ctrl.signal;
 
     try {
       await this.waitForChatRateLimit(signal);
@@ -249,8 +266,14 @@ export class DeepSeekClient {
 
   async *stream(opts: ChatRequestOptions): AsyncGenerator<StreamChunk> {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    const signal = opts.signal ?? ctrl.signal;
+    const timer = setTimeout(
+      () => ctrl.abort(new Error(`DeepSeek stream timed out after ${this.timeoutMs}ms`)),
+      this.timeoutMs,
+    );
+    // Combine — `opts.signal ?? ctrl.signal` orphans the timer when the
+    // caller passes a signal, leaving a stalled SSE body to hang forever
+    // on reader.read() (issue #1535).
+    const signal = opts.signal ? AbortSignal.any([opts.signal, ctrl.signal]) : ctrl.signal;
 
     let resp: Response;
     try {

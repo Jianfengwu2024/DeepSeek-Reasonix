@@ -24,11 +24,11 @@ import { normalizeWindowsEnvVars } from "../src/tools/shell/exec.js";
 
 /** A PauseGate that records call args and denies — denial keeps the spawn from actually running. */
 class SpyGate extends PauseGate {
-  lastCall: { kind: string; payload?: unknown } | null = null;
-  override ask(opts: { kind: string; payload?: unknown }): Promise<any> {
+  lastCall: Parameters<PauseGate["ask"]>[0] | null = null;
+  override ask = ((opts: Parameters<PauseGate["ask"]>[0]) => {
     this.lastCall = opts;
     return Promise.resolve({ type: "deny" } as ConfirmationChoice);
-  }
+  }) as PauseGate["ask"];
 }
 
 class AutoGate extends PauseGate {
@@ -37,9 +37,9 @@ class AutoGate extends PauseGate {
     super();
     this._choice = choice;
   }
-  override ask(_opts: { kind: string; payload?: unknown }): Promise<ConfirmationChoice> {
+  override ask = ((_opts: Parameters<PauseGate["ask"]>[0]) => {
     return Promise.resolve(this._choice);
-  }
+  }) as PauseGate["ask"];
 }
 
 describe("tokenizeCommand", () => {
@@ -370,6 +370,27 @@ describe("isAllowed", () => {
       expect(isCommandAllowed("cat ~/.ssh/id_rsa | grep KEY", [], projectRoot)).toBe(false);
       expect(isCommandAllowed("cat src/index.ts && grep TODO src/", [], projectRoot)).toBe(true);
     });
+
+    it("demotes allowlisted commands with sandbox-escaping redirects", () => {
+      expect(isCommandAllowed("git status > out.txt")).toBe(false);
+      expect(isCommandAllowed("git status > /tmp/evil", [], projectRoot)).toBe(false);
+      expect(isCommandAllowed("ls > ../../../etc/passwd", [], projectRoot)).toBe(false);
+    });
+
+    it("allows safe redirects in allowlisted chain commands", () => {
+      expect(isCommandAllowed("git status > ./output.txt", [], projectRoot)).toBe(true);
+      expect(
+        isCommandAllowed(`git status > ${join(projectRoot, "out.txt")}`, [], projectRoot),
+      ).toBe(true);
+      expect(isCommandAllowed("git status > /dev/null", [], projectRoot)).toBe(true);
+      expect(isCommandAllowed("git status 2>&1", [], projectRoot)).toBe(true);
+    });
+
+    it("demotes sensitive redirect targets", () => {
+      expect(isCommandAllowed("cat < .env", [], projectRoot)).toBe(false);
+      expect(isCommandAllowed("cat < ~/.ssh/id_rsa", [], projectRoot)).toBe(false);
+      expect(isCommandAllowed("cat < README.md", [], projectRoot)).toBe(true);
+    });
   });
 });
 
@@ -526,6 +547,33 @@ describe("registerShellTools — dispatch integration", () => {
     expect(out).not.toMatch(/user denied/);
   });
 
+  it("sharpens repeated shell gate denials for the high-risk call corpus", async () => {
+    const cases: Array<{ name: "run_command" | "run_background"; args: Record<string, unknown> }> =
+      [
+        { name: "run_command", args: { command: "npm install left-pad" } },
+        { name: "run_background", args: { command: "npm run dev", waitSec: 1 } },
+      ];
+
+    for (const item of cases) {
+      const registry = new ToolRegistry();
+      registerShellTools(registry, { rootDir: tmp });
+      const gate = new AutoGate({ type: "deny", denyContext: "too risky" });
+      const rawArgs = JSON.stringify(item.args);
+
+      const first = await registry.dispatch(item.name, rawArgs, { confirmationGate: gate });
+      const second = JSON.parse(
+        await registry.dispatch(item.name, rawArgs, { confirmationGate: gate }),
+      );
+
+      expect(first).toMatch(new RegExp(`user denied: ${String(item.args.command)}`));
+      expect(first).toMatch(/too risky/);
+      expect(second.rejectedReason).toBe("shell-gate");
+      expect(second.consecutiveInterceptorRejection).toBe(true);
+      expect(second.error).toMatch(/do not retry identical args/);
+      expect(second.error).toMatch(/allowlisted/);
+    }
+  });
+
   it("passes the correct kind to the gate — regression check for argument swap", async () => {
     const registry = new ToolRegistry();
     registerShellTools(registry, { rootDir: tmp });
@@ -615,6 +663,67 @@ describe("registerShellTools — dispatch integration", () => {
     });
     expect(afterYolo).toMatch(/user denied/);
     expect(afterYolo).toMatch(/node -e/);
+  });
+
+  it("run_background dispatch starts a job, list_jobs sees it, job_output reads it, stop_job ends it", async () => {
+    const registry = new ToolRegistry();
+    const jobs = new (await import("../src/tools/jobs.js")).JobRegistry();
+    registerShellTools(registry, { rootDir: tmp, jobs, extraAllowed: ["node"] });
+
+    try {
+      const startOut = await registry.dispatch(
+        "run_background",
+        JSON.stringify({
+          command: `node -e "setInterval(()=>console.log('tick'), 50)"`,
+          waitSec: 0.1,
+        }),
+      );
+      const jobIdMatch = startOut.match(/job (\d+) started/);
+      expect(jobIdMatch).not.toBeNull();
+      const jobId = Number(jobIdMatch![1]);
+
+      const listOut = await registry.dispatch("list_jobs", "{}");
+      expect(listOut).toMatch(new RegExp(`\\b${jobId}\\b`));
+      expect(listOut).toContain("node -e");
+
+      await registry.dispatch(
+        "wait_for_job",
+        JSON.stringify({ jobId, timeoutMs: 500, waitFor: "output-or-exit" }),
+      );
+      const outputOut = await registry.dispatch("job_output", JSON.stringify({ jobId }));
+      expect(outputOut).toContain("tick");
+
+      const stopOut = await registry.dispatch("stop_job", JSON.stringify({ jobId }));
+      expect(stopOut).toContain(`job ${jobId}`);
+    } finally {
+      await jobs.shutdown(2000);
+    }
+  }, 15000);
+
+  it("job_output / stop_job report not-found for unknown jobId", async () => {
+    const registry = new ToolRegistry();
+    registerShellTools(registry, { rootDir: tmp });
+    const outNoRead = await registry.dispatch("job_output", JSON.stringify({ jobId: 9999 }));
+    expect(outNoRead).toMatch(/job 9999: not found/);
+    const outNoStop = await registry.dispatch("stop_job", JSON.stringify({ jobId: 9999 }));
+    expect(outNoStop).toMatch(/job 9999: not found/);
+  });
+
+  it("list_jobs reports an empty session when nothing has been started", async () => {
+    const registry = new ToolRegistry();
+    registerShellTools(registry, { rootDir: tmp });
+    const out = await registry.dispatch("list_jobs", "{}");
+    expect(out).toContain("no background jobs");
+  });
+
+  it("run_background dispatch rejects a cwd that escapes the workspace root", async () => {
+    const registry = new ToolRegistry();
+    registerShellTools(registry, { rootDir: tmp, extraAllowed: ["node"] });
+    const out = await registry.dispatch(
+      "run_background",
+      JSON.stringify({ command: "node --version", cwd: "../../etc" }),
+    );
+    expect(out).toMatch(/resolves outside the workspace root/);
   });
 });
 

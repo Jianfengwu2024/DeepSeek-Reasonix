@@ -17,7 +17,7 @@ export const zhCN: TranslationSchema = {
   cli: {
     description: "DeepSeek 原生智能体框架 — 专为缓存命中和低成本令牌构建。",
     continue: "恢复最近使用的聊天会话，不显示选择器。",
-    setup: "交互式向导 — API 密钥、预设、MCP 服务器。随时重新运行以重新配置。",
+    setup: "交互式向导 — API 密钥、MCP 服务器。随时重新运行以重新配置。",
     code: "代码编辑聊天 — 以 <dir>（默认：cwd）为根的文件系统工具，编码系统提示词，v4-flash 基线。",
     chat: "具有实时缓存/成本面板的交互式 Ink TUI。",
     run: "以非交互方式运行单个任务，流式输出。",
@@ -46,6 +46,16 @@ export const zhCN: TranslationSchema = {
   sessions: {
     emptyHint:
       "暂无已保存的会话 — 运行 `reasonix chat`（会话会自动保存，除非使用了 --no-session）。",
+    listHeader: "保存的会话 (~/.reasonix/sessions/)：",
+    inspectHint: "查看：reasonix sessions <name>",
+    resumeHint: "恢复：reasonix chat --session <name>",
+    noSession: '找不到会话 "{name}"（或为空）。',
+    lookedAt: "位置：{path}",
+    noIdleSessions: "没有闲置 ≥{days} 天的会话。无需清理。",
+    wouldPrune: "将清理 {count} 个闲置 ≥{days} 天的会话：",
+    dryRunHint: "去掉 --dry-run 可实际执行删除。",
+    prunedCount: "已清理 {count} 个闲置 ≥{days} 天的会话：",
+    daysInvalid: "--days 必须是正整数（传入了 {days}）。",
   },
   ui: {
     welcome: "随时运行 `reasonix` 开始聊天 — 您的设置将被记住。",
@@ -105,8 +115,9 @@ export const zhCN: TranslationSchema = {
             { key: "滚轮", text: "滚动聊天记录（Web / 云端 / SSH 终端也能用）" },
             {
               key: "↑ / ↓",
-              text: "滚动聊天 · 输入框历史 + 多行光标用 Ctrl+P / Ctrl+N",
+              text: "输入历史（多行草稿时按行移动光标）— Ctrl+P / Ctrl+N 同义",
             },
+            { key: "PgUp / PgDn", text: "滚动聊天记录（鼠标滚轮也走这条路径）" },
           ],
         },
       ],
@@ -120,11 +131,11 @@ export const zhCN: TranslationSchema = {
           rows: [
             { key: "Enter", text: "提交输入" },
             { key: "Shift+Enter", text: "在输入框中插入换行" },
-            { key: "↑ / ↓", text: "滚动聊天记录（鼠标滚轮也走这条路径）" },
             {
-              key: "Ctrl+P / Ctrl+N",
+              key: "↑ / ↓",
               text: "上一条 / 下一条输入历史 · 多行草稿中按行移动光标",
             },
+            { key: "Ctrl+P / Ctrl+N", text: "↑ / ↓ 的 readline 同义键" },
             { key: "Ctrl+A / Ctrl+E", text: "跳到当前行的开头 / 结尾" },
             { key: "Ctrl+W", text: "删除光标前的一个词" },
             { key: "Ctrl+U", text: "清空整个输入缓冲区" },
@@ -134,6 +145,7 @@ export const zhCN: TranslationSchema = {
             { key: "Ctrl+C", text: "中止当前模型回合（不是复制 — 见剪贴板段）" },
             { key: "PgUp / PgDn", text: "整页滚动聊天记录" },
             { key: "End", text: "跳到聊天的最新一行" },
+            { key: "Ctrl+R", text: "切换详细模式 — 显示完整推理 + 工具输出，不省略" },
           ],
         },
         {
@@ -148,10 +160,6 @@ export const zhCN: TranslationSchema = {
           title: "复制 / 粘贴",
           rows: [
             { key: "选中文字", text: "直接拖动 — 终端原生（不需要任何修饰键）" },
-            {
-              key: "/copy",
-              text: "vim/tmux 风格复制模式 — SSH / mosh / tmux 下拖选越过可视区无效时用这个",
-            },
             {
               key: "复制",
               text: "Ctrl+Shift+C（Win/Linux）· Cmd+C（macOS）— 或选中即复制（看终端设置）",
@@ -173,24 +181,26 @@ export const zhCN: TranslationSchema = {
         },
       ],
       footer:
-        "通过 DECSET 1007（alternate-scroll），终端把滚轮翻译成 ↑/↓ 发给应用 — 大多数终端（含 Web / 云端 / SSH）都能滚，且不影响终端原生选区。直接拖动选中文本无需 Shift。传入 --no-mouse 可关闭。",
+        "滚轮在大多数终端（含 Web / 云端 / SSH）都能滚聊天 — 默认开启 SGR 鼠标跟踪，但不会影响终端原生拖选和右键菜单。直接拖动选中文本无需 Shift。传入 --no-mouse 可关闭。",
     },
     tipShownOnce: "仅显示一次",
     modelOverride: "覆盖默认模型",
     noSession: "禁用本次运行的会话持久化",
+    noMouseHint: "关闭 SGR 鼠标跟踪；恢复终端原生拖选和右键行为",
+    noProxyHint: "本次运行忽略 HTTPS_PROXY / HTTP_PROXY，直连",
     resumeHint: "强制恢复指定会话（即使空闲）",
     newHint: "强制创建新会话（忽略 --session / --continue）",
     transcriptHint: "JSONL 转录稿的写入路径",
     budgetHint: "会话美元上限 — 80% 时警告，100% 时拒绝下一轮",
     modelIdHint: "DeepSeek 模型 ID（例如 deepseek-v4-flash）",
     systemPromptHint: "覆盖默认系统提示词",
-    presetHint: "模型组合 — auto|flash|pro",
+    effortHint: "推理强度 — low|medium|high|max",
     sessionNameHint: "会话名称（默认：'default'）",
     ephemeralHint: "禁用本次运行的会话持久化",
     mcpSpecHint: "MCP 服务器规格（可重复）",
     mcpPrefixHint: "用此字符串为 MCP 工具名添加前缀",
     noConfigHint: "本次运行忽略 ~/.reasonix/config.json",
-    presetHintShort: "模型组合 — auto|flash|pro",
+    effortHintShort: "推理强度 — low|medium|high|max",
     budgetHintShort: "会话美元上限",
     transcriptHintShort: "JSONL 转录稿路径",
     mcpSpecHintShort: "MCP 服务器规格（可重复）",
@@ -242,29 +252,22 @@ export const zhCN: TranslationSchema = {
   },
   slash: {
     help: { description: "显示完整命令参考" },
-    copy: {
-      description: "进入 vim/tmux 风格复制模式 — j/k 移动、v 起选区、y 复制到剪贴板",
-    },
     status: { description: "当前模型、标志、上下文、会话" },
-    preset: {
-      description: "模型组合 — 自动在 flash → pro 之间切换，或锁定 flash/pro",
-      argsHint: "<auto|flash|pro>",
+    effort: {
+      description: "推理强度上限（low|medium|high|max）；high 是 vLLM/Azure 安全默认",
+      argsHint: "<low|medium|high|max>",
     },
     model: { description: "切换 DeepSeek 模型 ID", argsHint: "<id>" },
     models: { description: "列出从 DeepSeek /models 获取的可用模型" },
     theme: {
       description: "显示或持久化终端主题偏好。无参数时打开选择器。",
-      argsHint: "[auto|default|dark|light|tokyo-night|github-dark|github-light|high-contrast]",
+      argsHint: "[auto|dark|light|midnight|deep-blue|high-contrast]",
     },
     language: {
       description: "切换运行时语言",
       argsHint: "<en|zh-CN>",
       success: "语言已切换为简体中文。",
       unsupported: "不支持的语言代码：{code}。支持的语言：{supported}。",
-    },
-    pro: {
-      description: "仅为下一轮启用 v4-pro（一次性 · 自动解除）",
-      argsHint: "[off]",
     },
     budget: {
       description: "会话美元上限 — 80% 时警告，100% 时拒绝下一轮。默认关闭。单独 /budget 显示状态",
@@ -324,6 +327,7 @@ export const zhCN: TranslationSchema = {
     },
     stop: { description: "中止当前模型回合（按 Esc 的替代方式）" },
     feedback: { description: "打开 GitHub Issue，诊断信息已复制到剪贴板" },
+    about: { description: "项目信息 — 版本、官网、仓库、协议" },
     plans: { description: "列出此会话的活跃 + 归档计划（最新在前）" },
     replay: {
       description: "加载归档计划为只读的时间旅行快照（默认：最新）",
@@ -408,8 +412,8 @@ export const zhCN: TranslationSchema = {
     },
     "search-engine": {
       description:
-        "切换网络搜索后端 — mojeek（默认，无依赖）、searxng（自托管）或 metaso（每日 100 次免费额度）",
-      argsHint: "<mojeek|searxng|metaso> [<endpoint>]",
+        "切换网络搜索后端 — bing（默认，国内裸 IP 直连）、searxng（自托管）、metaso（每日 100 次）、tavily（每月 1000 次免费）、perplexity（AI 直接回答）或 exa（AI 直接回答）",
+      argsHint: "<bing|searxng|metaso|tavily|perplexity|exa> [<key>]",
     },
   },
   wizard: {
@@ -430,16 +434,13 @@ export const zhCN: TranslationSchema = {
     themeSampleHeading: "示例",
     themeFooter: "[↑↓] 移动 · [Enter] 确认 · [Esc] 取消",
     themeCaption: {
-      default: "GitHub 深色（默认）",
-      dark: "深色调",
+      dark: "深色调（默认）",
       light: "清爽浅色",
-      "tokyo-night": "东京夜色",
-      "github-dark": "GitHub 深色",
-      "github-light": "GitHub 浅色",
+      midnight: "东京夜色",
+      "deep-blue": "深蓝纯黑",
       "high-contrast": "高对比度（无障碍）",
     },
     reviewLabelTheme: "主题",
-    presetTitle: "选择预设",
     mcpTitle: "Reasonix 要为你接入哪些 MCP 服务器？",
     mcpUserArgsHint: "（需要你提供 {arg}）",
     mcpFooterMulti: "[↑↓] 移动  ·  [空格] 选择  ·  [Enter] 确认  ·  [Esc] 取消  ·  全不选 = 跳过",
@@ -453,7 +454,6 @@ export const zhCN: TranslationSchema = {
     reviewTitle: "确认保存",
     reviewLabelApiKey: "API key",
     reviewLabelLanguage: "语言",
-    reviewLabelPreset: "预设",
     reviewLabelMcp: "MCP",
     reviewMcpNone: "（无）",
     reviewMcpServers: "{count} 个服务器",
@@ -461,6 +461,8 @@ export const zhCN: TranslationSchema = {
     reviewSaveError: "保存配置失败：{message}",
     reviewFooter: "[Enter] 保存 · [Esc] 取消",
     savedTitle: "▸ 已保存。",
+    savedShellHint:
+      "模型发起的 shell 命令每次都会弹出确认 —— 在提示框里选 `allow always` 可将该命令前缀加入本项目白名单。设计上没有「全局放行」开关。",
     savedFooter: "[Enter] 退出",
     selectFooter: "[↑↓] 移动 · [Enter] 确认 · [Esc] 取消",
     stepCounter: "步骤 {step}/{total} · ",
@@ -526,6 +528,8 @@ export const zhCN: TranslationSchema = {
       title: "检查点 —— 当前步骤已完成",
       continue: "继续 —— 执行下一步",
       continueHint: "模型从下一步继续。",
+      finish: "完成 —— 总结并收尾",
+      finishHint: "模型记录最后一步，然后总结已完成的计划。",
       revise: "调整 —— 在下一步前给反馈",
       reviseHint: "先暂停，输入指引；模型会调整剩余计划。",
       stop: "停止 —— 在此结束计划",
@@ -571,7 +575,11 @@ export const zhCN: TranslationSchema = {
     notedVerbCreated: "创建",
     notedVerbAppended: "追加到",
     memoryWriteFailed: "# 记忆写入失败",
+    verboseOn: "▸ 详细模式已开 — 显示完整推理 + 工具输出",
+    verboseOff: "▸ 详细模式已关 — 恢复头尾省略",
     commandFailed: "! 命令失败",
+    steerInjected: "▸ 已加入引导队列 — 将在当前步骤后注入",
+    steerCommandRejected: "▸ 当前轮次忙碌时不能提交命令，只能输入普通引导消息",
     btwUsage: "▸ /btw <问题> — 顺便问个题外话，不会写入当前会话上下文。",
     btwHeader: "≫ btw",
     btwFailed: "/btw 调用失败",
@@ -601,6 +609,37 @@ export const zhCN: TranslationSchema = {
     planStoppedAt: "▸ 计划在 {label}{counter} 处停止",
     revisingAfter: "▸ 在 {label} 之后修订 — {feedback}",
     historyScrollHint: " ↑ 正在查看历史 · End / PgDn 返回底部 · ↓ 向下滚动一行",
+    editHistoryTitle: "编辑历史（从旧到新）：",
+    editHistoryNoCodeMode: "不在代码模式中",
+    editHistoryNoEdits: "此会话尚未记录任何编辑",
+    editHistoryNoShowId: "用法：/show [id] [path]   （省略 id 查看最新；path 来自文件摘要）",
+    editHistoryIdNotFound: "未找到编辑 #{id} — 运行 /history 查看有效 ID",
+    editHistoryLookupFailed: "意外错误：历史查找失败",
+    editHistoryBatchNoFile: '批次 #{id} 不包含 "{path}" — 此批次中的文件：{files}',
+    editHistoryNoEdits2: "此会话尚未记录编辑 — /history 为空",
+    editHistoryStatusApplied: "已应用",
+    editHistoryStatusPartial: "部分应用",
+    editHistoryStatusUndone: "已撤销",
+    editHistoryHelpShow:
+      "/show <id>            → 文件摘要    ·    /show <id> <path>  → 某个文件的完整 diff",
+    editHistoryHelpUndo:
+      "/undo                 → 最新的未撤销项   ·    /undo <id> [path]  → 指定批次或文件",
+    editHistoryAlreadyReverted: "（已撤销 — /history 显示批次级状态）",
+    editHistoryRevertFile: "/undo {id} {path}  → 仅还原此文件",
+    mcpFailed: "MCP {name} 失败",
+    mcpWarn: "MCP {name} 警告",
+    unknownTheme: "未知主题：{name}\n可用主题：{choices}",
+    themeSaved: "主题已保存：{name}\n下次启动生效：{active}",
+    noPendingEdits: "没有待处理的编辑 — 自上次 /apply 或 /discard 以来模型未提出修改。",
+    noMatchedApply: "▸ 没有匹配这些索引的编辑 — 什么都没应用。不带参数使用 /apply 提交全部。",
+    noPendingDiscard: "没有可丢弃的待处理编辑。",
+    noMatchedDiscard: "▸ 没有匹配这些索引的编辑 — 什么都没丢弃。",
+    blocksStillPending: "▸ 还有 {count} 个待处理编辑 — 使用 /apply 或 /discard 处理。",
+    nothingWritten: "。没有写入磁盘。",
+    discardedCount: "▸ 已丢弃 {count} 个待处理编辑",
+    noEventsFor: '没有会话 "{name}" 的事件',
+    lookedAtFile: "位置：{path}",
+    sidecarHint: "（会话会在第一轮时自动创建 sidecar — 此会话是否运行过？）",
   },
   hooks: {
     head: "钩子 {tag} `{cmd}` {decision}{truncTag}",
@@ -623,16 +662,10 @@ export const zhCN: TranslationSchema = {
       "会话预算已用完 — 已花费 ${spent} ≥ 上限 ${cap}。用 /budget <usd> 提高上限，/budget off 清除上限，或结束会话。",
     budget80Pct: "▲ 预算已用 80% — ${spent} / ${cap}。下一两轮可能就触顶。",
     proArmed: "⇧ /pro 已装备 — 本轮使用 deepseek-v4-pro（一次性 · 本轮后自动解除）",
-    abortedAtIter: "在第 {iter} 次工具调用处中断 — 未生成总结即停止（按 ↑ + Enter 或 /retry 恢复）",
     toolUploadStatus: "工具结果已上传 · 模型在生成下一条响应前思考中…",
-    preflightTruncateStatus: "预检：上下文接近上限，正在裁剪最早历史…",
-    preflightTruncated:
-      "预检：请求约 {estimate}/{ctxMax} tokens（{pct}%）— 已裁剪 {beforeMessages} 条消息 → {afterMessages}。发送中。",
-    preflightTruncatedStillFull:
-      "预检：裁剪 {beforeMessages} 条消息 → {afterMessages} 后，请求仍约 {estimate}/{ctxMax} tokens（{pct}%）— DeepSeek 大概率会返回 400。请运行 /clear 或 /new 重新开始。",
-    preflightNoFold:
-      "预检：请求约 {estimate}/{ctxMax} tokens（{pct}%）且没有可裁剪的内容 — DeepSeek 大概率会返回 400。请运行 /clear 或 /new 重新开始。",
-    flashEscalation: "⇧ flash 请求升级 — 本轮改用 {model}{reasonSuffix}",
+    turnStartFoldStatus: "回合开始：上下文接近上限，正在压缩历史…",
+    turnStartFolded:
+      "回合开始：请求约 {estimate}/{ctxMax} tokens（{pct}%）— 已压缩 {beforeMessages} 条消息 → {afterMessages}。发送中。",
     harvestStatus: "正在从推理过程提取计划状态…",
     repeatToolCallWarning: "拦截到重复工具调用 — 让模型察觉问题并换种方式重试。",
     stormStuck:
@@ -657,6 +690,8 @@ export const zhCN: TranslationSchema = {
       "余额不足（DeepSeek 402）：{inner}。在 https://platform.deepseek.com/top_up 充值 — 余额非零时面板顶栏会显示。",
     badparam422: "参数错误（DeepSeek 422）：{inner}",
     badrequest400: "请求错误（DeepSeek 400）：{inner}",
+    concurrency429:
+      "DeepSeek 并发超限（429）：{inner}。账号在跑的请求超过上限（v4-pro 500、v4-flash 2500，账号下所有 API key 累加）。通常是同一账号开了多个 Reasonix 进程，或者并行 subagent 一次发太多。等几秒重试、减少并行，或在 https://platform.deepseek.com 申请扩容。",
     deepseek5xxHead:
       "DeepSeek 服务不可用（{status}） — 这是 DeepSeek 服务端问题，不是 Reasonix 故障。已按指数退避重试 4 次。",
     deepseek5xxReachable:
@@ -666,7 +701,7 @@ export const zhCN: TranslationSchema = {
     deepseek5xxActionNetwork:
       " 建议：(1) 检查网络，(2) 等 30 秒后重试，(3) 查看状态页 https://status.deepseek.com。",
     deepseek5xxActionRetry:
-      " 建议：(1) 等 30 秒后重试，(2) 用 /preset 切换模型，(3) 查看状态页 https://status.deepseek.com。",
+      " 建议：(1) 等 30 秒后重试，(2) 用 /model 切换模型，(3) 查看状态页 https://status.deepseek.com。",
     innerNoMessage: "（无错误信息）",
     reasonAborted: "[用户已中断（Esc） — 正在总结到目前为止的发现]",
     reasonContextGuard: "[上下文额度即将耗尽 — 在下一次调用溢出之前先总结]",
@@ -687,6 +722,12 @@ export const zhCN: TranslationSchema = {
       helpShellDetail: "                             以便模型在下一轮看到。无允许列表限制。",
       helpShellConsent: "                             用户输入 = 明确同意。",
       helpShellExample: "                             示例：!git status   !ls src/   !npm test",
+      helpShellGateTitle: "模型发起的 shell 命令（按次审批）：",
+      helpShellGate: "  ↑↓ + ⏎                   每次都会弹出 `allow once` / `allow always` /",
+      helpShellGateDetail:
+        "                             `deny` 三选一。选 `allow always` 可将该命令前缀",
+      helpShellGatePolicy:
+        "                             加入本项目白名单。设计上没有「全局放行」开关。",
       helpMemoryTitle: "快速记忆：",
       helpMemoryPin:
         "  #<note>                  将 <note> 追加到 <project>/REASONIX.md（可提交）。",
@@ -705,11 +746,6 @@ export const zhCN: TranslationSchema = {
       helpUrl: "  @https://example.com     获取 URL，剥离 HTML，内联到 [Referenced URLs] 下。",
       helpUrlCache: "                             同一会话中相同 URL 只获取一次（内存缓存）。",
       helpUrlPunct: "                             自动剥离尾部标点符号（./,/））。",
-      helpPresetsTitle: "预设（branch + harvest 永远不会自动启用 — 仅手动选择）：",
-      helpPresetAuto: "  auto   v4-flash → v4-pro 在困难轮次切换  ← 默认 · 简单时便宜，困难时智能",
-      helpPresetFlash: "  flash  始终使用 v4-flash                  最便宜 · 每轮成本可预测",
-      helpPresetPro:
-        "  pro    始终使用 v4-pro                     约 3 倍 flash · 用于困难的多轮工作",
       helpSessionsTitle: "会话（默认自动启用，命名为 'default'）：",
       helpSessionCustom: "  reasonix chat --session <name>   使用不同的命名会话",
       helpSessionNone: "  reasonix chat --no-session       禁用本次运行的持久化",
@@ -723,6 +759,10 @@ export const zhCN: TranslationSchema = {
       loopStarted:
         '▸ 循环已启动 — 每 {duration} 重新提交 "{prompt}"。输入任何内容（或 /loop stop）取消。',
       keysNeedsTui: "/keys 需要 TUI 上下文（postKeys 已连接）。",
+      aboutHeader: "Reasonix v{version} — 缓存优先的 DeepSeek 编码代理",
+      aboutWebsiteLabel: "官网",
+      aboutRepoLabel: "仓库",
+      aboutLicenseLabel: "协议",
       unknownCommand: "未知命令：/{cmd} — 你是不是想用 {list}？",
       unknownCommandShort: "未知命令：/{cmd}  （试试 /help）",
     },
@@ -861,16 +901,9 @@ export const zhCN: TranslationSchema = {
       modelNotInCatalog:
         "model → {id}   （⚠ 不在获取的目录中：{list}。如果这是错误的，下次调用将返回 400 — 运行 /models 刷新。）",
       modelSet: "model → {id}",
-      presetAuto: "preset → auto  （v4-flash → v4-pro 在困难轮次切换 · 默认）",
-      presetFlash: "preset → flash  （始终使用 v4-flash · 最便宜 · /pro 仍可临时提升一轮）",
-      presetPro: "preset → pro  （始终使用 v4-pro · 约 3 倍 flash · 用于困难的多轮工作）",
-      presetUsage: "用法：/preset <auto|flash|pro>",
-      proNothingArmed: "未启用 — /pro 不带参数将为下一轮启用 pro",
-      proDisarmed: "▸ /pro 已解除 — 下一轮回退到当前预设",
-      proUsage:
-        "用法：/pro       为下一轮启用 pro（一次性，自动解除）\n       /pro off  在下一轮前取消启用状态",
-      proArmed:
-        "▸ /pro 已启用 — 您的下一条消息将在 {model} 上运行，无论预设如何。一轮后自动解除。使用 /preset max 进行持久切换。",
+      effortStatus: "effort → {current}   （可选：{list}）",
+      effortUsage: "用法：/effort <{list}>   （high 为安全默认；max 是 DeepSeek 扩展）",
+      effortSet: "effort → {effort}",
       budgetNoCap:
         "未设置会话预算 — Reasonix 将持续运行直到您停止。使用以下方式设置：/budget <usd>   （例如 /budget 5）",
       budgetStatus: "预算：${spent} / ${cap}（{pct}%）· /budget off 清除，/budget <usd> 更改",
@@ -930,6 +963,9 @@ export const zhCN: TranslationSchema = {
       readyHint: "仅 127.0.0.1 · token 保护。输入 `/dashboard stop` 关闭。",
       failed: "▸ 仪表板启动失败：{reason}",
       starting: "▸ 正在启动仪表板服务器…",
+      copied: "▸ 仪表板 URL 已复制到剪贴板：{url}",
+      tokenResetting: "▸ 正在轮换仪表板 token 并重启服务…",
+      tokenReset: "▸ 仪表板 token 已轮换。新 URL：",
     },
     observability: {
       contextInfo: "上下文：~{total} / {max}（{pct}%）· 系统 {sys} · 工具 {tools} · 日志 {log}",
@@ -959,6 +995,12 @@ export const zhCN: TranslationSchema = {
       statusMcp: "  MCP     {servers} 个服务器，注册表中 {tools} 个工具",
       statusEdits: "  编辑    {count} 个待处理（/apply 提交，/discard 丢弃）",
       statusPlan: "  计划    开启 — 写入受限（submit_plan + 审批）",
+      statusLifecycle: "  生命周期 {mode}/{state} · {progress}{evidence}",
+      lifecycleNoPlan: "暂无计划",
+      lifecycleEvidencePending: "等待 evidence",
+      lifecycleRejected: "lifecycle：{tool} 在 {state} 状态被拦截 — 下一步：{next}",
+      lifecycleEvidenceRejected: "lifecycle：步骤 {stepId} 需要 evidence — 下一步：{next}",
+      lifecycleRepeatedRejected: "lifecycle：{tool} 被重复拦截 — 不要用相同参数反复重试",
       statusModeYolo:
         "  模式    YOLO — 编辑 + shell 自动运行，无提示（/undo 仍可回滚 · Shift+Tab 切换）",
       statusModeAuto: "  模式    AUTO — 编辑立即应用（5 秒内按 u 撤消 · Shift+Tab 切换）",
@@ -971,6 +1013,10 @@ export const zhCN: TranslationSchema = {
       activeNone: "▸ 活跃计划：（无）",
       noArchives: "此会话尚无归档计划 — 当每个步骤完成时自动归档",
       archivedHeader: "已归档（{count}）：",
+      evidencePending:
+        "  ! 等待 evidence — 当前步骤需要 verification/diff/checkpoint/manual evidence",
+      evidenceLine: "  evidence {stepId}: {summary}",
+      archivedEvidenceLine: "    evidence: {summary}",
       replayNoSession:
         "未附加会话 — `/replay` 是按会话的。在项目中运行 `reasonix code` 以获取会话。",
       replayNoArchives:
@@ -1048,7 +1094,7 @@ export const zhCN: TranslationSchema = {
     },
     mcp: {
       noServers:
-        '未附加 MCP 服务器。运行 `reasonix setup` 选择一些，或使用 --mcp "<spec>" 启动。`reasonix mcp list` 显示目录。',
+        '未附加 MCP 服务器。运行 `reasonix setup` 选择一些，或使用 --mcp "<spec>" 启动。`reasonix mcp list` 显示目录。注：模型发起的 shell 命令按次审批（allow once / allow always / deny），设计上没有「全局放行」开关。',
       toolsLabel: "  工具     {count}",
       resourcesHint: "`/resource` 浏览+读取",
       promptsHint: "`/prompt` 浏览+获取",
@@ -1080,13 +1126,17 @@ export const zhCN: TranslationSchema = {
       currentEngine: "当前网页搜索引擎：{engine}",
       endpoint: "SearXNG 端点：{url}",
       usageHeader: "用法：",
-      usageMojeek: "  /search-engine mojeek            使用 Mojeek（默认，无外部依赖）",
+      usageBing: "  /search-engine bing              使用 Bing（默认，国内裸 IP 直连，无需代理）",
       usageSearxng: "  /search-engine searxng            使用 SearXNG 默认端点",
       usageSearxngUrl: "  /search-engine searxng <url>      使用 SearXNG 自定义端点",
       usageMetaso:
         "  /search-engine metaso              使用 Metaso API（每天 100 次免费，配置你自己的 API 密钥可提升限额）",
       usageTavily:
         "  /search-engine tavily              使用 Tavily API（LLM 友好，每月 1000 次免费 — 设置 TAVILY_API_KEY 或 config 的 tavilyApiKey；注册 https://tavily.com）",
+      usagePerplexity:
+        "  /search-engine perplexity          使用 Perplexity AI（AI 直接回答 + 引用 — 设置 PERPLEXITY_API_KEY 或 config 的 perplexityApiKey；在 https://perplexity.ai/settings/api 获取密钥）",
+      usageExa:
+        "  /search-engine exa                 使用 Exa API（AI 直接回答 + 引用，每月 1000 次免费 — 设置 EXA_API_KEY 或 config 的 exaApiKey；注册 https://exa.ai）",
       alias: "别名：/se",
       searxngInfo: "SearXNG 是一个自托管的元搜索引擎（https://github.com/searxng/searxng）。",
       searxngInstall: "安装命令：  docker run -d -p 8080:8080 searxng/searxng",
@@ -1095,7 +1145,14 @@ export const zhCN: TranslationSchema = {
       switchedMetasoNote: " 每日限额 100 次（配置你自己的 API 密钥可提升限额）。",
       switchedTavilyNote:
         " 请设置环境变量 TAVILY_API_KEY 或 config 中的 `tavilyApiKey`；https://tavily.com 每月 1000 次免费。",
-      confirmed: '✓ 网页搜索引擎已设为 "{engine}"{detail}。下一轮模型调用将生效。',
+      switchedPerplexityNote:
+        " 请设置环境变量 PERPLEXITY_API_KEY 或 config 中的 `perplexityApiKey`；在 https://perplexity.ai/settings/api 获取密钥。",
+      switchedExaNote:
+        " 请设置环境变量 EXA_API_KEY 或 config 中的 `exaApiKey`；注册 https://exa.ai。",
+      keyNeeded:
+        '未配置 "{engine}" 的 API 密钥。\n\n  1. 设置环境变量 {envVar}\n  2. 或内联提供：/search-engine {engine} <your-key>\n  3. 或在 ~/.reasonix/config.json 中添加 "{engine}ApiKey"\n\n完成后重新执行 /search-engine {engine}。',
+      keySaved: " API 密钥已保存到配置。",
+      confirmed: '网页搜索引擎已设为 "{engine}"{detail}。下一轮模型调用将生效。',
       confirmedDetail: "（{endpoint}）",
     },
     skill: {
@@ -1147,6 +1204,7 @@ export const zhCN: TranslationSchema = {
     editsLabel: "编辑:",
     mcpLoading: "MCP",
     ctx: "上下文",
+    shortcutsHint: "Ctrl+P 快捷键",
   },
   editMode: {
     plan: "计划",
@@ -1178,6 +1236,11 @@ export const zhCN: TranslationSchema = {
       "未设置 $EDITOR / $VISUAL / $GIT_EDITOR — 请导出环境变量（例如 `export EDITOR=nano`）后重试",
     editorExited: "编辑器异常退出，返回码 {code}",
     typeaheadStaged: "\u25b8 {count} 行已暂存 \u00b7 esc 召回",
+    steerPlaceholder: "输入消息以引导当前任务 — 忙碌时不支持命令",
+    steerHint: "发送 — 回合内注入",
+    stashNothing: "没有可暂存的内容",
+    stashSaved: "已暂存",
+    stashRecall: "已恢复",
   },
   pathConfirm: {
     title: "沙箱外路径",
@@ -1197,6 +1260,12 @@ export const zhCN: TranslationSchema = {
     pathLabel: "路径",
     sandboxLabel: "沙箱",
     allowPrefixLabel: "前缀",
+    promptTitleRead: "访问路径 — 读取",
+    promptTitleWrite: "访问路径 — 写入",
+    actionAllowRead: "允许读取",
+    actionAllowWrite: "允许写入",
+    actionAlwaysAllow: "始终允许 — {prefix}",
+    actionDeny: "拒绝",
   },
   shellConfirm: {
     title: "Shell 命令",
@@ -1219,6 +1288,11 @@ export const zhCN: TranslationSchema = {
     waitLabel: "等待",
     previewMore: "… 还有 {n} 行未显示 — 按 esc 取消，让模型拆分后再试",
     previewMorePlural: "… 还有 {n} 行未显示 — 按 esc 取消，让模型拆分后再试",
+    promptTitleRunCommand: "运行命令",
+    promptTitleRunBackground: "运行后台命令",
+    actionRunOnce: "运行一次",
+    actionAlwaysAllow: "始终允许 — {prefix}",
+    actionDeny: "拒绝",
   },
   editConfirm: {
     footer:
@@ -1235,6 +1309,13 @@ export const zhCN: TranslationSchema = {
     linesAbovePlural: "  ↑ 上方 {count} 行（↑/k 或 PgUp）",
     linesBelow: "  ↓ 下方 {count} 行（↓/j 或 Space/PgDn）",
     linesBelowPlural: "  ↓ 下方 {count} 行（↓/j 或 Space/PgDn）",
+  },
+  editPicker: {
+    title: "编辑之前的消息",
+    hint: "↑↓ 选择 · Enter 加载到输入框 · Esc 取消",
+    empty: "还没有用户发言 — 没什么可以编辑的",
+    dismiss: "Esc 关闭",
+    forked: "▸ 从第 #{turn} 轮分叉 — 原文已填回输入框",
   },
   sessionPicker: {
     header: " ◈ REASONIX · 选择会话 ",
@@ -1274,8 +1355,14 @@ export const zhCN: TranslationSchema = {
     loading: "  ·  加载目录…",
     catalogEmpty: "  ·  目录为空 — 使用已知备选",
     modelsAvailable: "  ·  {count} 个模型可用",
-    presetsHeader: "    预设  ·  推荐 — 模型 + 强度 + 自动升级",
-    modelsHeader: "    模型  ·  直接选择 — 自动升级保持不变",
+    effortHeader: "    强度  ·  reasoning_effort 上限",
+    modelsHeader: "    模型  ·  DeepSeek 兼容 ID",
+    effortDesc: {
+      low: "最快 — 极少推理",
+      medium: "平衡",
+      high: "默认 — vLLM / Azure 安全",
+      max: "DeepSeek 扩展；OpenAI / vLLM 会拒绝",
+    },
     pickerFooter: "  ↑↓ 选择 · ⏎ 确认 · [r] 刷新 · Esc 取消",
     currentLabel: "  · 当前",
   },
@@ -1355,33 +1442,35 @@ export const zhCN: TranslationSchema = {
   },
   webErrors: {
     status:
-      "web_search {status} — try: 搜索后端返回错误；请改写查询，或使用 /search-engine mojeek|searxng 切换引擎",
+      "web_search {status} — try: 搜索后端返回错误；请改写查询，或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
     rateLimit429:
       "web_search 429 — try: 等待 10 秒后重试，或改写查询；搜索后端正在对该客户端进行限流",
     forbidden403:
-      "web_search 403 — try: 搜索后端拒绝该客户端访问；使用 /search-engine mojeek|searxng 切换引擎，或稍后重试",
+      "web_search 403 — try: 搜索后端拒绝该客户端访问；使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎，或稍后重试",
     serverError5xx:
       "web_search {status} — try: 在浏览器中打开搜索 URL；若能加载则属临时故障，等 30 秒重试即可",
-    mojeekBlocked:
-      "web_search: Mojeek 反爬页面 — 频率限制或被屏蔽 — try: 等待 30 秒后重试，或使用 /search-engine searxng 切换引擎",
-    mojeekNoResults:
-      "web_search: 返回 0 条结果但响应看起来不是正常空结果页（{chars} 字符，前 120 字符：{preview}）— try: 使用更简单的关键词改写查询，或使用 /search-engine searxng 切换引擎",
+    bingBlocked:
+      "web_search: Bing 反爬页面 — 频率限制或被屏蔽 — try: 等待 30 秒后重试，或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
+    bingNoResults:
+      "web_search: 返回 0 条结果但响应看起来不是正常空结果页（{chars} 字符，前 120 字符：{preview}）— try: 使用更简单的关键词改写查询，或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
     invalidEndpoint:
       'web_search: 无效的 SearXNG 端点 "{endpoint}" — try: 使用 /search-endpoint http://host:port 设置有效的 URL',
     endpointMustBeHttp:
       "web_search: SearXNG 端点必须是 http(s) 协议，当前为 {protocol} — try: 使用 /search-endpoint http://host:port 设置有效的 URL",
     cannotReach:
-      "web_search: 无法访问 SearXNG 服务器 {endpoint} — try: 安装并启动 SearXNG（https://github.com/searxng/searxng，例如 `docker run -d -p 8080:8080 searxng/searxng`），或使用 /search-engine mojeek 切换到默认引擎",
+      "web_search: 无法访问 SearXNG 服务器 {endpoint} — try: 安装并启动 SearXNG（https://github.com/searxng/searxng，例如 `docker run -d -p 8080:8080 searxng/searxng`），或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
     searxngNoResults:
-      "web_search: 返回 0 条结果但 SearXNG 响应看起来不是正常空结果页（{chars} 字符）— try: 使用更简单的关键词改写查询，或使用 /search-engine mojeek 切换引擎",
+      "web_search: 返回 0 条结果但 SearXNG 响应看起来不是正常空结果页（{chars} 字符）— try: 使用更简单的关键词改写查询，或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
+    metasoMissingKey:
+      "web_search: Metaso 需要 API 密钥 — 设置 METASO_API_KEY，或使用 /search-engine metaso <key> 配置；可在 https://metaso.cn/search-api/playground 获取密钥",
     metasoDailyLimit:
-      "web_search: 默认 API 密钥的每日搜索次数已达上限 — 设置 METASO_API_KEY 环境变量，或在 https://metaso.cn/search-api/playground 获取自己的密钥",
+      "web_search: Metaso 每日搜索次数已达上限 — 设置 METASO_API_KEY，或在 https://metaso.cn/search-api/playground 获取密钥",
     metasoUnauthorized:
       "web_search: Metaso API 密钥被拒绝 — 检查 METASO_API_KEY，或在 https://metaso.cn/search-api/playground 获取密钥",
     metasoRateLimit:
       "web_search: Metaso 请求频率限制 — 等待后重试，或在 https://metaso.cn/search-api/playground 获取自己的密钥",
     metasoServerError:
-      "web_search: Metaso 服务器错误（{status}）— 稍后重试，或使用 /search-engine mojeek 切换引擎",
+      "web_search: Metaso 服务器错误（{status}）— 稍后重试，或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
     metasoParseError: "web_search: Metaso 返回无法解析的响应（HTTP {status}）— 稍后重试",
     metasoApiError: "web_search: Metaso API 错误（code {code}: {message}）— 稍后重试",
     tavilyMissingKey:
@@ -1389,10 +1478,28 @@ export const zhCN: TranslationSchema = {
     tavilyUnauthorized:
       "web_search: Tavily API 密钥被拒绝 — 检查 TAVILY_API_KEY，或在 https://tavily.com 获取密钥",
     tavilyRateLimit:
-      "web_search: Tavily 请求频率限制或月度配额用尽 — 等待、用 /search-engine mojeek 切换引擎，或升级 Tavily 计划",
+      "web_search: Tavily 请求频率限制或月度配额用尽 — 等待、用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎，或升级 Tavily 计划",
     tavilyServerError:
-      "web_search: Tavily 服务器错误（{status}）— 稍后重试，或使用 /search-engine mojeek 切换引擎",
+      "web_search: Tavily 服务器错误（{status}）— 稍后重试，或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
     tavilyParseError: "web_search: Tavily 返回无法解析的响应（HTTP {status}）— 稍后重试",
+    perplexityMissingKey:
+      "web_search: Perplexity 后端需要 API 密钥 — 设置 PERPLEXITY_API_KEY 环境变量，或在 ~/.reasonix/config.json 中配置 `perplexityApiKey`；在 https://perplexity.ai/settings/api 获取密钥",
+    perplexityUnauthorized:
+      "web_search: Perplexity API 密钥被拒绝 — 检查 PERPLEXITY_API_KEY，或在 https://perplexity.ai/settings/api 获取密钥",
+    perplexityRateLimit:
+      "web_search: Perplexity 请求频率限制 — 等待后重试，或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
+    perplexityServerError:
+      "web_search: Perplexity 服务器错误（{status}）— 稍后重试，或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
+    perplexityParseError: "web_search: Perplexity 返回无法解析的响应（HTTP {status}）— 稍后重试",
+    exaMissingKey:
+      "web_search: Exa 后端需要 API 密钥 — 设置 EXA_API_KEY 环境变量，或在 ~/.reasonix/config.json 中配置 `exaApiKey`；https://exa.ai 每月 1000 次免费",
+    exaUnauthorized:
+      "web_search: Exa API 密钥被拒绝 — 检查 EXA_API_KEY，或在 https://exa.ai 获取密钥",
+    exaRateLimit:
+      "web_search: Exa 请求频率限制或月度配额用尽 — 等待升级，或在 https://exa.ai/pricing 查看计划",
+    exaServerError:
+      "web_search: Exa 服务器错误（{status}）— 稍后重试，或使用 /search-engine bing|searxng|metaso|tavily|perplexity|exa 切换引擎",
+    exaParseError: "web_search: Exa 返回无法解析的响应（HTTP {status}）— 稍后重试",
     fetchStatus:
       "web_fetch {status} for {url} — try: 在浏览器中确认该 URL 能否访问；该状态码表明目标主机返回了错误页面",
     fetchRateLimit429:
@@ -1448,8 +1555,10 @@ export const zhCN: TranslationSchema = {
     hitsPlural: "{count} 条结果 · {files} 个文件",
     moreHitSingular: "⋮ +{count} 条结果",
     moreHitsPlural: "⋮ +{count} 条结果",
-    earlierLine: "⋮ 前 {count} 行（使用 /tool 阅读全文）",
-    earlierLines: "⋮ 前 {count} 行（使用 /tool 阅读全文）",
+    earlierLine: "⋮ {count} 行已隐藏（Ctrl+R 查看完整输出）",
+    earlierLines: "⋮ {count} 行已隐藏（Ctrl+R 查看完整输出）",
+    hiddenLine: "⋮ {count} 行已隐藏",
+    hiddenLines: "⋮ {count} 行已隐藏",
     earlierStackLine: "⋮ 前 {count} 行堆栈已隐藏",
     earlierStackLines: "⋮ 前 {count} 行堆栈已隐藏",
     agent: "代理 · {name}",
@@ -1491,19 +1600,6 @@ export const zhCN: TranslationSchema = {
     categoryProject: "项目",
     categoryReference: "参考",
   },
-  copyMode: {
-    title: "── 复制模式 ──",
-    help: "j/k 或 ↑/↓ 移动 · v 起选区 · y 复制 · g/G 顶/底 · q 退出",
-    statusBar: "第 {cur}/{total} 行 · 选区：{sel}",
-    statusYanked: "已复制 {size} 字符（osc52={osc52}）",
-    statusEmpty: "未选中内容",
-    empty: "（还没有聊天内容 — 先和模型说点什么）",
-    labelUser: "你",
-    labelAssistant: "助手",
-    labelReasoning: "推理",
-    yankedToast: "▸ 已复制 {size} 字符到剪贴板 (osc52)",
-    yankedToastFile: "▸ 已复制 {size} 字符 · 文件：{path}",
-  },
   mcpHealth: {
     noData: "无检查数据",
     healthy: "正常 \u00b7 {ms}ms",
@@ -1511,7 +1607,7 @@ export const zhCN: TranslationSchema = {
     verySlow: "非常慢 \u00b7 {ms}ms",
     slowToast: "\u26a0 MCP `{name}` 响应缓慢 \u00b7 P95 {seconds}s \u00b7 最近 {sampleSize} 次调用",
     emptyHint:
-      "\u2139 未配置 MCP 服务器 —— 可尝试：`reasonix setup` 重新选择，或 `reasonix mcp install filesystem`",
+      "\u2139 未配置 MCP 服务器 —— 可尝试：`reasonix setup` 重新选择，或 `reasonix mcp install filesystem` · shell 命令按次审批（allow once / allow always / deny），无全局放行",
   },
   denyContextInput: {
     description: "告诉模型你为什么拒绝了。模型下次会看到你的理由作为额外的上下文。",
@@ -1520,7 +1616,8 @@ export const zhCN: TranslationSchema = {
     scrollAbove: " \u2191 {scroll}/{max} 行",
     scrollAbovePlural: " \u2191 {scroll}/{max} 行",
     scrollMore: " \u2014 还有 {remaining} 行",
-    scrollPgUp: " \u00b7 PgUp/\u6eda\u8f6e/\u2191",
+    scrollPgUp: " \u00b7 PgUp/\u6eda\u8f6e",
+    scrollCopy: " \u00b7 /copy \u8fdb\u5165\u590d\u5236\u6a21\u5f0f",
   },
   slashArgPicker: {
     noMatch: '\u6ca1\u6709\u5339\u914d "{partial}"',
@@ -1568,6 +1665,18 @@ export const zhCN: TranslationSchema = {
     serverCount: "{count} 个服务器",
     footer: "↑↓ 选择 · [r] 重连 · [d] 禁用 · Esc 退出",
   },
+  mcpBrowse: {
+    noResources: "没有任何已连接 MCP 服务器上的资源（或无服务器连接）。`/mcp` 显示当前列表。",
+    readOne: "读取：`/resource <uri>` — 或在选择器中使用 Tab 键。",
+    noPrompts: "没有任何已连接 MCP 服务器上的提示（或无服务器连接）。`/mcp` 显示当前列表。",
+    fetchOne: "获取：`/prompt <name>` — 暂不支持参数；带必需参数的提示将返回服务器错误。",
+    noServerForResource: '没有服务器暴露资源 "{name}"',
+    resourceHint: "`/resource` 不带参数可查看可用列表。",
+    readFailed: "读取资源失败",
+    noServerForPrompt: '没有服务器暴露 prompt "{name}"',
+    promptHint: "`/prompt` 不带参数可查看可用列表。",
+    fetchFailed: "获取 prompt 失败",
+  },
   mcpLifecycle: {
     handshake: "握手中…",
     connected: "已连接",
@@ -1580,6 +1689,8 @@ export const zhCN: TranslationSchema = {
     failedSetupHint: "→ 运行 `reasonix setup` 移除此条目，或修复底层问题（缺少 npm 包、网络等）。",
     failedSetupConfigHint: "→ 运行 `reasonix setup` 从已保存配置中移除损坏的条目。",
     abortedHint: "已中断 MCP 启动 — 跳过 {count} 个服务器。问题修复后用 /mcp 重新连接。",
+    toolsReady: "工具就绪",
+    warnLabel: "警告",
   },
   checkpointPicker: {
     title: "恢复检查点 \u2014 {workspace}",
@@ -1625,5 +1736,64 @@ export const zhCN: TranslationSchema = {
     noRecords: "无记录",
     untracked: "（未追踪）",
     churned: "（已变更 ×{count}）",
+  },
+  builtinSkills: {
+    explore: "在隔离子 agent 中探索代码库 — 只读宽网调查，返回一个精炼结论",
+    research: "结合代码阅读与网络搜索进行调研 — 在隔离子 agent 中综合信息并返回结论",
+    review: "审查当前分支变更 — 检查正确性、安全性、缺失测试、隐藏行为变更",
+    securityReview: "安全专项审查 — 标记注入/认证/密钥/反序列化/路径穿越/加密问题",
+    test: "运行测试套件并诊断失败 — 自动识别测试框架，修复后重跑直至通过",
+  },
+  shortcutsHelp: {
+    title: "快捷键",
+    groupInput: "输入",
+    groupNavigation: "导航",
+    groupSession: "会话",
+    groupSystem: "系统",
+    descEnter: "发送消息",
+    descShiftEnter: "换行",
+    descCtrlEnter: "换行",
+    descCtrlJ: "换行",
+    descCtrlU: "清空输入",
+    descCtrlW: "删除单词",
+    descCtrlP: "显示/隐藏快捷键",
+    descCtrlX: "在编辑器中打开",
+    descArrows: "浏览输入历史",
+    descPgUpDown: "翻页",
+    descCtrlL: "清屏",
+    descCtrlB: "切换侧边栏",
+    descNewSession: "新建会话",
+    descListSessions: "列出会话",
+    descSwitchModel: "切换模型",
+    descSwitchEffort: "切换推理强度",
+    descSwitchTheme: "切换主题",
+    descCtrlC: "退出",
+    descEsc: "停止/取消",
+    descCtrlR: "切换详细模式",
+    descCtrlO: "展开回复（仅流式输出期间）",
+    descHelp: "显示所有命令",
+    descShiftTab: "切换编辑模式",
+    descAltS: "暂存/恢复输入",
+  },
+  mcpCli: {
+    bundledCatalog: "已打包的 MCP 服务器（离线目录）：",
+    justFetched: "刚刚获取",
+    cachedAge: "缓存，{age}",
+    moreAvailable: "还有更多",
+    allLoaded: "已全部加载",
+    morePagesAvailable: "▸ 还有更多页可用 — `reasonix mcp list --pages <n>` 或 --all",
+    installHint: "安装：reasonix mcp install <name>",
+    usageSearch: "用法：reasonix mcp search <query>",
+    usageInstall: "用法：reasonix mcp install <name>",
+    noMatchesFor: '未找到 "{q}" 的匹配项（已检索 {count} 条记录，来源：{source}）',
+    matchCount: '在 {source} 中找到 {count} 条 "{q}" 的匹配项（已扫描 {loaded} 条记录）：',
+    moreLoaded: "… 还有 {count} 条已加载 — 使用 `reasonix mcp search <query>` 筛选",
+    moreMatches: "… 还有 {count} 条匹配项",
+    installed: "已安装：{spec}",
+    noServerFound: '在 {source} 中遍历了 {pages} 页后未找到名为 "{target}" 的 MCP 服务器。',
+    noServerTryMore: "试试：reasonix mcp install {target} --max-pages 100",
+    noInstallMeta: '无法为 "{name}" 获取安装元数据 — 试试 `npx -y @smithery/cli install {name}`。',
+    buildSpecFailed: "无法为 {name} 构建安装 spec：{message}",
+    alreadyInstalled: "已安装：{spec}",
   },
 };

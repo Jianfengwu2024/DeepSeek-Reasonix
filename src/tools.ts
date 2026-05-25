@@ -1,12 +1,20 @@
 import type { PauseGate } from "./core/pause-gate.js";
 import { truncateForModel, truncateForModelByTokens } from "./mcp/registry.js";
 import { analyzeSchema, flattenSchema, nestArguments } from "./repair/flatten.js";
+import {
+  type NormalizedToolRateLimitConfig,
+  type ToolRateLimitOption,
+  ToolRateLimiter,
+} from "./tools/rate-limit.js";
+import type { ReadTracker } from "./tools/read-tracker.js";
 import type { JSONSchema, ToolSpec } from "./types.js";
 
 export interface ToolCallContext {
   signal?: AbortSignal;
   /** Inject a mock PauseGate for tests. When absent, tools use the singleton. */
   confirmationGate?: PauseGate;
+  /** Per-session tracker of files the model has read. Filesystem tools mark on read/write, edit_file/multi_edit consult before mutating. */
+  readTracker?: ReadTracker;
 }
 
 export interface ToolDefinition<A = any, R = any> {
@@ -32,6 +40,7 @@ interface InternalTool extends ToolDefinition {
 export interface ToolRegistryOptions {
   /** Auto-flatten + re-nest at dispatch; default true. */
   autoFlatten?: boolean;
+  rateLimit?: ToolRateLimitOption;
 }
 
 export type ToolCallAuditEvent = {
@@ -59,13 +68,18 @@ export class ToolRegistry {
   private readonly _autoFlatten: boolean;
   private _planMode = false;
   private _interceptor: ToolInterceptor | null = null;
+  private readonly _interceptors: Array<{ id: string; fn: ToolInterceptor }> = [];
   private _auditListener: ToolCallAuditListener | null = null;
   private _resultAugmenter: ToolResultAugmenter | null = null;
+  private readonly _rateLimiter: ToolRateLimiter;
   /** Per-tool fingerprint of the last call that failed schema validation. Cleared by any successful validation for that tool. */
   private readonly _lastMalformed = new Map<string, string>();
+  /** Per-tool fingerprint of the last host-side gate rejection. */
+  private readonly _lastGateRejection = new Map<string, string>();
 
   constructor(opts: ToolRegistryOptions = {}) {
     this._autoFlatten = opts.autoFlatten !== false;
+    this._rateLimiter = new ToolRateLimiter(opts.rateLimit);
   }
 
   /** Enable / disable plan-mode enforcement at dispatch. */
@@ -83,6 +97,19 @@ export class ToolRegistry {
     this._interceptor = fn;
   }
 
+  /** Ordered host-side interceptors. They run before the legacy single interceptor. */
+  addToolInterceptor(id: string, fn: ToolInterceptor): () => void {
+    const normalized = id.trim();
+    if (!normalized) throw new Error("tool interceptor requires a non-empty id");
+    const existing = this._interceptors.findIndex((entry) => entry.id === normalized);
+    if (existing >= 0) this._interceptors.splice(existing, 1);
+    this._interceptors.push({ id: normalized, fn });
+    return () => {
+      const idx = this._interceptors.findIndex((entry) => entry.id === normalized);
+      if (idx >= 0) this._interceptors.splice(idx, 1);
+    };
+  }
+
   setAuditListener(fn: ToolCallAuditListener | null): void {
     this._auditListener = fn;
   }
@@ -95,6 +122,10 @@ export class ToolRegistry {
   /** True when an augmenter is already wired — lets late-installing callers skip clobbering an earlier one. */
   get hasResultAugmenter(): boolean {
     return this._resultAugmenter !== null;
+  }
+
+  get rateLimitPolicy(): false | NormalizedToolRateLimitConfig {
+    return this._rateLimiter.policy;
   }
 
   register<A, R>(def: ToolDefinition<A, R>): this {
@@ -157,13 +188,15 @@ export class ToolRegistry {
       maxResultTokens?: number;
       /** Inject a mock PauseGate for tests. */
       confirmationGate?: PauseGate;
+      /** Session-scoped read tracker; filesystem tools mark on read/write, edit_file/multi_edit gate on it. */
+      readTracker?: ReadTracker;
     } = {},
   ): Promise<string> {
     const tool = this._tools.get(name);
     if (!tool) {
       return JSON.stringify({ error: `unknown tool: ${name}` });
     }
-    const fingerprint = fingerprintArgs(argumentsRaw);
+    const rawFingerprint = rawFingerprintArgs(argumentsRaw);
     let args: Record<string, unknown>;
     try {
       args =
@@ -175,7 +208,7 @@ export class ToolRegistry {
     } catch (err) {
       return this._noteMalformed(
         name,
-        fingerprint,
+        rawFingerprint,
         `invalid tool arguments JSON: ${(err as Error).message}`,
       );
     }
@@ -188,6 +221,7 @@ export class ToolRegistry {
     if (tool.flatSchema && args && typeof args === "object" && hasDotKey(args)) {
       args = nestArguments(args);
     }
+    const fingerprint = fingerprintArgs(args);
 
     const missing = tool.parameters ? missingRequiredParam(tool.parameters, args) : null;
     if (missing) {
@@ -210,15 +244,21 @@ export class ToolRegistry {
       });
     }
 
-    // Interceptor runs after plan-mode (so a plan-mode refusal still
+    // Interceptors run after plan-mode (so a plan-mode refusal still
     // wins) but before the real tool fn. A string return is treated as
     // the full tool result; null / undefined means "not my concern,
-    // fall through." Uncaught throws from the interceptor are surfaced
-    // through the same error path as a failed tool fn below.
-    if (this._interceptor) {
+    // fall through." Uncaught throws are surfaced through the same
+    // structured error path as the legacy single interceptor.
+    const chain = this._interceptor
+      ? [...this._interceptors.map((entry) => entry.fn), this._interceptor]
+      : this._interceptors.map((entry) => entry.fn);
+    for (const interceptor of chain) {
       try {
-        const short = await this._interceptor(name, args);
-        if (typeof short === "string") return short;
+        const short = await interceptor(name, args);
+        if (typeof short === "string") {
+          const guarded = this._noteGateRejection(name, fingerprint, short);
+          return this._augmentResult(name, args, guarded);
+        }
       } catch (err) {
         return JSON.stringify({
           error: `${name}: interceptor failed — ${(err as Error).message}`,
@@ -237,6 +277,12 @@ export class ToolRegistry {
       });
     }
 
+    // Only real dispatch attempts consume quota; earlier refusals are guidance, not work.
+    const rateLimit = this._rateLimiter.consume(name);
+    if (!rateLimit.allowed) {
+      return JSON.stringify(rateLimit.result);
+    }
+
     let finalResult: string;
     try {
       try {
@@ -247,6 +293,7 @@ export class ToolRegistry {
       const result = await tool.fn(args, {
         signal: opts.signal,
         confirmationGate: opts.confirmationGate,
+        readTracker: opts.readTracker,
       });
       const str = typeof result === "string" ? result : JSON.stringify(result);
       // Pre-clip at dispatch so a single fat result can't balloon the
@@ -284,14 +331,19 @@ export class ToolRegistry {
       }
     }
 
+    finalResult = this._noteGateRejection(name, fingerprint, finalResult);
+    return this._augmentResult(name, args, finalResult);
+  }
+
+  private _augmentResult(name: string, args: Record<string, unknown>, result: string): string {
     if (this._resultAugmenter) {
       try {
-        return this._resultAugmenter(name, args, finalResult);
+        return this._resultAugmenter(name, args, result);
       } catch {
         /* augmenter must never break the tool result */
       }
     }
-    return finalResult;
+    return result;
   }
 
   /** Records the failed call's fingerprint; on the 2nd consecutive identical malformed call to the same tool, returns a sharper error that tells the model to stop retrying. */
@@ -305,6 +357,77 @@ export class ToolRegistry {
       });
     }
     return JSON.stringify({ error: `${name}: ${detail}` });
+  }
+
+  private _noteGateRejection(name: string, fingerprint: string, result: string): string {
+    const reason = rejectedReason(name, result);
+    if (!reason) {
+      this._lastGateRejection.delete(name);
+      return result;
+    }
+    const key = `${reason}:${fingerprint}`;
+    const prev = this._lastGateRejection.get(name);
+    this._lastGateRejection.set(name, key);
+    if (prev === key) {
+      return JSON.stringify({
+        error: `${name}: same call was just rejected by ${reason} — do not retry identical args. ${rejectionRecoveryHint(reason)}`,
+        rejectedReason: reason,
+        consecutiveInterceptorRejection: true,
+      });
+    }
+    return result;
+  }
+}
+
+function rejectedReason(name: string, result: string): string | null {
+  const textReason = plainTextRejectedReason(name, result);
+  if (textReason) return textReason;
+  try {
+    const parsed = JSON.parse(result) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const reason = (parsed as { rejectedReason?: unknown }).rejectedReason;
+    if (typeof reason === "string" && reason) return reason;
+    const error = (parsed as { error?: unknown }).error;
+    if (typeof error === "string") return plainTextRejectedReason(name, error);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function plainTextRejectedReason(name: string, result: string): string | null {
+  if ((name === "edit_file" || name === "write_file") && /rejected this edit/i.test(result)) {
+    return "edit-gate";
+  }
+  if (
+    (name === "edit_file" || name === "write_file" || name === "multi_edit") &&
+    /queued \d+ edits? for review/i.test(result)
+  ) {
+    return "edit-gate";
+  }
+  if ((name === "edit_file" || name === "multi_edit") && /read_file first/i.test(result)) {
+    return "read-before-edit";
+  }
+  if ((name === "run_command" || name === "run_background") && /\buser denied:/i.test(result)) {
+    return "shell-gate";
+  }
+  return null;
+}
+
+function rejectionRecoveryHint(reason: string): string {
+  switch (reason) {
+    case "edit-gate":
+      return "Do not re-emit the same edit. Try a genuinely different edit or ask the user how to proceed.";
+    case "read-before-edit":
+      return "Call read_file on the target path first, then re-issue the edit.";
+    case "shell-gate":
+      return "Do not retry the same command. Use an allowlisted/read-only command, wait for approval, or ask the user how to proceed.";
+    case "engineering-lifecycle":
+      return "Switch to read-only exploration, submit or revise the plan, or choose a different tool call.";
+    case "engineering-lifecycle-evidence":
+      return "Submit completion evidence or revise/checkpoint the plan before marking the step complete.";
+    default:
+      return "Choose a different tool call or ask the user how to proceed.";
   }
 }
 
@@ -329,14 +452,30 @@ function hasDotKey(obj: Record<string, unknown>): boolean {
   return false;
 }
 
-/** Stable per-call key for the malformed-args storm guard. String args compare as-is; objects round-trip through JSON so key order is stable. */
-function fingerprintArgs(argumentsRaw: string | Record<string, unknown>): string {
+/** Raw key for invalid JSON, where there is no parsed argument object to normalize. */
+function rawFingerprintArgs(argumentsRaw: string | Record<string, unknown>): string {
   if (typeof argumentsRaw === "string") return argumentsRaw;
+  return fingerprintArgs(argumentsRaw);
+}
+
+/** Stable per-call key for parsed tool args; object key order should not affect repeat detection. */
+function fingerprintArgs(args: Record<string, unknown>): string {
   try {
-    return JSON.stringify(argumentsRaw);
+    return JSON.stringify(sortJson(args));
   } catch {
     return "";
   }
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!value || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort()) {
+    const item = (value as Record<string, unknown>)[key];
+    if (item !== undefined) out[key] = sortJson(item);
+  }
+  return out;
 }
 
 /** If the schema declares required params, return the first one that's missing. */

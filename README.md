@@ -82,6 +82,15 @@ Grab a [DeepSeek API key →](https://platform.deepseek.com/api_keys) · `reason
 
 If you use Reasonix daily, global install is the simplest path. If you just want to try it, use `npx`.
 
+**Prefer fewer keystrokes?** The shorter `dsnix` alias resolves to the same CLI:
+
+~~~bash
+npm install -g dsnix       # exposes `dsnix` on PATH, depends on reasonix
+npx dsnix@latest code      # one-shot via the shorter command
+~~~
+
+A global `npm install -g reasonix` also drops a `dsnix` shim on PATH, so the two are interchangeable.
+
 Bare `reasonix` (no subcommand) launches `code` in the current directory — typing `reasonix` and `reasonix code` are equivalent.
 
 | Command | When |
@@ -96,31 +105,15 @@ Other subcommands (`replay` · `diff` · `events` · `stats` · `index` · `mcp`
 
 ### QQ channel
 
-Reasonix can attach QQ as a remote communication channel for existing `chat` and `code` sessions. It is not a separate runtime mode.
+QQ can extend an existing `chat`, `code`, or desktop session as a remote channel. It is part of the current session flow, not a separate runtime mode.
 
-Start a session first:
+- CLI: start a session, then run `/qq connect`
+- Desktop: open `Settings -> General -> QQ Channel`
 
-~~~bash
-reasonix code
-# or
-reasonix chat
-~~~
+Once connected, QQ messages can enter the current session, assistant replies route back to QQ, and follow-up interactions can continue remotely.
 
-Then connect QQ from inside the session:
+For full setup, desktop quick start, and troubleshooting, see [QQ channel setup](./docs/qq-connect.md).
 
-~~~text
-/qq connect
-~~~
-
-Available commands:
-
-- `/qq connect`
-- `/qq status`
-- `/qq disconnect`
-
-Once enabled, later `chat` / `code` sessions auto-start the QQ channel. Slash commands, confirmation prompts, and follow-up assistant replies can continue through QQ without terminal-side input.
-
-See [QQ channel setup](./docs/qq-connect.md) for setup details and QQ Open Platform bot registration.
 ### Desktop client (prerelease)
 
 A native Tauri client for users who want a GUI over the same loop. Multi-tab, the right-panel shows files the agent has read or edited this session, the same cost / cache / token meters live at the bottom. Same DeepSeek API key, same `~/.reasonix` config — the desktop bundles its own Node runtime, no separate `npm install` step.
@@ -160,6 +153,13 @@ npx reasonix code --dir /path/to/project
 ~~~bash
 /skill new my-skill              # <project>/.reasonix/skills/my-skill.md
 /skill new my-skill --global     # ~/.reasonix/skills for cross-project use
+~~~
+
+**Claude-format skills also load.** `<project>/.claude/skills/<name>/SKILL.md` and `~/.claude/skills/` are read alongside Reasonix's native paths, so tooling that emits Claude-format skills works out of the box. Example — drop OpenSpec workflows in without an upstream adapter:
+
+~~~bash
+npx openspec init --tools claude    # writes .claude/skills/openspec-*/SKILL.md
+/skill openspec-propose <task>      # then invoke from Reasonix
 ~~~
 
 </details>
@@ -227,7 +227,7 @@ For live cache-hit rates, costs, and methodology, see [`benchmarks/`](./benchmar
 
 - [**Architecture**](./docs/ARCHITECTURE.md) — three pillars: cache-first loop, tool-call repair, cost control
 - [**CLI Reference**](./docs/CLI-REFERENCE.md) — every shell subcommand, every slash command, every keybinding
-- [**QQ channel setup**](./docs/qq-connect.md) — what it is, commands, setup flow, and QQ Open Platform credentials
+- [**QQ channel setup**](./docs/qq-connect.md) — CLI first-connect flow, desktop entry, and QQ Open Platform credentials
 - [**Benchmarks**](./benchmarks/) — τ-bench-lite harness, transcripts, cost methodology
 - [**Website**](https://esengine.github.io/DeepSeek-Reasonix/) — getting started, dashboard mockup, TUI mockup
 - [**Contributing**](./CONTRIBUTING.md) — comment policy, error-handling rules, library-over-hand-rolled

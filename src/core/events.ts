@@ -26,7 +26,7 @@ export interface SlashInvokedEvent extends EventBase {
 export interface ModelTurnStartedEvent extends EventBase {
   type: "model.turn.started";
   model: string;
-  reasoningEffort: "high" | "max";
+  reasoningEffort: import("../config.js").ReasoningEffort;
   prefixHash: string;
 }
 
@@ -219,6 +219,15 @@ export interface ErrorEvent extends EventBase {
   recoverable: boolean;
 }
 
+/** Non-fatal system event surfaced to UIs as a quiet inline divider — compaction,
+ *  rate-limit pause, user-aborted iter, storm-stuck interrupt, etc. Carries a
+ *  severity so noisy/self-correcting warnings can be filtered out by the surface. */
+export interface WarningEvent extends EventBase {
+  type: "warning";
+  text: string;
+  severity: "low" | "high";
+}
+
 export type Event =
   | UserMessageEvent
   | SlashInvokedEvent
@@ -249,7 +258,8 @@ export type Event =
   | CapabilityRegisteredEvent
   | CapabilityRemovedEvent
   | StatusEvent
-  | ErrorEvent;
+  | ErrorEvent
+  | WarningEvent;
 
 export type EventOf<T extends Event["type"]> = Extract<Event, { type: T }>;
 

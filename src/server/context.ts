@@ -35,16 +35,12 @@ export interface DashboardContext {
 
   setEditMode?: (mode: EditMode) => EditMode;
   setPlanMode?: (on: boolean) => void;
-  /** Flips live loop model + escalation; persisted config alone wouldn't affect the running session. */
-  applyPresetLive?: (name: string) => void;
   /** Side-channel to live loop — settings POST persists, this flips the running session. */
-  applyEffortLive?: (effort: "high" | "max") => void;
+  applyEffortLive?: (effort: import("../config.js").ReasoningEffort) => void;
   /** Same model swap path /model <id> takes — live + persisted. */
   applyModelLive?: (model: string) => void;
   /** Cached model catalog. Null = in flight / failed; `[]` = API answered empty. */
   getModels?: () => string[] | null;
-  /** One-shot v4-pro arming for the next turn. `armed=false` cancels a pending arm. */
-  setProNextLive?: (armed: boolean) => void;
   /** Session USD cap; null disables. Re-arms the 80% warning latch. */
   setBudgetUsdLive?: (usd: number | null) => void;
   /** Auto-resubmit timer status — same shape `useLoopMode` exposes to slash handlers. */
@@ -73,6 +69,7 @@ export interface DashboardContext {
   /** Snapshot of any modal currently up (for SSE clients that connect mid-modal). */
   getActiveModal?: () => ActiveModal | null;
   resolveShellConfirm?: (choice: "run_once" | "always_allow" | "deny") => void;
+  resolvePathConfirm?: (choice: "run_once" | "always_allow" | "deny") => void;
   resolveChoiceConfirm?: (choice: ChoiceResolution) => void;
   resolvePlanConfirm?: (choice: "approve" | "refine" | "cancel", text?: string) => void;
   resolveEditReview?: (choice: "apply" | "reject" | "apply-rest-of-turn" | "flip-to-auto") => void;
@@ -160,6 +157,14 @@ export type ActiveModal =
       shellKind: "run_command" | "run_background";
     }
   | {
+      kind: "path";
+      path: string;
+      intent: "read" | "write";
+      toolName: string;
+      sandboxRoot: string;
+      allowPrefix: string;
+    }
+  | {
       kind: "choice";
       question: string;
       options: Array<{ id: string; title: string; summary?: string }>;
@@ -228,6 +233,9 @@ export interface DashboardMessage {
   toolArgs?: string;
   /** Optional reasoning content for assistant messages (R1 / V4 thinking). */
   reasoning?: string;
+  /** For `role === "warning"`: "low" = chatty self-correcting / counter (UI suppresses by default),
+   *  "high" / undefined = real event (compaction, abort, rate-limit) to surface inline. */
+  severity?: "low" | "high";
 }
 
 export type DashboardEvent =
@@ -237,10 +245,23 @@ export type DashboardEvent =
       contentDelta?: string;
       reasoningDelta?: string;
     }
-  | { kind: "assistant_final"; id: string; text: string; reasoning?: string }
+  | {
+      kind: "assistant_final";
+      id: string;
+      text: string;
+      reasoning?: string;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        prompt_cache_hit_tokens?: number;
+        prompt_cache_miss_tokens?: number;
+      };
+      costUsd?: number;
+    }
   | { kind: "tool_start"; id: string; toolName: string; args?: string }
   | { kind: "tool"; id: string; toolName: string; content: string; args?: string }
-  | { kind: "warning"; id: string; text: string }
+  | { kind: "warning"; id: string; text: string; severity?: "low" | "high" }
   | { kind: "error"; id: string; text: string }
   | { kind: "info"; id: string; text: string }
   | { kind: "user"; id: string; text: string }
