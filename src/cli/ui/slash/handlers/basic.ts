@@ -1,14 +1,9 @@
-import { wrapToCells } from "@/cli/ui/text-width.js";
+import { wrapToCells } from "@/frame/width.js";
 import { t, tObj } from "@/i18n/index.js";
-import { VERSION } from "@/version.js";
 import { formatDuration, formatLoopStatus, parseLoopCommand } from "../../loop.js";
 import { SLASH_COMMANDS, SLASH_GROUP_ORDER, orderSlashCommandsByGroup } from "../commands.js";
 import type { SlashHandler } from "../dispatch.js";
 import type { SlashCommandSpec, SlashGroup } from "../types.js";
-
-const ABOUT_WEBSITE = "https://esengine.github.io/DeepSeek-Reasonix/";
-const ABOUT_REPO = "https://github.com/esengine/DeepSeek-Reasonix";
-const ABOUT_LICENSE = "MIT";
 
 const exit: SlashHandler = () => ({ exit: true });
 
@@ -67,11 +62,6 @@ const help: SlashHandler = () => {
     t("handlers.basic.helpShellConsent"),
     t("handlers.basic.helpShellExample"),
     "",
-    t("handlers.basic.helpShellGateTitle"),
-    t("handlers.basic.helpShellGate"),
-    t("handlers.basic.helpShellGateDetail"),
-    t("handlers.basic.helpShellGatePolicy"),
-    "",
     t("handlers.basic.helpMemoryTitle"),
     t("handlers.basic.helpMemoryPin"),
     t("handlers.basic.helpMemoryPinEx"),
@@ -88,6 +78,11 @@ const help: SlashHandler = () => {
     t("handlers.basic.helpUrl"),
     t("handlers.basic.helpUrlCache"),
     t("handlers.basic.helpUrlPunct"),
+    "",
+    t("handlers.basic.helpPresetsTitle"),
+    t("handlers.basic.helpPresetAuto"),
+    t("handlers.basic.helpPresetFlash"),
+    t("handlers.basic.helpPresetPro"),
     "",
     t("handlers.basic.helpSessionsTitle"),
     t("handlers.basic.helpSessionCustom"),
@@ -151,16 +146,7 @@ const keys: SlashHandler = (_args, _loop, ctx) => {
   return {};
 };
 
-const about: SlashHandler = () => {
-  const lines = [
-    t("handlers.basic.aboutHeader", { version: VERSION }),
-    "",
-    `  ${t("handlers.basic.aboutWebsiteLabel")}  ${ABOUT_WEBSITE}`,
-    `  ${t("handlers.basic.aboutRepoLabel")}   ${ABOUT_REPO}`,
-    `  ${t("handlers.basic.aboutLicenseLabel")}   ${ABOUT_LICENSE}`,
-  ];
-  return { info: lines.join("\n") };
-};
+const copy: SlashHandler = () => ({ openCopyMode: true });
 
 export const handlers: Record<string, SlashHandler> = {
   exit,
@@ -169,5 +155,5 @@ export const handlers: Record<string, SlashHandler> = {
   retry,
   loop,
   keys,
-  about,
+  copy,
 };

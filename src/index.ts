@@ -41,7 +41,6 @@ export type {
 } from "./at-mentions.js";
 export type {
   CacheFirstLoopOptions,
-  LoopAbortOptions,
   LoopEvent,
   EventRole,
   ReconfigurableOptions,
@@ -133,7 +132,7 @@ export type { RunCommandResult, ShellToolsOptions } from "./tools/shell.js";
 export {
   formatSearchResults,
   htmlToText,
-  parseBingResults,
+  parseMojeekResults,
   parseSearxngHtmlResults,
   registerWebTools,
   webFetch,
@@ -295,8 +294,6 @@ export {
   loadApiKey,
   loadBaseUrl,
   loadMetasoApiKey,
-  loadPerplexityApiKey,
-  loadExaApiKey,
   readConfig,
   redactKey,
   saveApiKey,

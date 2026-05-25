@@ -1,12 +1,8 @@
-/** web_search uses Bing (cn.bing.com — works from CN without proxy); web_fetch sniffs HTML to text. */
+/** web_search uses Mojeek (DDG returns anti-bot 202 to unauthenticated POSTs); web_fetch sniffs HTML to text. */
 
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import { parse as parseHtml } from "node-html-parser";
 import {
-  loadExaApiKey,
   loadMetasoApiKey,
-  loadPerplexityApiKey,
   loadTavilyApiKey,
   webSearchEndpoint as loadWebSearchEndpoint,
   webSearchEngine as loadWebSearchEngine,
@@ -18,8 +14,6 @@ export interface SearchResult {
   title: string;
   url: string;
   snippet: string;
-  /** AI-generated answer text — set by AI-native engines (Perplexity, Exa); undefined for traditional engines. */
-  answer?: string;
 }
 
 export interface PageContent {
@@ -41,8 +35,8 @@ export interface WebFetchOptions {
 export interface WebSearchOptions {
   topK?: number;
   signal?: AbortSignal;
-  /** Backend engine: "bing" (scrapes cn.bing.com HTML — default, works from CN without proxy), "searxng" (self-hosted SearXNG), "metaso" (Metaso API), "tavily" (LLM-friendly JSON API), "perplexity" (Perplexity AI), or "exa" (Exa API). */
-  engine?: "bing" | "searxng" | "metaso" | "tavily" | "perplexity" | "exa";
+  /** Backend engine: "mojeek" (scrapes Mojeek HTML), "searxng" (self-hosted SearXNG JSON API), "metaso" (Metaso API), or "tavily" (LLM-friendly JSON API). */
+  engine?: "mojeek" | "searxng" | "metaso" | "tavily";
   /** Base URL for SearXNG. Default http://localhost:8080. */
   endpoint?: string;
 }
@@ -52,19 +46,13 @@ const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 const DEFAULT_TOPK = 5;
 /** Bytes cap applied before `resp.text()` — char cap can't fire until the body is fully buffered. */
 const FETCH_MAX_BYTES = 10 * 1024 * 1024;
-// Real-browser UA. Most search backends gate obvious scraper UAs; a stock
-// Chrome string clears the fast-path block.
+// Real-browser UA. Servers like Mojeek are bot-friendly but still gate
+// obvious scraper UAs; a stock Chrome string avoids the fast-path block.
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-// cn.bing.com over www.bing.com — CN endpoint returns raw URLs in the
-// HTML; the international endpoint wraps them in `bing.com/ck/a?u=a1<base64>`
-// click-tracking redirects we'd have to decode per result.
-const BING_ENDPOINT = "https://cn.bing.com/search";
+const MOJEEK_ENDPOINT = "https://www.mojeek.com/search";
 const METASO_ENDPOINT = "https://metaso.cn/api/v1";
 const TAVILY_ENDPOINT = "https://api.tavily.com/search";
-const PERPLEXITY_ENDPOINT = "https://api.perplexity.ai/chat/completions";
-const EXA_ENDPOINT = "https://api.exa.ai/answer";
-const FETCH_MAX_REDIRECTS = 5;
 
 /** Pick a status-specific webErrors key so the model gets an actionable hint, not a bare status. */
 function searchStatusError(status: number): string {
@@ -81,99 +69,6 @@ function fetchStatusError(status: number, url: string): string {
   return t("webErrors.fetchStatus", { status, url });
 }
 
-function parseIpv4(address: string): number | null {
-  const parts = address.split(".");
-  if (parts.length !== 4) return null;
-  let out = 0;
-  for (const part of parts) {
-    if (!/^\d+$/.test(part)) return null;
-    const n = Number(part);
-    if (!Number.isInteger(n) || n < 0 || n > 255) return null;
-    out = (out << 8) + n;
-  }
-  return out >>> 0;
-}
-
-function ipv4InRange(value: number, base: string, bits: number): boolean {
-  const parsed = parseIpv4(base);
-  if (parsed === null) return false;
-  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
-  return (value & mask) === (parsed & mask);
-}
-
-function isPrivateIpv4(address: string): boolean {
-  const value = parseIpv4(address);
-  if (value === null) return false;
-  return (
-    ipv4InRange(value, "0.0.0.0", 8) ||
-    ipv4InRange(value, "10.0.0.0", 8) ||
-    ipv4InRange(value, "100.64.0.0", 10) ||
-    ipv4InRange(value, "127.0.0.0", 8) ||
-    ipv4InRange(value, "169.254.0.0", 16) ||
-    ipv4InRange(value, "172.16.0.0", 12) ||
-    ipv4InRange(value, "192.0.0.0", 24) ||
-    ipv4InRange(value, "192.0.2.0", 24) ||
-    ipv4InRange(value, "192.168.0.0", 16) ||
-    ipv4InRange(value, "198.18.0.0", 15) ||
-    ipv4InRange(value, "198.51.100.0", 24) ||
-    ipv4InRange(value, "203.0.113.0", 24) ||
-    ipv4InRange(value, "224.0.0.0", 4) ||
-    ipv4InRange(value, "240.0.0.0", 4)
-  );
-}
-
-function normalizeIpv6(address: string): string {
-  return address.toLowerCase().replace(/(^|:)0+([0-9a-f])/g, "$1$2");
-}
-
-function isPrivateIpv6(address: string): boolean {
-  const normalized = normalizeIpv6(address);
-  const mapped = /^::ffff:(?:0+:)?(\d+\.\d+\.\d+\.\d+)$/i.exec(normalized);
-  if (mapped) return isPrivateIpv4(mapped[1]!);
-  return (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe8") ||
-    normalized.startsWith("fe9") ||
-    normalized.startsWith("fea") ||
-    normalized.startsWith("feb") ||
-    normalized.startsWith("ff")
-  );
-}
-
-function isInternalAddress(address: string): boolean {
-  const family = isIP(address);
-  if (family === 4) return isPrivateIpv4(address);
-  if (family === 6) return isPrivateIpv6(address);
-  return false;
-}
-
-async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
-  const url = new URL(rawUrl);
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`web_fetch refuses non-HTTP URL: ${url.protocol}`);
-  }
-
-  const host = url.hostname;
-  const literal = isIP(host);
-  const addresses = literal
-    ? [host]
-    : (await lookup(host, { all: true, verbatim: true })).map((entry) => entry.address);
-  if (addresses.length === 0 || addresses.some(isInternalAddress)) {
-    throw new Error(`web_fetch refuses internal or reserved host: ${host}`);
-  }
-  return url;
-}
-
-function redirectLocation(resp: Response, currentUrl: string): string | null {
-  if (resp.status < 300 || resp.status > 399) return null;
-  const location = resp.headers.get("location");
-  if (!location) return null;
-  return new URL(location, currentUrl).toString();
-}
-
 /** Distinguishes "truly 0 results" from "layout changed / blocked" so callers can tell. */
 export async function webSearch(
   query: string,
@@ -188,36 +83,30 @@ export async function webSearch(
   if (opts.engine === "tavily") {
     return searchTavily(query, opts);
   }
-  if (opts.engine === "perplexity") {
-    return searchPerplexity(query, opts);
-  }
-  if (opts.engine === "exa") {
-    return searchExa(query, opts);
-  }
-  return searchBing(query, opts);
+  return searchMojeek(query, opts);
 }
 
-async function searchBing(query: string, opts: WebSearchOptions = {}): Promise<SearchResult[]> {
+async function searchMojeek(query: string, opts: WebSearchOptions = {}): Promise<SearchResult[]> {
   const topK = Math.max(1, Math.min(10, opts.topK ?? DEFAULT_TOPK));
-  const resp = await fetch(`${BING_ENDPOINT}?q=${encodeURIComponent(query)}`, {
+  const resp = await fetch(`${MOJEEK_ENDPOINT}?q=${encodeURIComponent(query)}`, {
     headers: {
       "User-Agent": USER_AGENT,
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
     },
     signal: opts.signal,
     redirect: "follow",
   });
   if (!resp.ok) throw new Error(searchStatusError(resp.status));
   const html = await resp.text();
-  const results = parseBingResults(html).slice(0, topK);
+  const results = parseMojeekResults(html).slice(0, topK);
   if (results.length === 0) {
     if (/no results found|did not match any documents/i.test(html)) return [];
     if (/captcha|verify you are human|access denied|forbidden/i.test(html)) {
-      throw new Error(t("webErrors.bingBlocked"));
+      throw new Error(t("webErrors.mojeekBlocked"));
     }
     throw new Error(
-      t("webErrors.bingNoResults", {
+      t("webErrors.mojeekNoResults", {
         chars: html.length,
         preview: html.slice(0, 120).replace(/\s+/g, " "),
       }),
@@ -294,7 +183,6 @@ interface MetasoSearchResponse {
 async function searchMetaso(query: string, opts: WebSearchOptions = {}): Promise<SearchResult[]> {
   const topK = Math.max(1, Math.min(100, opts.topK ?? DEFAULT_TOPK));
   const apiKey = loadMetasoApiKey();
-  if (!apiKey) throw new Error(t("webErrors.metasoMissingKey"));
 
   let resp: Response;
   try {
@@ -428,169 +316,6 @@ async function searchTavily(query: string, opts: WebSearchOptions = {}): Promise
   }));
 }
 
-interface PerplexityChoice {
-  message?: { content?: string };
-}
-
-interface PerplexityResponse {
-  choices?: PerplexityChoice[];
-  citations?: unknown[];
-}
-
-async function searchPerplexity(
-  query: string,
-  opts: WebSearchOptions = {},
-): Promise<SearchResult[]> {
-  const topK = Math.max(1, Math.min(20, opts.topK ?? DEFAULT_TOPK));
-  const apiKey = loadPerplexityApiKey();
-  if (!apiKey) throw new Error(t("webErrors.perplexityMissingKey"));
-
-  let resp: Response;
-  try {
-    resp = await fetch(PERPLEXITY_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "sonar",
-        messages: [{ role: "user", content: query }],
-        max_tokens: 1024,
-        return_related_questions: false,
-      }),
-      signal: opts.signal,
-    });
-  } catch (err) {
-    if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
-      throw new Error(t("webErrors.cannotReach", { endpoint: PERPLEXITY_ENDPOINT }));
-    }
-    throw err;
-  }
-
-  if (!resp.ok) {
-    if (resp.status === 401 || resp.status === 403) {
-      throw new Error(t("webErrors.perplexityUnauthorized"));
-    }
-    if (resp.status === 429) throw new Error(t("webErrors.perplexityRateLimit"));
-    throw new Error(t("webErrors.perplexityServerError", { status: resp.status }));
-  }
-
-  const raw = await resp.text();
-  let data: PerplexityResponse;
-  try {
-    data = JSON.parse(raw) as PerplexityResponse;
-  } catch {
-    throw new Error(t("webErrors.perplexityParseError", { status: resp.status }));
-  }
-
-  const answer = data.choices?.[0]?.message?.content ?? "";
-  const citations = Array.isArray(data.citations) ? data.citations : [];
-
-  const results: SearchResult[] = [];
-
-  // First entry carries the AI answer
-  if (answer) {
-    results.push({ title: answer, url: "", snippet: "", answer });
-  }
-
-  const count = Math.min(citations.length, topK);
-  for (let i = 0; i < count; i++) {
-    const c = citations[i];
-    if (typeof c === "string") {
-      results.push({ title: `Source ${i + 1}`, url: c, snippet: "" });
-    } else if (
-      c &&
-      typeof c === "object" &&
-      typeof (c as Record<string, unknown>).url === "string"
-    ) {
-      const item = c as Record<string, unknown>;
-      results.push({
-        title: typeof item.title === "string" ? item.title : `Source ${i + 1}`,
-        url: item.url as string,
-        snippet: "",
-      });
-    }
-  }
-
-  return results;
-}
-
-interface ExaCitation {
-  url?: string;
-  title?: string;
-  text?: string;
-  publishedDate?: string;
-}
-
-interface ExaAnswerResponse {
-  answer?: string;
-  citations?: ExaCitation[];
-}
-
-async function searchExa(query: string, opts: WebSearchOptions = {}): Promise<SearchResult[]> {
-  const topK = Math.max(1, Math.min(20, opts.topK ?? DEFAULT_TOPK));
-  const apiKey = loadExaApiKey();
-  if (!apiKey) throw new Error(t("webErrors.exaMissingKey"));
-
-  let resp: Response;
-  try {
-    resp = await fetch(EXA_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query, text: true }),
-      signal: opts.signal,
-    });
-  } catch (err) {
-    if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
-      throw new Error(t("webErrors.cannotReach", { endpoint: EXA_ENDPOINT }));
-    }
-    throw err;
-  }
-
-  if (!resp.ok) {
-    if (resp.status === 401 || resp.status === 403) {
-      throw new Error(t("webErrors.exaUnauthorized"));
-    }
-    if (resp.status === 429) throw new Error(t("webErrors.exaRateLimit"));
-    throw new Error(t("webErrors.exaServerError", { status: resp.status }));
-  }
-
-  const raw = await resp.text();
-  let data: ExaAnswerResponse;
-  try {
-    data = JSON.parse(raw) as ExaAnswerResponse;
-  } catch {
-    throw new Error(t("webErrors.exaParseError", { status: resp.status }));
-  }
-
-  const answer = data.answer ?? "";
-  const citations = data.citations ?? [];
-
-  const results: SearchResult[] = [];
-
-  // First entry carries the AI answer
-  if (answer) {
-    results.push({ title: answer, url: "", snippet: "", answer });
-  }
-
-  const count = Math.min(citations.length, topK);
-  for (let i = 0; i < count; i++) {
-    const c = citations[i]!;
-    if (!c.url) continue;
-    results.push({
-      title: c.title || `Source ${i + 1}`,
-      url: c.url,
-      snippet: c.text ?? "",
-    });
-  }
-
-  return results;
-}
-
 /** Parse SearXNG HTML search results using node-html-parser. */
 export function parseSearxngHtmlResults(html: string): SearchResult[] {
   const root = parseHtml(html);
@@ -638,21 +363,39 @@ export function parseSearxngHtmlResults(html: string): SearchResult[] {
 }
 
 /** Title-anchor + snippet-paragraph passes paired positionally — robust to attribute reorder. */
-export function parseBingResults(html: string): SearchResult[] {
-  // DOM walk rather than regex — `<li[^>]*\bclass\b[^>]*>` triggers
-  // polynomial backtracking on adversarial input (CodeQL js/polynomial-redos).
-  const root = parseHtml(html);
+export function parseMojeekResults(html: string): SearchResult[] {
+  const titles: string[] = [];
+  const titleAnchorRe = /<a\b[^>]*\bclass="title"[^>]*>[\s\S]*?<\/a>/g;
+  let m: RegExpExecArray | null;
+  while (true) {
+    m = titleAnchorRe.exec(html);
+    if (m === null) break;
+    titles.push(m[0]);
+  }
+
+  const snippets: string[] = [];
+  const snippetRe = /<p\b[^>]*\bclass="s"[^>]*>([\s\S]*?)<\/p>/g;
+  while (true) {
+    m = snippetRe.exec(html);
+    if (m === null) break;
+    snippets.push(m[1] ?? "");
+  }
+
+  const hrefRe = /href="([^"]+)"/;
+  const innerRe = /<a\b[^>]*>([\s\S]*?)<\/a>/;
   const results: SearchResult[] = [];
-  for (const li of root.querySelectorAll("li.b_algo")) {
-    const anchor = li.querySelector("h2 a[href]");
-    if (!anchor) continue;
-    const href = anchor.getAttribute("href");
-    if (!href) continue;
-    const title = anchor.textContent.trim();
-    if (!title) continue;
-    const cap = li.querySelector("div.b_caption p");
-    const snippet = cap ? cap.textContent.trim().replace(/\s+/g, " ") : "";
-    results.push({ title, url: href, snippet });
+  for (let i = 0; i < titles.length; i++) {
+    const anchor = titles[i]!;
+    const hrefMatch = anchor.match(hrefRe);
+    const innerMatch = anchor.match(innerRe);
+    if (!hrefMatch?.[1]) continue;
+    results.push({
+      title: decodeHtmlEntities(stripHtml(innerMatch?.[1] ?? "")).trim(),
+      url: hrefMatch[1],
+      snippet: decodeHtmlEntities(stripHtml(snippets[i] ?? ""))
+        .replace(/\s+/g, " ")
+        .trim(),
+    });
   }
   return results;
 }
@@ -672,23 +415,12 @@ export async function webFetch(url: string, opts: WebFetchOptions = {}): Promise
   const cancel = () => ctl.abort();
   opts.signal?.addEventListener("abort", cancel, { once: true });
   let resp: Response;
-  let currentUrl = url;
   try {
-    for (let redirects = 0; ; redirects++) {
-      const parsed = await assertPublicHttpUrl(currentUrl);
-      if (ctl.signal.aborted) throw new DOMException("aborted", "AbortError");
-      resp = await fetch(parsed, {
-        headers: { "User-Agent": USER_AGENT, Accept: "text/html,text/plain,*/*" },
-        signal: ctl.signal,
-        redirect: "manual",
-      });
-      const nextUrl = redirectLocation(resp, parsed.toString());
-      if (!nextUrl) break;
-      if (redirects >= FETCH_MAX_REDIRECTS) {
-        throw new Error(`web_fetch redirect limit exceeded for ${url}`);
-      }
-      currentUrl = nextUrl;
-    }
+    resp = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "text/html,text/plain,*/*" },
+      signal: ctl.signal,
+      redirect: "follow",
+    });
   } catch (err) {
     if (timedOut) {
       throw new Error(t("webErrors.fetchTimeout", { ms: timeoutMs, url }));
@@ -713,7 +445,7 @@ export async function webFetch(url: string, opts: WebFetchOptions = {}): Promise
   const finalText = truncated
     ? `${text.slice(0, maxChars)}\n\n[… truncated ${text.length - maxChars} chars …]`
     : text;
-  return { url: currentUrl, title, text: finalText, truncated };
+  return { url, title, text: finalText, truncated };
 }
 
 /** Streams + caps so chunked responses (or servers lying about Content-Length) can't balloon the heap. */
@@ -849,6 +581,10 @@ export interface WebToolsOptions {
   defaultTopK?: number;
   /** Byte cap for `web_fetch` extracted text. */
   maxFetchChars?: number;
+  /** Backend engine: "mojeek" (default, scrapes Mojeek), "searxng" (self-hosted SearXNG), "metaso" (Metaso API), or "tavily" (LLM-friendly API). */
+  webSearchEngine?: "mojeek" | "searxng" | "metaso" | "tavily";
+  /** Base URL for SearXNG (default http://localhost:8080). */
+  webSearchEndpoint?: string;
 }
 
 export function registerWebTools(registry: ToolRegistry, opts: WebToolsOptions = {}): ToolRegistry {
@@ -858,7 +594,8 @@ export function registerWebTools(registry: ToolRegistry, opts: WebToolsOptions =
   registry.register({
     name: "web_search",
     description:
-      "Search the public web. Returns ranked results with title, url, and snippet. Call this when the answer's correctness depends on current state — anything that changes over time (events, prices, releases, status of a thing in the real world). Composing such answers from training memory invents stale numbers; search first, then ground the answer in the results. For evergreen / definitional questions you don't need this.",
+      "Search the public web. Returns ranked results with title, url, and snippet. Call this when the answer's correctness depends on current state — anything that changes over time (events, prices, releases, status of a thing in the real world). Composing such answers from training memory invents stale numbers; search first, then ground the answer in the results. For evergreen / definitional questions you don't need this." +
+      " To change the backend, use /search-engine mojeek|searxng|metaso|tavily.",
     readOnly: true,
     parallelSafe: true,
     parameters: {
@@ -867,15 +604,14 @@ export function registerWebTools(registry: ToolRegistry, opts: WebToolsOptions =
         query: { type: "string", description: "Natural-language search query." },
         topK: {
           type: "integer",
-          description: `Number of results to return. Default ${defaultTopK}.`,
+          description: `Number of results to return (1..10). Default ${defaultTopK}.`,
         },
       },
       required: ["query"],
     },
     fn: async (args: { query: string; topK?: number }, ctx) => {
-      // Read at call time, not registration time — `/search-engine` mutates config mid-session (#1309).
-      const engine = loadWebSearchEngine();
-      const endpoint = loadWebSearchEndpoint();
+      const engine = opts.webSearchEngine ?? loadWebSearchEngine();
+      const endpoint = opts.webSearchEndpoint ?? loadWebSearchEndpoint();
       const results = await webSearch(args.query, {
         topK: args.topK ?? defaultTopK,
         signal: ctx?.signal,
@@ -913,29 +649,11 @@ export function registerWebTools(registry: ToolRegistry, opts: WebToolsOptions =
 }
 
 export function formatSearchResults(query: string, results: SearchResult[]): string {
-  const lines: string[] = [`query: ${query}`];
-
-  // Check if the first result carries an AI answer (Perplexity/Exa)
-  const hasAnswer = results.length > 0 && results[0]?.url === "" && results[0]?.answer;
-
-  if (hasAnswer) {
-    lines.push("\nanswer:");
-    lines.push(`  ${results[0]!.answer}`);
-    const sources = results.slice(1);
-    lines.push(`\nsources (${sources.length}):`);
-    sources.forEach((r, i) => {
-      lines.push(`\n${i + 1}. ${r.title}`);
-      lines.push(`   ${r.url}`);
-      if (r.snippet) lines.push(`   ${r.snippet}`);
-    });
-  } else {
-    lines.push(`\nresults (${results.length}):`);
-    results.forEach((r, i) => {
-      lines.push(`\n${i + 1}. ${r.title}`);
-      lines.push(`   ${r.url}`);
-      if (r.snippet) lines.push(`   ${r.snippet}`);
-    });
-  }
-
+  const lines: string[] = [`query: ${query}`, `\nresults (${results.length}):`];
+  results.forEach((r, i) => {
+    lines.push(`\n${i + 1}. ${r.title}`);
+    lines.push(`   ${r.url}`);
+    if (r.snippet) lines.push(`   ${r.snippet}`);
+  });
   return lines.join("\n");
 }

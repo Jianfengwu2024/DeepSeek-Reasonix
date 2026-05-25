@@ -30,8 +30,10 @@ function teardown(s: Setup): void {
 }
 
 async function call(reg: ToolRegistry, name: string, args: Record<string, unknown>): Promise<any> {
-  const out = await reg.dispatch(name, JSON.stringify(args));
-  return JSON.parse(out);
+  const def = reg.get(name);
+  if (!def) throw new Error(`tool ${name} not registered`);
+  const out = await def.fn(args);
+  return JSON.parse(out as string);
 }
 
 describe("create_skill", () => {

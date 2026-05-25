@@ -44,10 +44,6 @@ export const DEEPSEEK_CONTEXT_TOKENS: Record<string, number> = {
 /** Fallback when the caller's model id isn't in the table — safe lower bound. */
 export const DEFAULT_CONTEXT_TOKENS = 131_072;
 
-/** Maximum turns retained in memory before old entries are rolled into carryover.
- *  Each TurnStats holds usage + cost + model — at N=200 this caps memory at ~50KB. */
-export const MAX_TURNS = 200;
-
 export function costUsd(model: string, usage: Usage, path?: string): number {
   const p = pricingFor(model, path);
   if (!p) return 0;
@@ -124,7 +120,6 @@ export class SessionStats {
   private _carryoverTurns = 0;
   private _carryoverCacheHit = 0;
   private _carryoverCacheMiss = 0;
-  private _carryoverCompletion = 0;
   /** Last turn's promptTokens before exit — surfaced via summary() until the next live turn lands. */
   private _carryoverLastPromptTokens = 0;
 
@@ -134,7 +129,6 @@ export class SessionStats {
     turnCount?: number;
     cacheHitTokens?: number;
     cacheMissTokens?: number;
-    totalCompletionTokens?: number;
     lastPromptTokens?: number;
   }): void {
     if (typeof opts.totalCostUsd === "number" && opts.totalCostUsd > 0) {
@@ -149,33 +143,9 @@ export class SessionStats {
     if (typeof opts.cacheMissTokens === "number" && opts.cacheMissTokens > 0) {
       this._carryoverCacheMiss = opts.cacheMissTokens;
     }
-    if (typeof opts.totalCompletionTokens === "number" && opts.totalCompletionTokens > 0) {
-      this._carryoverCompletion = opts.totalCompletionTokens;
-    }
     if (typeof opts.lastPromptTokens === "number" && opts.lastPromptTokens > 0) {
       this._carryoverLastPromptTokens = opts.lastPromptTokens;
     }
-  }
-
-  /** Cumulative cache hit tokens across carryover + current turns. */
-  get cumulativeCacheHitTokens(): number {
-    let hit = this._carryoverCacheHit;
-    for (const t of this.turns) hit += t.usage.promptCacheHitTokens;
-    return hit;
-  }
-
-  /** Cumulative cache miss tokens across carryover + current turns. */
-  get cumulativeCacheMissTokens(): number {
-    let miss = this._carryoverCacheMiss;
-    for (const t of this.turns) miss += t.usage.promptCacheMissTokens;
-    return miss;
-  }
-
-  /** Cumulative completion (output) tokens across carryover + current turns. */
-  get cumulativeCompletionTokens(): number {
-    let comp = this._carryoverCompletion;
-    for (const t of this.turns) comp += t.usage.completionTokens;
-    return comp;
   }
 
   reset(): void {
@@ -184,7 +154,6 @@ export class SessionStats {
     this._carryoverTurns = 0;
     this._carryoverCacheHit = 0;
     this._carryoverCacheMiss = 0;
-    this._carryoverCompletion = 0;
     this._carryoverLastPromptTokens = 0;
   }
 
@@ -198,23 +167,7 @@ export class SessionStats {
       cacheHitRatio: usage.cacheHitRatio,
     };
     this.turns.push(stats);
-    this.trimOldTurns();
     return stats;
-  }
-
-  /** Drop oldest turns beyond MAX_TURNS, folding their costs into carryover so
-   *  session totals remain accurate even after trimming. */
-  private trimOldTurns(): void {
-    if (this.turns.length <= MAX_TURNS) return;
-    const excess = this.turns.length - MAX_TURNS;
-    const dropped = this.turns.splice(0, excess);
-    for (const t of dropped) {
-      this._carryoverCost += t.cost;
-      this._carryoverCacheHit += t.usage.promptCacheHitTokens;
-      this._carryoverCacheMiss += t.usage.promptCacheMissTokens;
-      this._carryoverCompletion += t.usage.completionTokens;
-    }
-    this._carryoverTurns += excess;
   }
 
   get totalCost(): number {

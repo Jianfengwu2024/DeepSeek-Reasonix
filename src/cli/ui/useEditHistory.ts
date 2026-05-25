@@ -6,7 +6,6 @@ import {
   type EditSnapshot,
   restoreSnapshots,
 } from "../../code/edit-blocks.js";
-import { t } from "../../i18n/index.js";
 import {
   type EditHistoryEntry,
   entryStatus,
@@ -178,10 +177,10 @@ export function useEditHistory(codeMode: { rootDir: string } | undefined): UseEd
   );
 
   const codeHistory = useCallback<UseEditHistoryResult["codeHistory"]>(() => {
-    if (!codeMode) return t("app.editHistoryNoCodeMode");
+    if (!codeMode) return "not in code mode";
     const entries = editHistory.current;
-    if (entries.length === 0) return t("app.editHistoryNoEdits");
-    const lines = [t("app.editHistoryTitle")];
+    if (entries.length === 0) return "no edits recorded this session yet";
+    const lines = ["Edit history (oldest first):"];
     for (const e of entries) {
       const when = new Date(e.at).toISOString().replace("T", " ").slice(11, 19);
       const files = new Set(e.blocks.map((b) => b.path));
@@ -189,26 +188,26 @@ export function useEditHistory(codeMode: { rootDir: string } | undefined): UseEd
       const fileSummary = fileList.length > 60 ? `${fileList.slice(0, 60)}…` : fileList;
       const status = entryStatus(e);
       const statusText =
-        status === "applied"
-          ? t("app.editHistoryStatusApplied")
-          : status === "PARTIAL"
-            ? t("app.editHistoryStatusPartial")
-            : t("app.editHistoryStatusUndone");
+        status === "applied" ? "applied" : status === "PARTIAL" ? "PARTIAL" : "UNDONE ";
       lines.push(
         `  #${String(e.id).padStart(3)}  ${when}  ${statusText}  ${e.source.padEnd(12)} ${files.size} file · ${e.blocks.length} block   ${fileSummary}`,
       );
     }
     lines.push("");
-    lines.push(t("app.editHistoryHelpShow"));
-    lines.push(t("app.editHistoryHelpUndo"));
+    lines.push(
+      "/show <id>            → per-file summary    ·    /show <id> <path>  → full diff of one file",
+    );
+    lines.push(
+      "/undo                 → newest non-undone   ·    /undo <id> [path]  → target a specific batch or file",
+    );
     return lines.join("\n");
   }, [codeMode]);
 
   const codeShowEdit = useCallback<UseEditHistoryResult["codeShowEdit"]>(
     (args = []) => {
-      if (!codeMode) return t("app.editHistoryNoCodeMode");
+      if (!codeMode) return "not in code mode";
       const entries = editHistory.current;
-      if (entries.length === 0) return t("app.editHistoryNoEdits2");
+      if (entries.length === 0) return "no edits recorded this session — /history is empty";
 
       const idArg = args[0];
       const pathArg = args[1];
@@ -220,30 +219,26 @@ export function useEditHistory(codeMode: { rootDir: string } | undefined): UseEd
       } else {
         const id = Number.parseInt(idArg, 10);
         if (!Number.isFinite(id)) {
-          return t("app.editHistoryNoShowId");
+          return "usage: /show [id] [path]   (omit id for newest; path from the per-file summary)";
         }
         entry = entries.find((e) => e.id === id);
-        if (!entry) return t("app.editHistoryIdNotFound", { id });
+        if (!entry) return `no edit #${id} — run /history to see valid ids`;
       }
-      if (!entry) return t("app.editHistoryLookupFailed");
+      if (!entry) return "unexpected: history lookup failed";
 
       if (pathArg) {
         const fileBlocks = entry.blocks.filter((b) => b.path === pathArg);
         if (fileBlocks.length === 0) {
           const files = [...new Set(entry.blocks.map((b) => b.path))];
-          return t("app.editHistoryBatchNoFile", {
-            id: entry.id,
-            path: pathArg,
-            files: files.join(", "),
-          });
+          return `batch #${entry.id} doesn't include "${pathArg}" — files in this batch: ${files.join(", ")}`;
         }
         const when = new Date(entry.at).toISOString().replace("T", " ").slice(11, 19);
         const state = entry.undoneFiles.has(pathArg) ? "UNDONE" : "applied";
         const header = `▸ edit #${entry.id} · ${when} · ${pathArg} · ${state} · ${fileBlocks.length} block(s)`;
         const diff = formatAllBlockDiffs(fileBlocks, { maxLines: 60, contextLines: 2 });
         const footer = entry.undoneFiles.has(pathArg)
-          ? t("app.editHistoryAlreadyReverted")
-          : t("app.editHistoryRevertFile", { id: entry.id, path: pathArg });
+          ? "(already reverted — /history shows the batch-level status)"
+          : `/undo ${entry.id} ${pathArg}  → revert just this file`;
         return [header, ...diff, "", footer].join("\n");
       }
 

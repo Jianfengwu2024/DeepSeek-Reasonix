@@ -1,18 +1,15 @@
-import {
-  DEFAULT_MODEL,
-  type ReasoningEffort,
-  type ReasonixConfig,
-  isReasoningEffort,
-  loadReasoningEffort,
-  normalizeMcpConfig,
-  readConfig,
-} from "../config.js";
+/** Precedence: per-setting flag > --preset > config.preset > "auto" defaults. */
+
+import { type PresetName, type ReasonixConfig, normalizeMcpConfig, readConfig } from "../config.js";
 import { loadDotMcpJson } from "../mcp/dot-mcp-json.js";
 import { specToRaw } from "../mcp/spec.js";
+import { presetNameForSettings, resolvePreset } from "./ui/presets.js";
 
 export interface ResolvedDefaults {
   model: string;
-  reasoningEffort: ReasoningEffort;
+  preset?: "auto" | "flash" | "pro";
+  autoEscalate: boolean;
+  reasoningEffort: "high" | "max";
   mcp: string[];
   session: string | undefined;
 }
@@ -22,25 +19,30 @@ export interface RawCliFlags {
   mcp?: string[];
   /** Commander's `--no-session` surfaces as `false`; `--session X` as a string. */
   session?: string | false;
-  /** `--effort low|medium|high|max`. */
-  effort?: string;
+  /** `--preset <name>`. */
+  preset?: string;
   /** When true, ignore config entirely (power-user escape hatch). */
   noConfig?: boolean;
 }
 
 export function resolveDefaults(flags: RawCliFlags): ResolvedDefaults {
   const cfg: ReasonixConfig = flags.noConfig ? {} : readConfig();
-  const model = flags.model?.trim() || cfg.model?.trim() || DEFAULT_MODEL;
+  const preset = pickPreset(flags.preset, cfg.preset);
+  const presetSettings = resolvePreset(preset);
 
-  const flagEffort = flags.effort?.toLowerCase();
-  const reasoningEffort: ReasoningEffort = isReasoningEffort(flagEffort)
-    ? flagEffort
-    : flags.noConfig
-      ? "high"
-      : loadReasoningEffort();
+  const model = flags.model ?? presetSettings.model;
+  const presetName = flags.model ? undefined : presetNameForSettings(presetSettings);
+  const autoEscalate = flags.model ? false : presetSettings.autoEscalate;
+  const reasoningEffort = presetSettings.reasoningEffort;
 
+  // Project-level `.mcp.json` merges in before normalization. Project entries
+  // override user `mcpServers` on name collision — same precedence Claude uses
+  // for shared, git-committed configs. Skipped under `--no-config`.
   const merged = flags.noConfig ? cfg : mergeDotMcpJson(cfg, process.cwd());
 
+  // `--mcp` accumulator is [] when absent. Treat empty from flags as
+  // "user didn't pass" → fall through to config. Users who explicitly
+  // want zero MCP servers can pass `--no-config` or edit the file.
   const normalizedMcp = normalizeMcpConfig(
     merged,
     flags.mcp && flags.mcp.length > 0 ? flags.mcp : undefined,
@@ -49,7 +51,7 @@ export function resolveDefaults(flags: RawCliFlags): ResolvedDefaults {
 
   const session = resolveSession(flags.session, cfg.session);
 
-  return { model, reasoningEffort, mcp, session };
+  return { model, preset: presetName, autoEscalate, reasoningEffort, mcp, session };
 }
 
 function mergeDotMcpJson(cfg: ReasonixConfig, projectRoot: string): ReasonixConfig {
@@ -58,13 +60,35 @@ function mergeDotMcpJson(cfg: ReasonixConfig, projectRoot: string): ReasonixConf
   return { ...cfg, mcpServers: { ...(cfg.mcpServers ?? {}), ...project } };
 }
 
+function pickPreset(
+  flagPreset: string | undefined,
+  configPreset: PresetName | undefined,
+): PresetName {
+  if (flagPreset && isPresetName(flagPreset)) return flagPreset;
+  if (configPreset) return configPreset;
+  return "auto";
+}
+
+function isPresetName(s: string): s is PresetName {
+  return (
+    s === "auto" ||
+    s === "flash" ||
+    s === "pro" ||
+    // Legacy names — kept callable so old `--preset smart` invocations
+    // and stale config.json entries don't error out.
+    s === "fast" ||
+    s === "smart" ||
+    s === "max"
+  );
+}
+
 function resolveSession(
   flag: string | false | undefined,
   configSession: string | null | undefined,
 ): string | undefined {
-  if (flag === false) return undefined;
+  if (flag === false) return undefined; // --no-session
   if (typeof flag === "string" && flag.length > 0) return flag;
-  if (configSession === null) return undefined;
+  if (configSession === null) return undefined; // config opted out
   if (typeof configSession === "string" && configSession.length > 0) return configSession;
   return "default";
 }

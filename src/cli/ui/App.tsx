@@ -1,6 +1,5 @@
 import { type WriteStream, statSync } from "node:fs";
-import { resolve } from "node:path";
-import { derivePrefix, toApprovalPrompt } from "@reasonix/core-utils";
+import { relative, resolve } from "node:path";
 import { Box, Text, useStdin, useStdout } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -17,9 +16,13 @@ import {
   listCheckpoints,
   restoreCheckpoint,
 } from "../../code/checkpoints.js";
-import { type EditBlock, applyEditBlocks, snapshotBeforeEdits } from "../../code/edit-blocks.js";
-import { EngineeringLifecycleRuntime } from "../../code/lifecycle.js";
-import { clearPendingEdits, loadPendingEdits, savePendingEdits } from "../../code/pending-edits.js";
+import {
+  type EditBlock,
+  applyEditBlocks,
+  snapshotBeforeEdits,
+  toWholeFileEditBlock,
+} from "../../code/edit-blocks.js";
+import { clearPendingEdits, loadPendingEdits } from "../../code/pending-edits.js";
 import {
   clearPlanState,
   loadPlanState,
@@ -28,13 +31,10 @@ import {
 } from "../../code/plan-store.js";
 import {
   type EditMode,
-  type EngineeringLifecycleMode,
-  type ReasoningEffort,
+  type PresetName,
   defaultConfigPath,
   editModeHintShown,
-  isReasoningEffort,
-  loadEndpoint,
-  loadEngineeringLifecycleMode,
+  loadBaseUrl,
   loadReasoningEffort,
   loadTheme,
   markEditModeHintShown,
@@ -43,8 +43,7 @@ import {
   readConfig,
   resolveThemePreference,
   saveEditMode,
-  saveModel,
-  saveReasoningEffort,
+  savePreset,
   saveTheme,
 } from "../../config.js";
 import { Eventizer } from "../../core/eventize.js";
@@ -70,8 +69,6 @@ import type { QQChannel } from "../../qq/channel.js";
 import { useQQChannel } from "../../qq/use-qq-channel.js";
 import type {
   ActiveModal,
-  ChoiceResolution,
-  DashboardContext,
   DashboardEvent,
   DashboardMessage,
   PickerResolution,
@@ -92,7 +89,8 @@ import {
 import { defaultUsageLogPath } from "../../telemetry/usage.js";
 import type { ToolRegistry } from "../../tools.js";
 import type { ChoiceOption } from "../../tools/choice.js";
-import type { PlanStep, StepCompletion } from "../../tools/plan.js";
+import { looksLikeAbsoluteSystemPath, pathIsUnder } from "../../tools/filesystem.js";
+import type { PlanStep } from "../../tools/plan.js";
 import { formatCommandResult, runCommand } from "../../tools/shell.js";
 import { registerSkillTools } from "../../tools/skills.js";
 import { formatSubagentResult, spawnSubagent } from "../../tools/subagent.js";
@@ -107,7 +105,6 @@ import { CheckpointPicker } from "./CheckpointPicker.js";
 import { ChoiceConfirm, type ChoiceConfirmChoice } from "./ChoiceConfirm.js";
 import { ComposerArea } from "./ComposerArea.js";
 import { EditConfirm, type EditReviewChoice } from "./EditConfirm.js";
-import { EditPicker, type UserTurnEntry } from "./EditPicker.js";
 import { LiveActivityArea } from "./LiveActivityArea.js";
 import { McpHub } from "./McpHub.js";
 import { ModelPicker } from "./ModelPicker.js";
@@ -119,23 +116,17 @@ import { PlanReviseConfirm, type ReviseChoice } from "./PlanReviseConfirm.js";
 import { PlanReviseEditor } from "./PlanReviseEditor.js";
 import { PromptInput } from "./PromptInput.js";
 import { SessionPicker } from "./SessionPicker.js";
-import { ShellConfirm, type ShellConfirmChoice } from "./ShellConfirm.js";
-
+import { ShellConfirm, type ShellConfirmChoice, derivePrefix } from "./ShellConfirm.js";
 import { SlashArgPicker } from "./SlashArgPicker.js";
 import { SlashSuggestions } from "./SlashSuggestions.js";
 import { type ThemeChoice, ThemePicker } from "./ThemePicker.js";
 import { WelcomeBanner } from "./WelcomeBanner.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { detectBangCommand, formatBangUserMessage } from "./bang.js";
+import { CopyMode } from "./copy-mode/CopyMode.js";
 import type { PickerSnapshot, ViewerSnapshot } from "./dashboard/use-picker-broadcast.js";
 import { useViewerBroadcast } from "./dashboard/use-picker-broadcast.js";
-import { formatEditResults, formatPendingPreview } from "./edit-history.js";
-import {
-  buildEditToolBlocks,
-  formatQueuedReviewToolResult,
-  isReviewGatedEditTool,
-  shouldApplyEditToolImmediately,
-} from "./edit-tool-gate.js";
+import { formatEditResults } from "./edit-history.js";
 import { loopEventToDashboard } from "./effects/loop-to-dashboard.js";
 import { appendGlobalMemory, appendProjectMemory, detectHashMemory } from "./hash-memory.js";
 import { applySlashResult } from "./hooks/apply-slash-result.js";
@@ -154,17 +145,20 @@ import { useHookList } from "./hooks/useHookList.js";
 import { useInputRecall } from "./hooks/useInputRecall.js";
 import { useLanguageReload } from "./hooks/useLanguageReload.js";
 import { useLoopMode } from "./hooks/useLoopMode.js";
+import { usePresetMode } from "./hooks/usePresetMode.js";
 import { useQuit } from "./hooks/useQuit.js";
 import { useScrollback } from "./hooks/useScrollback.js";
 import { useToolProgressDisplay } from "./hooks/useToolProgressDisplay.js";
 import { useTranscriptWriter } from "./hooks/useTranscriptWriter.js";
 import { useWorkspaceRoot } from "./hooks/useWorkspaceRoot.js";
 import { useKeystroke } from "./keystroke-context.js";
+import { CardStream } from "./layout/CardStream.js";
+import { InputAreaWithHistoryHint } from "./layout/InputAreaWithHistoryHint.js";
 import { LiveExpandContext } from "./layout/LiveExpandContext.js";
 import { ModeStatusBar } from "./layout/LiveRows.js";
-import { StaticCardStream } from "./layout/StaticCardStream.js";
 import { StatusRow } from "./layout/StatusRow.js";
 import type { StatusBarConfig } from "./layout/StatusRow.js";
+import { ViewportBudgetProvider } from "./layout/viewport-budget.js";
 import { formatLoopStatus } from "./loop.js";
 import { applyMcpAppend } from "./mcp-append.js";
 import { handleMcpBrowseSlash } from "./mcp-browse.js";
@@ -174,20 +168,18 @@ import { formatMcpSlowToast } from "./mcp-toast.js";
 import { openUrl } from "./open-url.js";
 import { formatLongPaste } from "./paste-collapse.js";
 import { extractOpenQuestionsSection } from "./plan-open-questions.js";
-import {
-  type McpServerSummary,
-  type PlanModeToggleSource,
-  handleSlash,
-  parseSlash,
-  suggestSlashCommands,
-} from "./slash.js";
+import { PRESETS, resolvePreset } from "./presets.js";
+import { type McpServerSummary, handleSlash, parseSlash, suggestSlashCommands } from "./slash.js";
 import { TurnTranslator } from "./state/TurnTranslator.js";
 import { cardsToDashboardMessages } from "./state/cards-to-messages.js";
+import {
+  ChatScrollProvider,
+  useChatScrollActions,
+  useChatScrollState,
+} from "./state/chat-scroll-provider.js";
 import { hydrateCardsFromMessages } from "./state/hydrate.js";
 import { InflightProvider } from "./state/inflight-context.js";
 import { AgentStoreProvider, useAgentState, useAgentStore } from "./state/provider.js";
-import { VerboseContext } from "./state/verbose-context.js";
-import { isLegacyWindowsConsole } from "./terminal-host.js";
 import { ThemeProvider } from "./theme/context.js";
 import { listThemeNames } from "./theme/tokens.js";
 import { FG, type ThemeName } from "./theme/tokens.js";
@@ -198,16 +190,12 @@ import { useEditHistory } from "./useEditHistory.js";
 import { useSessionInfo } from "./useSessionInfo.js";
 import { useSubagent } from "./useSubagent.js";
 
-const STASH_HINT_CARD_ID = "composer-stash-hint";
-
-function isBusyPromptCommand(text: string): boolean {
-  const trimmed = text.trimStart();
-  return trimmed.startsWith("/") || trimmed.startsWith("#") || detectBangCommand(trimmed) !== null;
-}
-
 export interface AppProps {
   model: string;
-  reasoningEffort?: ReasoningEffort;
+  /** Preset resolved at launch; keeps flash distinct from auto when both use deepseek-v4-flash. */
+  preset?: "auto" | "flash" | "pro";
+  /** Whether flash may auto-upgrade hard turns to pro. */
+  autoEscalate?: boolean;
   system: string;
   /** Re-runs the prompt builder on /new so REASONIX.md edits don't need a restart. Must produce the same shape as `system` was built from. */
   rebuildSystem?: () => string;
@@ -308,40 +296,54 @@ export interface AppProps {
   qqErrorRef?: { current: ((msg: string) => void) | null };
 }
 
-// Module-level so the embedded dashboard server survives App remounts (chat.tsx
-// uses `<App key={activeSession}>`, so every session swap unmounts the whole
-// tree). Without this, the cleanup useEffect closed the server and the new App
-// mount raced its `listen()` against the OS still releasing the port — Windows
-// in particular held the port long enough for the rebind to fall back to a fresh
-// ephemeral one, so the dashboard URL changed every time the user clicked a
-// session in the sidebar. Now we keep the same handle and just hand it the new
-// loop/refs via `updateContext()`.
-let persistentDashboardHandle: DashboardServerHandle | null = null;
-
-// SSE subscribers must outlive App remounts for the same reason as
-// persistentDashboardHandle: the browser's `/api/events` connection
-// registers once on connect, and `broadcastDashboardEvent` reads this
-// Set every time the loop fires. If the Set is per-App, the new App's
-// broadcast finds an empty Set after a session-swap and the web silently
-// stops receiving turns.
-const persistentEventSubscribers = new Set<(ev: DashboardEvent) => void>();
-
 /**
  * Throttle interval in ms. 50ms —20Hz —slow enough that cursor-up
  * repaints on winpty/MINTTY/ConEmu/tmux don't leave half-drawn frames,
- * fast enough that streaming text still reads as continuous. Legacy
- * Windows conhost paints each frame visibly, so 20Hz on a maximized
- * `powershell.exe` is a flicker storm (#1300) — drop to ~7Hz there.
- * Override via `REASONIX_FLUSH_MS` if you want 60Hz on a terminal you trust.
+ * fast enough that streaming text still reads as continuous. Override
+ * via `REASONIX_FLUSH_MS` if you want 60Hz on a terminal you trust.
  */
 const FLUSH_INTERVAL_MS = (() => {
   const raw = process.env.REASONIX_FLUSH_MS;
-  const fallback = isLegacyWindowsConsole() ? 150 : 50;
-  if (!raw) return fallback;
+  if (!raw) return 50;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 16 || parsed > 1000) return fallback;
+  if (!Number.isFinite(parsed) || parsed < 16 || parsed > 1000) return 50;
   return Math.round(parsed);
 })();
+
+/**
+ * Captures printable keys / backspace / Enter while history is unpinned so the
+ * user can type blind and see the buffer when they scroll back. Lives in its
+ * own leaf so AppInner doesn't subscribe to `pinned` —same trick as
+ * `InputAreaWithHistoryHint` above.
+ */
+function HistoryTypingCapture({
+  input,
+  setInput,
+  enabled,
+  onReturnToBottom,
+}: {
+  input: string;
+  setInput: (next: string) => void;
+  enabled: boolean;
+  onReturnToBottom: () => void;
+}): null {
+  const pinned = useChatScrollState((s) => s.pinned);
+  useKeystroke((ev) => {
+    if (ev.paste) return;
+    if (ev.return) {
+      onReturnToBottom();
+      return;
+    }
+    if (ev.backspace) {
+      setInput(input.slice(0, -1));
+      return;
+    }
+    if (ev.input.length > 0 && ev.input >= " ") {
+      setInput(input + ev.input);
+    }
+  }, enabled && !pinned);
+  return null;
+}
 
 /**
  * Single-line status pill rendered below the modeline whenever a /loop
@@ -363,15 +365,6 @@ function LoopStatusRow({
       <Text color="cyan">{`> ${formatLoopStatus(loop.prompt, nextFireMs, loop.iter)} - /loop stop or type to cancel`}</Text>
     </Box>
   );
-}
-
-function completedCountIncludingStep(
-  completedStepIds: Set<string>,
-  stepId: string,
-  total: number,
-): number {
-  const completed = completedStepIds.size + (completedStepIds.has(stepId) ? 0 : 1);
-  return total > 0 ? Math.min(completed, total) : completed;
 }
 
 function lastMessageContent(
@@ -423,12 +416,14 @@ export function App(props: AppProps): React.ReactElement {
   return (
     <ThemeProvider name={themeName}>
       <AgentStoreProvider session={session} initialCards={initialCards}>
-        <AppInner
-          {...props}
-          themeName={themeName}
-          setThemeName={setThemeName}
-          statusBar={statusBar}
-        />
+        <ChatScrollProvider>
+          <AppInner
+            {...props}
+            themeName={themeName}
+            setThemeName={setThemeName}
+            statusBar={statusBar}
+          />
+        </ChatScrollProvider>
       </AgentStoreProvider>
     </ThemeProvider>
   );
@@ -442,7 +437,8 @@ type AppInnerProps = AppProps & {
 
 function AppInner({
   model,
-  reasoningEffort: initialReasoningEffort,
+  preset: initialPreset,
+  autoEscalate,
   system,
   rebuildSystem,
   transcript,
@@ -477,7 +473,6 @@ function AppInner({
   const isStreaming = useAgentState((s) => s.cards.some((c) => c.kind === "streaming" && !c.done));
   const cardCount = useAgentState((s) => s.cards.length);
   const sessionModel = useAgentState((s) => s.session.model);
-  const sessionEffort = useAgentState((s) => s.status.reasoningEffort);
   const ctxTokens = useAgentState((s) => s.status.promptTokens);
   const ctxCap = useAgentState(
     (s) => s.status.promptCap ?? DEEPSEEK_CONTEXT_TOKENS[s.session.model] ?? DEFAULT_CONTEXT_TOKENS,
@@ -485,10 +480,15 @@ function AppInner({
   const sessionCostUsd = useAgentState((s) => s.status.sessionCost);
   const lastTurnCostUsd = useAgentState((s) => s.status.cost);
   const cacheHitRatio = useAgentState((s) => s.status.cacheHit);
+  const presetForDisplay = useAgentState((s) => {
+    const p = s.status.preset;
+    return p === "auto" || p === "flash" || p === "pro" ? p : undefined;
+  });
   const sessionInputTokens = useAgentState((s) => s.status.sessionInputTokens);
   const sessionOutputTokens = useAgentState((s) => s.status.sessionOutputTokens);
   const lastTurnMs = useAgentState((s) => s.status.lastTurnMs);
   const activityLabel = useActivityLabel();
+  const chatScroll = useChatScrollActions();
   const [input, setInput] = useState("");
   const [composerCursor, setComposerCursor] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -501,9 +501,6 @@ function AppInner({
   useEffect(() => {
     if (!isStreaming && liveExpand) setLiveExpand(false);
   }, [isStreaming, liveExpand]);
-  // ctrl-r toggles verbose mode — ReasoningCard / ToolCard skip elision while on.
-  // Survives turn boundaries; resets on session restart.
-  const [verboseMode, setVerboseMode] = useState(false);
   const languageVersion = useLanguageReload();
   // Boot splash: skip when config has banner:false, otherwise show
   // one full whale-spout cycle (~1.4s) so the brand mark lands clean.
@@ -518,7 +515,6 @@ function AppInner({
     markPhase("first_paint");
     dumpStartupProfile();
   }, []);
-
   // Live MCP server list: initialized from the boot-time prop, then
   // updated immutably when append-drift adds tools mid-session.
   const [liveMcpServers, setLiveMcpServers] = useState<McpServerSummary[]>(() => mcpServers ?? []);
@@ -528,7 +524,6 @@ function AppInner({
   // Esc handler only fires once per turn (repeated presses would yield
   // stacked warning events).
   const abortedThisTurn = useRef(false);
-  const stashRef = useRef("");
   // Mirrors the live `busy` flag for /loop's timer (it has no React
   // closure handle, only refs). Skips the firing when a prior turn is
   // still running rather than queuing a duplicate submit.
@@ -586,23 +581,10 @@ function AppInner({
     editModeRef,
     modeFlash,
   } = useEditGate(!!codeMode);
-  const setEditModeLive = useCallback(
-    (mode: EditMode) => {
-      editModeRef.current = mode;
-      setEditMode(mode);
-      if (codeMode) saveEditMode(mode);
-    },
-    [codeMode, editModeRef, setEditMode],
+  const { preset, setPreset, proArmed, setProArmed, turnOnPro, setTurnOnPro } = usePresetMode(
+    model,
+    initialPreset,
   );
-  const engineeringLifecycleBaseModeRef = useRef<EngineeringLifecycleMode>(
-    loadEngineeringLifecycleMode(),
-  );
-  const engineeringLifecycleRef = useRef<EngineeringLifecycleRuntime | null>(null);
-  if (engineeringLifecycleRef.current === null) {
-    engineeringLifecycleRef.current = new EngineeringLifecycleRuntime({
-      mode: engineeringLifecycleBaseModeRef.current,
-    });
-  }
   // Refs that mirror state for stable read-callbacks handed to the
   // embedded dashboard server. The server's `getXxx()` closures are
   // captured once at startDashboard time; without ref-mirrors the
@@ -662,10 +644,6 @@ function AppInner({
   const [pendingReviseEditor, setPendingReviseEditor] = useState<string | null>(null);
   /** True while the SessionPicker is open mid-chat (triggered by `/sessions`). */
   const [pendingSessionsPicker, setPendingSessionsPicker] = useState(false);
-  /** Open by double-Esc — lists user turns; picking forks the session at that turn. */
-  const [pendingEditPicker, setPendingEditPicker] = useState<ReadonlyArray<UserTurnEntry> | null>(
-    null,
-  );
   const [sessionsPickerList, setSessionsPickerList] = useState<ReturnType<typeof listSessions>>(
     () => listSessionsForWorkspace(currentRootDir),
   );
@@ -684,7 +662,7 @@ function AppInner({
   const [pendingModelPicker, setPendingModelPicker] = useState(false);
   /** True while the ThemePicker is open mid-chat (triggered by bare `/theme`). */
   const [pendingThemePicker, setPendingThemePicker] = useState(false);
-  const [pendingShortcuts, setPendingShortcuts] = useState(false);
+  const [pendingCopyMode, setPendingCopyMode] = useState(false);
   // Stashed plan + intent while the user types free-form feedback
   // (refinement or last instructions on approve). When the picker
   // returns "refine" or "approve", we defer the loop-resume and show
@@ -749,13 +727,12 @@ function AppInner({
     !!pendingPlan ||
     !!pendingReviseEditor ||
     !!pendingSessionsPicker ||
-    !!pendingEditPicker ||
     !!pendingWorkspacePicker ||
     !!pendingCheckpointPicker ||
     !!pendingMcpHub ||
     pendingModelPicker ||
     pendingThemePicker ||
-    pendingShortcuts ||
+    pendingCopyMode ||
     !!stagedInput ||
     !!pendingEditReview ||
     walkthroughActive ||
@@ -775,7 +752,6 @@ function AppInner({
     !pendingPlan &&
     !pendingReviseEditor &&
     !pendingSessionsPicker &&
-    !pendingEditPicker &&
     !pendingWorkspacePicker &&
     !pendingCheckpointPicker &&
     !pendingMcpHub &&
@@ -802,7 +778,6 @@ function AppInner({
     pushHistory,
     resetCursor,
     history: promptHistory,
-    isHistoryMode,
   } = useInputRecall(setInput);
   const { setRawMode, isRawModeSupported } = useStdin();
   // Ctrl+X —hand the composer buffer to $EDITOR. Raw-mode flip lets the
@@ -852,13 +827,7 @@ function AppInner({
   // DashboardEvent per loop event so the web Chat tab updates in
   // sync with the TUI. The Set is keyed by the subscriber function
   // itself; subscribeEvents returns an unsubscribe closure.
-  //
-  // Aliases the module-level Set so subscriptions registered by an
-  // earlier App instance survive a session-swap remount. Without this,
-  // the browser's SSE connection stayed wired to the dead App's Set
-  // while the new App broadcast into a fresh empty one — every assistant
-  // turn after a switch silently dropped on the floor.
-  const eventSubscribersRef = useRef(persistentEventSubscribers);
+  const eventSubscribersRef = useRef<Set<(ev: DashboardEvent) => void>>(new Set());
   /** Only one picker mounts at a time; snapshot feeds `getActiveModal` for late SSE clients. */
   const activePickerResolverRef = useRef<((res: PickerResolution) => void) | null>(null);
   const activePickerSnapshotRef = useRef<PickerSnapshot | null>(null);
@@ -873,8 +842,6 @@ function AppInner({
   // revised plan starts fresh —old completions don't spill over.
   const planStepsRef = useRef<PlanStep[] | null>(null);
   const completedStepIdsRef = useRef<Set<string>>(new Set());
-  const stepCompletionsRef = useRef<Map<string, StepCompletion>>(new Map());
-  const pendingStepCompletionsRef = useRef<Map<string, StepCompletion>>(new Map());
   // Markdown body + human-friendly summary captured from submit_plan.
   // Persisted alongside the structured state so a future Time-Travel
   // replay can show the model's full original proposal without re-
@@ -900,14 +867,9 @@ function AppInner({
       clearPlanState(session);
       return;
     }
-    const extras: {
-      body?: string;
-      summary?: string;
-      stepCompletions?: Map<string, StepCompletion>;
-    } = {};
+    const extras: { body?: string; summary?: string } = {};
     if (planBodyRef.current) extras.body = planBodyRef.current;
     if (planSummaryRef.current) extras.summary = planSummaryRef.current;
-    if (stepCompletionsRef.current.size > 0) extras.stepCompletions = stepCompletionsRef.current;
     savePlanState(session, steps, completedStepIdsRef.current, extras);
   }, [session]);
   const [summary, setSummary] = useState<SessionSummary>({
@@ -962,8 +924,7 @@ function AppInner({
   // biome-ignore lint/correctness/useExhaustiveDependencies: currentRootDir —see comment above
   const loop = useMemo(() => {
     if (loopRef.current) return loopRef.current;
-    const ep = loadEndpoint();
-    const client = new DeepSeekClient({ apiKey: ep.apiKey, baseUrl: ep.baseUrl });
+    const client = new DeepSeekClient({ baseUrl: loadBaseUrl() });
     // Register run_skill HERE (not in code.tsx / chat.tsx) because
     // subagent-runAs skills need the client + parent registry to
     // spawn child loops. Wiring lives in App.tsx so the same code
@@ -1011,7 +972,11 @@ function AppInner({
       session,
       hooks: hookList,
       hookCwd: currentRootDir,
-      reasoningEffort: initialReasoningEffort ?? loadReasoningEffort(),
+      // Restore the user's last-chosen effort cap. Without this a
+      // `/effort high` silently reverted to `max` on relaunch —the
+      // loop's constructor default wins over persisted state.
+      reasoningEffort: loadReasoningEffort(),
+      autoEscalate,
       rebuildSystem,
     });
     loopRef.current = l;
@@ -1170,12 +1135,22 @@ function AppInner({
     loop.hooks = hookList;
   }, [loop, hookList]);
 
+  // Seed status.preset from initial loop state so the StatusRow preset pill
+  // renders correctly on first paint —usePresetMode's React-state mirror
+  // doesn't propagate to the agent store, so without this dispatch the pill
+  // would show the bare model id instead of the resolved preset.
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only seed
   useEffect(() => {
-    agentStore.dispatch({
-      type: "session.effort.change",
-      reasoningEffort: loop.reasoningEffort,
-    });
+    const canonical: "auto" | "flash" | "pro" | null =
+      initialPreset ??
+      (loop.model === "deepseek-v4-pro"
+        ? "pro"
+        : loop.model === "deepseek-v4-flash"
+          ? loop.autoEscalate
+            ? "auto"
+            : "flash"
+          : null);
+    agentStore.dispatch({ type: "session.preset.change", preset: canonical });
   }, []);
 
   // Deferred MCP bridge —fire addSpec for each requested server in the
@@ -1214,8 +1189,8 @@ function AppInner({
         bumpReady();
       } else if (notice.kind === "failed") {
         log.pushWarning(
-          t("app.mcpFailed", { name: notice.name }),
-          `${notice.reason}\n${t("mcpLifecycle.failedSetupHint")}`,
+          `MCP ${notice.name} failed`,
+          `${notice.reason}\nrun \`reasonix setup\` to remove this entry, or fix the underlying issue (missing npm package, network, etc.).`,
         );
         bumpReady();
       } else if (notice.kind === "tools-ready") {
@@ -1230,7 +1205,7 @@ function AppInner({
         bumpReady();
       } else if (notice.kind === "warn") {
         log.pushWarning(
-          t("app.mcpWarn", { name: notice.name }),
+          `MCP ${notice.name} warn`,
           formatMcpLifecycleEvent({
             state: "warn",
             name: notice.name,
@@ -1365,22 +1340,6 @@ function AppInner({
       broadcastDashboardEvent({ kind: "modal-down", modalKind: "shell" });
     };
   }, [pendingShell, broadcastDashboardEvent]);
-
-  useEffect(() => {
-    if (!pendingPath) return;
-    const modal: ActiveModal = {
-      kind: "path",
-      path: pendingPath.path,
-      intent: pendingPath.intent,
-      toolName: pendingPath.toolName,
-      sandboxRoot: pendingPath.sandboxRoot,
-      allowPrefix: pendingPath.allowPrefix,
-    };
-    broadcastDashboardEvent({ kind: "modal-up", modal });
-    return () => {
-      broadcastDashboardEvent({ kind: "modal-down", modalKind: "path" });
-    };
-  }, [pendingPath, broadcastDashboardEvent]);
 
   useEffect(() => {
     if (!pendingChoice) return;
@@ -1599,14 +1558,8 @@ function AppInner({
       if (restoredPlan && restoredPlan.steps.length > 0) {
         planStepsRef.current = restoredPlan.steps;
         completedStepIdsRef.current = new Set(restoredPlan.completedStepIds);
-        stepCompletionsRef.current = new Map(Object.entries(restoredPlan.stepCompletions ?? {}));
-        pendingStepCompletionsRef.current = new Map();
         planBodyRef.current = restoredPlan.body ?? null;
         planSummaryRef.current = restoredPlan.summary ?? null;
-        engineeringLifecycleRef.current?.recordPlanApproved(restoredPlan.steps);
-        for (const stepId of restoredPlan.completedStepIds) {
-          engineeringLifecycleRef.current?.recordStepCompleted(stepId);
-        }
         const when = relativeTime(restoredPlan.updatedAt);
         const done = new Set(restoredPlan.completedStepIds);
         const summary = restoredPlan.summary ? ` - ${restoredPlan.summary}` : "";
@@ -1655,45 +1608,24 @@ function AppInner({
     if (ev.ctrl && ev.input === "d") quitProcess();
   });
 
-  // Ctrl+R = verbose toggle. ReasoningCard / ToolCard skip elision while on.
+  // ↑/↓ / PgUp/PgDn always scroll chat; wheel arrives as ↑/↓ via
+  // DECSET 1007 alternate-scroll so it joins the same path. Pickers
+  // (slash / @-mention / slash-arg / shell-confirm) own ↑/↓ — when
+  // any of them is open we skip the arrow path so chat doesn't scroll
+  // alongside picker navigation; PgUp/PgDn/End still scroll. Prompt
+  // history + multi-line cursor moves live on Ctrl+P / Ctrl+N.
   useKeystroke((ev) => {
-    if (!(ev.ctrl && ev.input === "r")) return;
-    setVerboseMode((v) => {
-      const next = !v;
-      log.pushInfo(next ? t("app.verboseOn") : t("app.verboseOff"));
-      return next;
-    });
-  });
-
-  // Double-Esc — opens the rewind/edit picker when idle with an empty
-  // composer. Tracks the prior Esc timestamp; a second Esc inside 500 ms
-  // collects user turns and dispatches the picker. First Esc just records.
-  const lastEscAtRef = useRef(0);
-  useKeystroke((ev) => {
-    if (!ev.escape) return;
-    if (busy || submittingRef.current || isLoopActive()) return;
-    if (input.length > 0) return;
-    const now = Date.now();
-    const prev = lastEscAtRef.current;
-    lastEscAtRef.current = now;
-    if (prev === 0 || now - prev > 500) return;
-    const turns: UserTurnEntry[] = [];
-    const cards = agentStore.getState().cards;
-    let userTurnIndex = 0;
-    for (const c of cards) {
-      if (c.kind === "user") {
-        turns.push({
-          cardId: c.id,
-          userTurnIndex,
-          text: c.text,
-          ts: c.ts,
-        });
-        userTurnIndex++;
-      }
-    }
-    if (turns.length === 0) return;
-    setPendingEditPicker(turns);
-    lastEscAtRef.current = 0;
+    const pickerOwnsArrows =
+      (atState?.entries.length ?? 0) > 0 ||
+      (slashMatches?.length ?? 0) > 0 ||
+      (slashArgMatches?.length ?? 0) > 0 ||
+      pendingShell != null ||
+      pendingPath != null;
+    if (ev.pageUp || ev.mouseScrollUp) chatScroll.scrollPageUp();
+    else if (ev.pageDown || ev.mouseScrollDown) chatScroll.scrollPageDown();
+    else if (ev.end) chatScroll.jumpToBottom();
+    else if (!pickerOwnsArrows && ev.upArrow) chatScroll.scrollUp();
+    else if (!pickerOwnsArrows && ev.downArrow) chatScroll.scrollDown();
   }, !modalOpen);
 
   // Esc/Ctrl+C during an active model turn forward to the loop as an
@@ -1730,10 +1662,6 @@ function AppInner({
       });
       return;
     }
-    if (key.ctrl && key.input === "p" && !busy && (!modalOpen || pendingShortcuts)) {
-      setPendingShortcuts((prev) => !prev);
-      return;
-    }
     if (
       key.escape &&
       !submittingRef.current &&
@@ -1756,11 +1684,6 @@ function AppInner({
         loop,
         quitProcess,
       });
-      return;
-    }
-    // Esc dismisses the shortcuts help modal
-    if (key.escape && pendingShortcuts) {
-      setPendingShortcuts(false);
       return;
     }
     // Esc dismisses any composer-level picker (slash / @ / slash-arg)
@@ -1809,7 +1732,7 @@ function AppInner({
       // disables shell confirmations so true zero-prompt iteration takes two Shift+Tabs from default.
       const cur = editModeRef.current;
       const next: EditMode = cur === "review" ? "auto" : cur === "auto" ? "yolo" : "review";
-      setEditModeLive(next);
+      setEditMode(next);
       const message =
         next === "yolo"
           ? t("app.editModeYolo")
@@ -1819,10 +1742,10 @@ function AppInner({
       log.pushInfo(message);
       return;
     }
-    // Undo banner keybind: `u` rolls back the last auto-apply, only
-    // while the 5-second banner is visible. Older batches go through
-    // /undo so a stray `u` long after the fact can't quietly revert
-    // unrelated work (issue #1249).
+    // Undo banner keybind: `u` rolls back the last auto-apply. Gated
+    // on an empty prompt buffer so typing "user" into the input doesn't
+    // steal from the first keystroke. 5-second window; after that the
+    // banner self-dismisses and /undo remains the only path.
     if (
       codeMode &&
       input.length === 0 &&
@@ -1840,7 +1763,10 @@ function AppInner({
       !pendingChoice &&
       !stagedChoiceCustom &&
       !pendingRevision &&
-      undoBanner
+      // Fire when EITHER the banner is up OR there's any non-undone
+      // history entry —the keybind is useful long after the 5-second
+      // banner expires, which users rightly want.
+      (undoBanner || hasUndoable())
     ) {
       const out = codeUndo([]);
       log.pushInfo(out);
@@ -1900,52 +1826,42 @@ function AppInner({
     // — the picker would move AND history recall would fire into the
     // (hidden) prompt buffer. Bail early.
     if (pendingShell || pendingPath) return;
-    // Alt+S — stash / recall the composer buffer. Ctrl+U clearing
-    // is a one-way delete; stash gives the user a reversible "save
-    // for later" so an accidental hotkey doesn't lose input.
-    if (
-      key.meta &&
-      key.input === "s" &&
-      !pendingPlan &&
-      !pendingReviseEditor &&
-      !pendingSessionsPicker &&
-      !pendingCheckpointPicker &&
-      !pendingMcpHub &&
-      !stagedInput &&
-      !pendingEditReview &&
-      !walkthroughActive &&
-      !pendingChoice &&
-      !stagedChoiceCustom &&
-      !pendingRevision
-    ) {
-      if (stashRef.current) {
-        const recalled = stashRef.current;
-        stashRef.current = input;
-        setInput(recalled);
-        log.pushInfo(t("composer.stashRecall"), "info", STASH_HINT_CARD_ID);
-      } else if (input.length > 0) {
-        stashRef.current = input;
-        setInput("");
-        log.pushInfo(t("composer.stashSaved"), "info", STASH_HINT_CARD_ID);
-      } else {
-        log.pushInfo(t("composer.stashNothing"), "info", STASH_HINT_CARD_ID);
-      }
-      return;
-    }
 
-    // Picker arrow nav lives on the PromptInput → historyHandoff →
-    // handleHistoryPrev/Next path (which checks pickers before recall).
-    // Tab stays here — multiline-keys treats Tab as parent-owned.
+    // @-mention picker takes the same priority tier as slash. ↑/↓ walk
+    // the list; Tab on a folder drills into it, Tab on a file commits.
+    // Enter is caught in handleSubmit. Right arrow stays cursor-move
+    // (would otherwise fight PromptInput's multiline cursor). Must come
+    // BEFORE slash so the two pickers don't share arrow keys.
     if (atState && atState.entries.length > 0) {
+      const entries = atState.entries;
+      if (key.upArrow) {
+        setAtSelected((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setAtSelected((i) => Math.min(entries.length - 1, i + 1));
+        return;
+      }
       if (key.tab) {
-        const entries = atState.entries;
         const sel = entries[atSelected] ?? entries[0];
         if (sel) pickAtMention(sel, sel.isDir ? "drill" : "commit");
         return;
       }
     }
 
+    // Slash-argument picker. Fires inside `/<cmd> <partial>` —either
+    // a file picker (for /edit), enum picker (for /preset, /model,
+    // /plan, /branch, /harvest), or hint-only row. Navigation + Tab
+    // substitute the highlighted value at the arg's offset.
     if (slashArgMatches && slashArgMatches.length > 0) {
+      if (key.upArrow) {
+        setSlashArgSelected((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setSlashArgSelected((i) => Math.min(slashArgMatches.length - 1, i + 1));
+        return;
+      }
       if (key.tab) {
         const sel = slashArgMatches[slashArgSelected] ?? slashArgMatches[0];
         if (sel) pickSlashArg(sel);
@@ -1953,35 +1869,40 @@ function AppInner({
       }
     }
 
+    // Slash-suggestion mode takes priority over history recall.
+    // When the user is typing a `/` prefix and there are matches,
+    // ↑/↓ walk the suggestion list and Tab snaps the input to the
+    // highlighted command. Enter is handled in `handleSubmit` so
+    // TextInput's onSubmit still fires cleanly.
     if (slashMatches && slashMatches.length > 0) {
+      if (key.upArrow) {
+        setSlashSelected((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setSlashSelected((i) => Math.min(slashMatches.length - 1, i + 1));
+        return;
+      }
       if (key.tab) {
         const sel = slashMatches[slashSelected] ?? slashMatches[0];
         if (sel) setInput(`/${sel.cmd}`);
         return;
       }
     }
+
+    // Prompt history is now Ctrl+P / Ctrl+N (PromptInput → multiline
+    // keys → historyHandoff → recallPrev / recallNext below). ↑/↓ are
+    // reserved for chat scroll — without that move, native drag-select
+    // and right-click paste don't work on most terminals because we'd
+    // have to keep xterm mouse tracking on to grab the wheel.
   });
 
-  useEffect(() => {
-    if (!tools || !codeMode) return;
-    return tools.addToolInterceptor("engineering-lifecycle", (name, args) => {
-      return engineeringLifecycleRef.current?.guardToolCall(name, args) ?? null;
-    });
-  }, [tools, codeMode]);
-
-  useEffect(() => {
-    if (!tools || !codeMode) return;
-    tools.setResultAugmenter((name, args, result) => {
-      engineeringLifecycleRef.current?.recordToolResult(name, args, result);
-      return result;
-    });
-    return () => tools.setResultAugmenter(null);
-  }, [tools, codeMode]);
-
-  // Edit-gate interceptor. Reroutes edit tools through the review queue
-  // (in review mode) or the auto-apply snapshot/banner path (in auto
-  // mode) so the model's tool usage respects the same gate as its
-  // text-form SEARCH/REPLACE output.
+  // Edit-gate interceptor. Reroutes `edit_file` / `write_file` tool
+  // calls through the review queue (in `review` mode) or the auto-apply
+  // snapshot/banner path (in `auto` mode) so the model's tool usage
+  // respects the same gate as its text-form SEARCH/REPLACE output.
+  // Without this, edit_file bypasses `/apply` entirely —which was the
+  // bug that made the preview flow feel absent pre-0.5.24.
   //
   // `editModeRef` is read inside the closure so mode cycles don't need
   // to reinstall the hook. Cleanup clears the slot on unmount so a
@@ -1991,17 +1912,48 @@ function AppInner({
   useEffect(() => {
     if (!tools || !codeMode) return;
     tools.setToolInterceptor(async (name, args) => {
-      if (!isReviewGatedEditTool(name)) return null;
+      if (name !== "edit_file" && name !== "write_file") return null;
+      const rawPath = typeof args.path === "string" ? args.path : "";
+      if (!rawPath) return null;
 
       // Read root via ref so a workspace swap (which runs reregisterTools
       // for read_file/run_command) is also visible to this interceptor
       // otherwise edit_file writes to the OLD root while read_file looks in
       // the NEW one, producing ENOENT on the next read of a just-edited file.
       const rootForEdit = currentRootDirRef.current;
-      const blocks = buildEditToolBlocks(name, args, rootForEdit);
-      if (!blocks || blocks.length === 0) return null;
+      const absRoot = resolve(rootForEdit);
 
-      // Helper: apply the current block(s) + record into history + arm
+      // Absolute system paths (issue #942): defer outside-rootDir writes to the tool fn's safePath gate instead of stripping the leading slash and silently rewriting to <rootDir>/...
+      let relPath: string;
+      if (looksLikeAbsoluteSystemPath(rawPath)) {
+        const abs = resolve(rawPath);
+        if (!pathIsUnder(abs, absRoot)) return null;
+        const rel = relative(absRoot, abs);
+        if (!rel) return null;
+        relPath = rel;
+      } else {
+        let stripped = rawPath;
+        while (stripped.startsWith("/") || stripped.startsWith("\\")) {
+          stripped = stripped.slice(1);
+        }
+        if (!stripped) return null;
+        relPath = stripped;
+      }
+      let block: EditBlock;
+      if (name === "edit_file") {
+        const search = typeof args.search === "string" ? args.search : "";
+        const replace = typeof args.replace === "string" ? args.replace : "";
+        if (!search) return null; // let the tool fn surface the "empty search" error
+        block = { path: relPath, search, replace, offset: 0 };
+      } else {
+        // write_file: capture the current content (if any) as SEARCH so
+        // the queued block is a literal whole-file overwrite. For new
+        // files SEARCH stays empty —applyEditBlock's create-new sentinel.
+        const content = typeof args.content === "string" ? args.content : "";
+        block = toWholeFileEditBlock(relPath, content, rootForEdit);
+      }
+
+      // Helper: apply the current block + record into history + arm
       // undo. Used by auto mode AND by the various "apply" branches
       // of the review modal so we don't duplicate the snapshot /
       // apply / banner logic.
@@ -2011,35 +1963,28 @@ function AppInner({
       // after —ToolCard renders that with the same text. Pushing here
       // would produce "result shown twice".
       const applyNow = (): string => {
-        const snaps = snapshotBeforeEdits(blocks, rootForEdit);
-        const results = applyEditBlocks(blocks, rootForEdit);
+        const snaps = snapshotBeforeEdits([block], rootForEdit);
+        const results = applyEditBlocks([block], rootForEdit);
         const good = results.some((r) => r.status === "applied" || r.status === "created");
         if (good) {
-          recordEdit("auto", blocks, results, snaps);
+          recordEdit("auto", [block], results, snaps);
           armUndoBanner(results);
           runTriadMindAdvisory("tool-auto");
         }
         return formatEditResults(results);
       };
 
-      if (shouldApplyEditToolImmediately(editModeRef.current, turnEditPolicyRef.current)) {
-        return applyNow();
-      }
-
-      if (name === "multi_edit") {
-        pendingEdits.current = [...pendingEdits.current, ...blocks];
-        savePendingEdits(session ?? null, pendingEdits.current);
-        syncPendingCount();
-        log.pushInfo(formatPendingPreview(pendingEdits.current));
-        return formatQueuedReviewToolResult(blocks.length);
-      }
+      // yolo behaves like auto for edit application —the only extra
+      // power yolo adds is bypassing shell confirmations (handled in
+      // shell.ts via the allowAll getter).
+      if (editModeRef.current === "auto" || editModeRef.current === "yolo") return applyNow();
 
       // review mode, tool-call path: suspend the interceptor on the
       // per-edit modal unless the user has already hit "apply-rest-of-
       // turn" earlier in the same turn. Text-form SEARCH/REPLACE blocks
       // in assistant_final still queue for end-of-turn preview —they
       // land all at once with no mid-stream opportunity to prompt.
-      const block = blocks[0]!;
+      if (turnEditPolicyRef.current === "apply-all") return applyNow();
 
       const { choice, denyContext } = await new Promise<EditReviewResult>((resolveChoice) => {
         editReviewResolveRef.current = resolveChoice;
@@ -2061,7 +2006,7 @@ function AppInner({
         return applyNow();
       }
       if (choice === "flip-to-auto") {
-        setEditModeLive("auto");
+        setEditMode("auto");
         log.pushInfo(t("app.flippedAutoSession"));
         return applyNow();
       }
@@ -2103,24 +2048,9 @@ function AppInner({
    * by funneling every toggle through this setter.
    */
   const togglePlanMode = useCallback(
-    (on: boolean, source?: PlanModeToggleSource) => {
+    (on: boolean) => {
       setPlanMode(on);
       tools?.setPlanMode(on);
-      if (on) {
-        engineeringLifecycleRef.current?.setMode("strict");
-      } else if (source === "slash") {
-        engineeringLifecycleRef.current?.setMode("off");
-      } else {
-        const state = engineeringLifecycleRef.current?.snapshot().state;
-        if (
-          state === undefined ||
-          state === "idle" ||
-          state === "complete" ||
-          state === "cancelled"
-        ) {
-          engineeringLifecycleRef.current?.setMode(engineeringLifecycleBaseModeRef.current);
-        }
-      }
     },
     [tools],
   );
@@ -2160,304 +2090,271 @@ function AppInner({
   const startDashboard = useCallback(async (): Promise<string> => {
     if (dashboardRef.current) return dashboardRef.current.url;
     if (dashboardStartingRef.current) return dashboardStartingRef.current;
-    const buildCtx = (): DashboardContext => {
-      const ctx: DashboardContext = {
-        mode: "attached",
-        configPath: defaultConfigPath(),
-        usageLogPath: defaultUsageLogPath(),
-        loop,
-        tools,
-        getMcpServers: () => liveMcpServersRef.current,
-        getMcpFailures: () => mcpRuntime?.failures() ?? [],
-        getCurrentCwd: () => (codeMode ? currentRootDirRef.current : undefined),
-        getEditMode: () => (codeMode ? editModeRef.current : undefined),
-        getPlanMode: () => planModeRef.current,
-        getPendingEditCount: () => pendingEdits.current.length,
-        getLatestVersion: () => latestVersionRef.current,
-        getSessionName: () => session ?? null,
-        setEditMode: (m: EditMode) => {
-          setEditModeLive(m);
-          return m;
-        },
-        setPlanMode: (on: boolean, source?: PlanModeToggleSource) => {
-          if (codeMode) togglePlanMode(on, source);
-        },
-        applyEffortLive: (effort) => {
-          loop.configure({ reasoningEffort: effort });
-          agentStore.dispatch({ type: "session.effort.change", reasoningEffort: effort });
-        },
-        applyModelLive: (model) => {
-          loop.configure({ model });
-          agentStore.dispatch({ type: "session.model.change", model });
-        },
-        getModels: () => modelsRef.current,
-        setBudgetUsdLive: (usd) => {
-          loop.setBudget(usd);
-        },
-        getLoopRunStatus: () => getLoopStatus(),
-        startAutoLoop: (intervalMs, prompt) => startLoop(intervalMs, prompt),
-        stopAutoLoop: () => stopLoop(),
-        // ---------- Chat bridge ----------
-        getMessages: (): DashboardMessage[] =>
-          cardsToDashboardMessages(agentStore.getState().cards),
-        subscribeEvents: (handler) => {
-          eventSubscribersRef.current.add(handler);
-          return () => {
-            eventSubscribersRef.current.delete(handler);
-          };
-        },
-        submitPrompt: (text: string): SubmitResult => {
-          if (busyRef.current) {
-            if (isBusyPromptCommand(text)) {
-              return {
-                accepted: false,
-                reason: "commands are disabled while steering a busy turn",
-              };
-            }
-            // Steer into current turn instead of rejecting
-            loop.steer(text);
-            return { accepted: true, reason: "steered" };
-          }
-          const fn = handleSubmitRef.current;
-          if (!fn) return { accepted: false, reason: "TUI not ready" };
-          // Fire-and-forget —handleSubmit drives the loop event stream
-          // which the web sees via SSE. We don't await it here because
-          // a turn can take minutes; the HTTP request would time out.
-          fn(text).catch(() => undefined);
-          return { accepted: true };
-        },
-        abortTurn: () => {
-          if (submittingRef.current) loop.abort();
-        },
-        isBusy: () => busyRef.current,
-        getStats: () => {
-          // Pull from the loop's live aggregator (same source the TUI's
-          // StatsPanel reads). `balance` comes from useSessionInfo via a
-          // ref-mirror so this callback stays cheap.
-          const s = loop.stats.summary();
-          const ctxCap = DEEPSEEK_CONTEXT_TOKENS[loop.model] ?? DEFAULT_CONTEXT_TOKENS;
-          return {
-            turns: s.turns,
-            totalCostUsd: s.totalCostUsd,
-            lastTurnCostUsd: s.lastTurnCostUsd,
-            totalInputCostUsd: s.totalInputCostUsd,
-            totalOutputCostUsd: s.totalOutputCostUsd,
-            cacheHitRatio: s.cacheHitRatio,
-            lastPromptTokens: s.lastPromptTokens,
-            contextCapTokens: ctxCap,
-            // useSessionInfo's Balance is a flat { currency, total }; the
-            // dashboard wire shape is the richer DeepSeek BalanceInfo
-            // array (granted / topped_up split). Convert as a single-
-            // entry array so the SPA always reads `balance[0]` shape.
-            balance: balanceRef.current
-              ? [
-                  {
-                    currency: balanceRef.current.currency,
-                    total_balance: String(balanceRef.current.total),
-                  },
-                ]
-              : null,
-          };
-        },
-        // ---------- Modal mirroring ----------
-        getActiveModal: (): ActiveModal | null => {
-          // Probe the live state via refs in priority order —only one
-          // modal can be up at a time per App invariant.
-          const ps = pendingShell;
-          if (ps) {
-            return {
-              kind: "shell",
-              command: ps.command,
-              allowPrefix: derivePrefix(ps.command),
-              shellKind: ps.kind,
-            };
-          }
-          const pp = pendingPath;
-          if (pp) {
-            return {
-              kind: "path",
-              path: pp.path,
-              intent: pp.intent,
-              toolName: pp.toolName,
-              sandboxRoot: pp.sandboxRoot,
-              allowPrefix: pp.allowPrefix,
-            };
-          }
-          const pc = pendingChoice;
-          if (pc) {
-            return {
-              kind: "choice",
-              question: pc.question,
-              options: pc.options,
-              allowCustom: pc.allowCustom,
-            };
-          }
-          if (pendingPlanRef.current) {
-            return { kind: "plan", body: pendingPlanRef.current };
-          }
-          const er = pendingEditReview;
-          if (er) {
-            return {
-              kind: "edit-review",
-              path: er.path,
-              search: er.search ?? "",
-              replace: er.replace ?? "",
-              preview: (er.search || er.replace || "").split("\n").slice(0, 12).join("\n"),
-              total: pendingEdits.current.length,
-              remaining: pendingEdits.current.length,
-            };
-          }
-          if (pendingRevision) {
-            return {
-              kind: "revision",
-              reason: pendingRevision.reason,
-              remainingSteps: pendingRevision.remainingSteps.map((s) => ({
-                id: s.id,
-                title: s.title,
-                action: s.action,
-                ...(s.risk ? { risk: s.risk } : {}),
-              })),
-              ...(pendingRevision.summary ? { summary: pendingRevision.summary } : {}),
-            };
-          }
-          if (pendingCheckpoint) {
-            return {
-              kind: "checkpoint",
-              stepId: pendingCheckpoint.stepId,
-              ...(pendingCheckpoint.title ? { title: pendingCheckpoint.title } : {}),
-              completed: pendingCheckpoint.completed,
-              total: pendingCheckpoint.total,
-            };
-          }
-          const picker = activePickerSnapshotRef.current;
-          if (picker) {
-            return { kind: "picker", ...picker };
-          }
-          const viewer = activeViewerSnapshotRef.current;
-          if (viewer) {
-            return { kind: "viewer", ...viewer };
-          }
-          return null;
-        },
-        resolveShellConfirm: (choice) => {
-          const fn = handleShellConfirmRef.current;
-          if (fn) Promise.resolve(fn(choice)).catch(() => undefined);
-        },
-        resolvePathConfirm: (choice) => {
-          const fn = handlePathConfirmRef.current;
-          if (fn) Promise.resolve(fn(choice)).catch(() => undefined);
-        },
-        resolveChoiceConfirm: (choice: ChoiceResolution) => {
-          const fn = handleChoiceConfirmRef.current;
-          if (fn) fn(choice).catch(() => undefined);
-        },
-        resolvePlanConfirm: (choice: "approve" | "refine" | "cancel", text?: string) => {
-          if (choice === "cancel") {
-            handlePlanConfirmRef.current("cancel").catch(() => undefined);
-            return;
-          }
-          const plan = pendingPlanRef.current ?? "";
-          // Bypass the picker —input two-step on web. The override
-          // form of handleStagedInputSubmit takes the plan + mode
-          // directly; behaviour matches the TUI's "user typed feedback +
-          // pressed Enter" path.
-          handleStagedInputSubmitRef
-            .current(text ?? "", { plan, mode: choice })
-            .catch(() => undefined);
-        },
-        resolveEditReview: (choice: "apply" | "reject" | "apply-rest-of-turn" | "flip-to-auto") => {
-          const resolve = editReviewResolveRef.current;
-          if (resolve) {
-            editReviewResolveRef.current = null;
-            setPendingEditReview(null);
-            resolve({ choice, denyContext: undefined });
-          }
-        },
-        resolveCheckpointConfirm: (choice: "continue" | "revise" | "stop", text?: string) => {
-          // Web's "revise" path sends feedback in one shot; we hand the
-          // current pending checkpoint to the submit handler directly,
-          // skipping the TUI's staged-input two-step. continue/stop fall
-          // through to the regular picker handler.
-          if (choice === "revise" && typeof text === "string") {
-            const snap = pendingCheckpoint;
-            setPendingCheckpoint(null);
-            if (!snap) return;
-            Promise.resolve(handleCheckpointReviseSubmitRef.current(text, snap)).catch(
-              () => undefined,
-            );
-            return;
-          }
-          Promise.resolve(handleCheckpointConfirmRef.current(choice)).catch(() => undefined);
-        },
-        resolveReviseConfirm: (choice: "accept" | "reject") => {
-          Promise.resolve(handleReviseConfirmRef.current(choice)).catch(() => undefined);
-        },
-        resolvePicker: (resolution: PickerResolution) => {
-          const fn = activePickerResolverRef.current;
-          if (fn) Promise.resolve(fn(resolution)).catch(() => undefined);
-        },
-        resolveViewer: () => {
-          const fn = activeViewerResolverRef.current;
-          if (fn) Promise.resolve(fn()).catch(() => undefined);
-        },
-        // ---------- v0.14 mutation surface ----------
-        reloadHooks: () => reloadHooks(codeMode ? currentRootDirRef.current : undefined),
-        addToolToPrefix: (spec: import("../../types.js").ToolSpec) => loop.prefix.addTool(spec),
-        reloadMcp: mcpRuntime
-          ? async () => {
-              const r = await mcpRuntime.reloadFromConfig(loop);
-              setLiveMcpServers(r.summaries);
-              return r.summaries.length;
-            }
-          : undefined,
-        switchSession: onSwitchSession
-          ? (name: string | undefined) => {
-              onSwitchSession(name);
-              return { ok: true as const };
-            }
-          : undefined,
-      };
-      return ctx;
-    };
-
-    // Reuse the surviving handle across session-swap remounts. The new App
-    // owns a fresh loop/refs, so we hand them off via updateContext rather
-    // than rebinding the port — which would race the OS-level release and
-    // fall back to a new ephemeral port (= URL change the user hates).
-    if (persistentDashboardHandle) {
-      persistentDashboardHandle.updateContext(buildCtx());
-      dashboardRef.current = persistentDashboardHandle;
-      setDashboardUrlState(persistentDashboardHandle.url);
-      return persistentDashboardHandle.url;
-    }
-
     const startup = (async () => {
       const { startDashboardServer } = await import("../../server/index.js");
-      const { saveDashboardPort } = await import("../../config.js");
-      const tryStart = (port: number | undefined) =>
-        startDashboardServer(buildCtx(), {
-          port,
-          host: dashboardHost,
-          token: dashboardToken,
-        });
-      let handle: Awaited<ReturnType<typeof tryStart>>;
-      try {
-        handle = await tryStart(dashboardPort);
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException)?.code;
-        if (dashboardPort && (code === "EADDRINUSE" || code === "EACCES")) {
-          // Pinned port collided — fall back to ephemeral, then re-persist so
-          // the next boot tries the new port first.
-          process.stderr.write(
-            `▲ dashboard port ${dashboardPort} taken (${code}) — falling back to ephemeral\n`,
-          );
-          handle = await tryStart(undefined);
-        } else {
-          throw err;
-        }
-      }
-      saveDashboardPort(handle.port);
-      persistentDashboardHandle = handle;
+      const handle = await startDashboardServer(
+        {
+          mode: "attached",
+          configPath: defaultConfigPath(),
+          usageLogPath: defaultUsageLogPath(),
+          loop,
+          tools,
+          getMcpServers: () => liveMcpServersRef.current,
+          getMcpFailures: () => mcpRuntime?.failures() ?? [],
+          getCurrentCwd: () => (codeMode ? currentRootDirRef.current : undefined),
+          getEditMode: () => (codeMode ? editModeRef.current : undefined),
+          getPlanMode: () => planModeRef.current,
+          getPendingEditCount: () => pendingEdits.current.length,
+          getLatestVersion: () => latestVersionRef.current,
+          getSessionName: () => session ?? null,
+          setEditMode: (m: EditMode) => {
+            setEditMode(m);
+            editModeRef.current = m;
+            saveEditMode(m);
+            return m;
+          },
+          setPlanMode: (on: boolean) => {
+            if (codeMode) togglePlanMode(on);
+          },
+          applyPresetLive: (name: string) => {
+            const settings = resolvePreset(name as PresetName);
+            loop.configure({
+              model: settings.model,
+              autoEscalate: settings.autoEscalate,
+              reasoningEffort: settings.reasoningEffort,
+            });
+            agentStore.dispatch({ type: "session.model.change", model: settings.model });
+            const canonical: "auto" | "flash" | "pro" =
+              settings.model === "deepseek-v4-pro"
+                ? "pro"
+                : settings.autoEscalate
+                  ? "auto"
+                  : "flash";
+            setPreset(canonical);
+            agentStore.dispatch({ type: "session.preset.change", preset: canonical });
+            try {
+              savePreset(canonical);
+            } catch {
+              /* disk full / perms —runtime change still took effect */
+            }
+          },
+          applyEffortLive: (effort) => {
+            loop.configure({ reasoningEffort: effort });
+          },
+          applyModelLive: (model) => {
+            loop.configure({ model });
+            agentStore.dispatch({ type: "session.model.change", model });
+          },
+          getModels: () => modelsRef.current,
+          setProNextLive: (armed) => {
+            if (armed) loop.armProForNextTurn();
+            else loop.disarmPro();
+          },
+          setBudgetUsdLive: (usd) => {
+            loop.setBudget(usd);
+          },
+          getLoopRunStatus: () => getLoopStatus(),
+          startAutoLoop: (intervalMs, prompt) => startLoop(intervalMs, prompt),
+          stopAutoLoop: () => stopLoop(),
+          // ---------- Chat bridge ----------
+          getMessages: (): DashboardMessage[] =>
+            cardsToDashboardMessages(agentStore.getState().cards),
+          subscribeEvents: (handler) => {
+            eventSubscribersRef.current.add(handler);
+            return () => {
+              eventSubscribersRef.current.delete(handler);
+            };
+          },
+          submitPrompt: (text: string): SubmitResult => {
+            if (busyRef.current) {
+              return { accepted: false, reason: "loop is busy with a turn" };
+            }
+            const fn = handleSubmitRef.current;
+            if (!fn) return { accepted: false, reason: "TUI not ready" };
+            // Fire-and-forget —handleSubmit drives the loop event stream
+            // which the web sees via SSE. We don't await it here because
+            // a turn can take minutes; the HTTP request would time out.
+            fn(text).catch(() => undefined);
+            return { accepted: true };
+          },
+          abortTurn: () => {
+            if (submittingRef.current) loop.abort();
+          },
+          isBusy: () => busyRef.current,
+          getStats: () => {
+            // Pull from the loop's live aggregator (same source the TUI's
+            // StatsPanel reads). `balance` comes from useSessionInfo via a
+            // ref-mirror so this callback stays cheap.
+            const s = loop.stats.summary();
+            const ctxCap = DEEPSEEK_CONTEXT_TOKENS[loop.model] ?? DEFAULT_CONTEXT_TOKENS;
+            return {
+              turns: s.turns,
+              totalCostUsd: s.totalCostUsd,
+              lastTurnCostUsd: s.lastTurnCostUsd,
+              totalInputCostUsd: s.totalInputCostUsd,
+              totalOutputCostUsd: s.totalOutputCostUsd,
+              cacheHitRatio: s.cacheHitRatio,
+              lastPromptTokens: s.lastPromptTokens,
+              contextCapTokens: ctxCap,
+              // useSessionInfo's Balance is a flat { currency, total }; the
+              // dashboard wire shape is the richer DeepSeek BalanceInfo
+              // array (granted / topped_up split). Convert as a single-
+              // entry array so the SPA always reads `balance[0]` shape.
+              balance: balanceRef.current
+                ? [
+                    {
+                      currency: balanceRef.current.currency,
+                      total_balance: String(balanceRef.current.total),
+                    },
+                  ]
+                : null,
+            };
+          },
+          // ---------- Modal mirroring ----------
+          getActiveModal: (): ActiveModal | null => {
+            // Probe the live state via refs in priority order —only one
+            // modal can be up at a time per App invariant.
+            const ps = pendingShell;
+            if (ps) {
+              return {
+                kind: "shell",
+                command: ps.command,
+                allowPrefix: derivePrefix(ps.command),
+                shellKind: ps.kind,
+              };
+            }
+            const pc = pendingChoice;
+            if (pc) {
+              return {
+                kind: "choice",
+                question: pc.question,
+                options: pc.options,
+                allowCustom: pc.allowCustom,
+              };
+            }
+            if (pendingPlanRef.current) {
+              return { kind: "plan", body: pendingPlanRef.current };
+            }
+            const er = pendingEditReview;
+            if (er) {
+              return {
+                kind: "edit-review",
+                path: er.path,
+                search: er.search ?? "",
+                replace: er.replace ?? "",
+                preview: (er.search || er.replace || "").split("\n").slice(0, 12).join("\n"),
+                total: pendingEdits.current.length,
+                remaining: pendingEdits.current.length,
+              };
+            }
+            if (pendingRevision) {
+              return {
+                kind: "revision",
+                reason: pendingRevision.reason,
+                remainingSteps: pendingRevision.remainingSteps.map((s) => ({
+                  id: s.id,
+                  title: s.title,
+                  action: s.action,
+                  ...(s.risk ? { risk: s.risk } : {}),
+                })),
+                ...(pendingRevision.summary ? { summary: pendingRevision.summary } : {}),
+              };
+            }
+            if (pendingCheckpoint) {
+              return {
+                kind: "checkpoint",
+                stepId: pendingCheckpoint.stepId,
+                ...(pendingCheckpoint.title ? { title: pendingCheckpoint.title } : {}),
+                completed: pendingCheckpoint.completed,
+                total: pendingCheckpoint.total,
+              };
+            }
+            const picker = activePickerSnapshotRef.current;
+            if (picker) {
+              return { kind: "picker", ...picker };
+            }
+            const viewer = activeViewerSnapshotRef.current;
+            if (viewer) {
+              return { kind: "viewer", ...viewer };
+            }
+            return null;
+          },
+          resolveShellConfirm: (choice) => {
+            const fn = handleShellConfirmRef.current;
+            if (fn) Promise.resolve(fn(choice)).catch(() => undefined);
+          },
+          resolveChoiceConfirm: (choice) => {
+            const fn = handleChoiceConfirmRef.current;
+            if (fn) fn(choice).catch(() => undefined);
+          },
+          resolvePlanConfirm: (choice, text) => {
+            if (choice === "cancel") {
+              handlePlanConfirmRef.current("cancel").catch(() => undefined);
+              return;
+            }
+            const plan = pendingPlanRef.current ?? "";
+            // Bypass the picker —input two-step on web. The override
+            // form of handleStagedInputSubmit takes the plan + mode
+            // directly; behaviour matches the TUI's "user typed feedback +
+            // pressed Enter" path.
+            handleStagedInputSubmitRef
+              .current(text ?? "", { plan, mode: choice })
+              .catch(() => undefined);
+          },
+          resolveEditReview: (choice) => {
+            const resolve = editReviewResolveRef.current;
+            if (resolve) {
+              editReviewResolveRef.current = null;
+              setPendingEditReview(null);
+              resolve({ choice, denyContext: undefined });
+            }
+          },
+          resolveCheckpointConfirm: (choice, text) => {
+            // Web's "revise" path sends feedback in one shot; we hand the
+            // current pending checkpoint to the submit handler directly,
+            // skipping the TUI's staged-input two-step. continue/stop fall
+            // through to the regular picker handler.
+            if (choice === "revise" && typeof text === "string") {
+              const snap = pendingCheckpoint;
+              setPendingCheckpoint(null);
+              if (!snap) return;
+              Promise.resolve(handleCheckpointReviseSubmitRef.current(text, snap)).catch(
+                () => undefined,
+              );
+              return;
+            }
+            Promise.resolve(handleCheckpointConfirmRef.current(choice)).catch(() => undefined);
+          },
+          resolveReviseConfirm: (choice) => {
+            Promise.resolve(handleReviseConfirmRef.current(choice)).catch(() => undefined);
+          },
+          resolvePicker: (resolution) => {
+            const fn = activePickerResolverRef.current;
+            if (fn) Promise.resolve(fn(resolution)).catch(() => undefined);
+          },
+          resolveViewer: () => {
+            const fn = activeViewerResolverRef.current;
+            if (fn) Promise.resolve(fn()).catch(() => undefined);
+          },
+          // ---------- v0.14 mutation surface ----------
+          reloadHooks: () => reloadHooks(codeMode ? currentRootDirRef.current : undefined),
+          addToolToPrefix: (spec) => loop.prefix.addTool(spec),
+          reloadMcp: mcpRuntime
+            ? async () => {
+                const r = await mcpRuntime.reloadFromConfig(loop);
+                setLiveMcpServers(r.summaries);
+                return r.summaries.length;
+              }
+            : undefined,
+          switchSession: onSwitchSession
+            ? (name) => {
+                onSwitchSession(name);
+                return { ok: true as const };
+              }
+            : undefined,
+        },
+        { port: dashboardPort, host: dashboardHost, token: dashboardToken },
+      );
       dashboardRef.current = handle;
       setDashboardUrlState(handle.url);
       return handle.url;
@@ -2475,7 +2372,6 @@ function AppInner({
     session,
     togglePlanMode,
     pendingShell,
-    pendingPath,
     pendingChoice,
     pendingCheckpoint,
     pendingEditReview,
@@ -2487,9 +2383,10 @@ function AppInner({
     stopLoop,
     pendingEdits,
     editModeRef,
-    setEditModeLive,
+    setEditMode,
     currentRootDirRef,
     reloadHooks,
+    setPreset,
     onSwitchSession,
     dashboardPort,
     dashboardHost,
@@ -2497,10 +2394,9 @@ function AppInner({
   ]);
 
   const stopDashboard = useCallback(async (): Promise<void> => {
-    const h = dashboardRef.current ?? persistentDashboardHandle;
+    const h = dashboardRef.current;
     if (!h) return;
     dashboardRef.current = null;
-    persistentDashboardHandle = null;
     setDashboardUrlState(null);
     try {
       await h.close();
@@ -2511,16 +2407,8 @@ function AppInner({
   }, [log]);
 
   const getDashboardUrl = useCallback((): string | null => {
-    const baseUrl = dashboardRef.current?.url ?? null;
-    if (!baseUrl || !session) return baseUrl;
-    try {
-      const url = new URL(baseUrl);
-      url.searchParams.set("session", session);
-      return url.toString();
-    } catch {
-      return baseUrl;
-    }
-  }, [session]);
+    return dashboardRef.current?.url ?? null;
+  }, []);
 
   // Auto-start the dashboard once the TUI is mounted unless the user
   // opted out with --no-dashboard. The whole point is discoverability:
@@ -2533,24 +2421,24 @@ function AppInner({
     startDashboard()
       .then((url) => {
         if (!url) return;
-        const sessionUrl = getDashboardUrl() ?? url;
-        log.pushInfo(`/dashboard  →  ${sessionUrl}`);
-        if (openDashboard) openUrl(sessionUrl);
+        log.pushInfo(`/dashboard  →  ${url}`);
+        if (openDashboard) openUrl(url);
       })
       .catch((err) => {
         const reason = err instanceof Error ? err.message : String(err);
         log.pushInfo(t("ui.dashboardAutoStartFailed", { reason }));
       });
-  }, [noDashboard, openDashboard, startDashboard, log, getDashboardUrl]);
+  }, [noDashboard, openDashboard, startDashboard, log]);
 
-  // Drop the local handle on unmount but DON'T close the server — chat.tsx
-  // remounts App on every session swap, so closing here would force a port
-  // rebind (and a new URL) for each switch. The persistent handle survives
-  // the swap and gets rewired via updateContext() in the next startDashboard().
-  // Real teardown happens in stopDashboard() or on process exit.
+  // Tear the dashboard down on unmount so the port doesn't leak when
+  // the TUI exits via /exit, Ctrl+C, etc.
   useEffect(() => {
     return () => {
-      dashboardRef.current = null;
+      const h = dashboardRef.current;
+      if (h) {
+        dashboardRef.current = null;
+        h.close().catch(() => undefined);
+      }
     };
   }, []);
 
@@ -2577,7 +2465,8 @@ function AppInner({
         // Flip the gate first, then apply the current block, then exit
         // the walk. Remaining blocks stay pending —the user can keep
         // walking via /walk again or commit them with /apply.
-        setEditModeLive("auto");
+        setEditMode("auto");
+        saveEditMode("auto");
         log.pushInfo(codeApply([1]));
         log.pushInfo(t("app.flippedAutoWalk"));
         setWalkthroughActive(false);
@@ -2589,7 +2478,7 @@ function AppInner({
       // the new first block thanks to pendingTick.
       if (pendingEdits.current.length === 0) setWalkthroughActive(false);
     },
-    [codeApply, codeDiscard, log, pendingEdits, setEditModeLive],
+    [codeApply, codeDiscard, log, pendingEdits, setEditMode],
   );
 
   const pendingGateIdRef = useRef<number | null>(null);
@@ -2626,23 +2515,36 @@ function AppInner({
 
   const handleQQModelPick = useCallback(
     (target: string): string => {
-      if (isReasoningEffort(target)) {
-        const effort: ReasoningEffort = target;
-        loop.configure({ reasoningEffort: effort });
-        agentStore.dispatch({ type: "session.effort.change", reasoningEffort: effort });
+      if (target === "auto" || target === "flash" || target === "pro") {
+        const preset = PRESETS[target];
+        loop.configure({
+          model: preset.model,
+          autoEscalate: preset.autoEscalate,
+          reasoningEffort: preset.reasoningEffort,
+        });
+        agentStore.dispatch({ type: "session.model.change", model: preset.model });
+        setPreset(target);
+        agentStore.dispatch({ type: "session.preset.change", preset: target });
         try {
-          saveReasoningEffort(effort);
+          savePreset(target);
         } catch {}
-        return `effort: ${effort}`;
+        return `preset: ${target} / ${preset.model}`;
       }
-      loop.configure({ model: target });
+
+      loop.configure({ model: target, autoEscalate: false });
       agentStore.dispatch({ type: "session.model.change", model: target });
-      try {
-        saveModel(target);
-      } catch {}
+      const inferred =
+        target === "deepseek-v4-pro" ? "pro" : target === "deepseek-v4-flash" ? "flash" : null;
+      setPreset(inferred ?? "flash");
+      agentStore.dispatch({ type: "session.preset.change", preset: inferred });
+      if (inferred) {
+        try {
+          savePreset(inferred);
+        } catch {}
+      }
       return `model: ${target}`;
     },
-    [agentStore, loop],
+    [agentStore, loop, setPreset],
   );
 
   const handleQQThemePick = useCallback(
@@ -2690,18 +2592,6 @@ function AppInner({
         return;
       }
       if (busy || submittingRef.current) {
-        if (busy && text.trim()) {
-          if (isBusyPromptCommand(text)) {
-            log.pushInfo(t("app.steerCommandRejected"));
-            return;
-          }
-          setInput("");
-          resetCursor();
-          pushHistory(text);
-          loop.steer(text);
-          log.pushInfo(t("app.steerInjected"));
-          log.pushInfo(text, "ghost");
-        }
         return;
       }
       // Cancel-on-user-input: any user-typed submit cancels an active
@@ -2726,8 +2616,8 @@ function AppInner({
 
       // Slash-argument picker intercept —same shape as @-picker. For
       // file pickers (/edit) we splice + trailing space so the user
-      // keeps typing the instruction. For enum pickers (/effort,
-      // /model, /plan) we splice without trailing space; those
+      // keeps typing the instruction. For enum pickers (/preset,
+      // /model, /plan, — we splice without trailing space; those
       // commands take no further args, so the user presses Enter a
       // second time to run.
       if (slashArgMatches && slashArgMatches.length > 0 && slashArgContext) {
@@ -2903,7 +2793,7 @@ function AppInner({
           planMode,
           setPlanMode: codeMode ? togglePlanMode : undefined,
           editMode: codeMode ? editMode : undefined,
-          setEditMode: codeMode ? setEditModeLive : undefined,
+          setEditMode: codeMode ? setEditMode : undefined,
           touchedFiles: codeMode
             ? () => {
                 // Union of (files in completed/undone edit batches) +
@@ -2915,6 +2805,14 @@ function AppInner({
                 return [...set];
               }
             : undefined,
+          armPro: () => {
+            loop.armProForNextTurn();
+            setProArmed(true);
+          },
+          disarmPro: () => {
+            loop.disarmPro();
+            setProArmed(false);
+          },
           startLoop,
           stopLoop,
           getLoopStatus,
@@ -2928,9 +2826,6 @@ function AppInner({
             status: qq.status,
           },
           sessionId: session,
-          getEngineeringLifecycleSnapshot: codeMode
-            ? () => engineeringLifecycleRef.current?.snapshot() ?? null
-            : undefined,
           jobs: codeMode?.jobs,
           postInfo: fromQQ ? qq.sendInfo : log.pushInfo,
           postDoctor: (checks) => log.showDoctor(checks),
@@ -2951,7 +2846,6 @@ function AppInner({
             completedStepIdsRef.current.add(stepId);
             persistPlanState();
             log.completePlanStep(stepId);
-            engineeringLifecycleRef.current?.recordStepCompleted(stepId);
             return "ok";
           },
           markAllPlanStepsDone: () => {
@@ -2962,7 +2856,6 @@ function AppInner({
               if (completedStepIdsRef.current.has(s.id)) continue;
               completedStepIdsRef.current.add(s.id);
               log.completePlanStep(s.id);
-              engineeringLifecycleRef.current?.recordStepCompleted(s.id);
               added++;
             }
             if (added > 0) persistPlanState();
@@ -3039,6 +2932,11 @@ function AppInner({
           pushHistory(text);
           return;
         }
+        if (result.openCopyMode) {
+          setPendingCopyMode(true);
+          pushHistory(text);
+          return;
+        }
         if (result.openArgPickerFor) {
           pushHistory(text);
           setInput(`/${result.openArgPickerFor} `);
@@ -3100,17 +2998,6 @@ function AppInner({
         if (promptReport.blocked) return;
       }
 
-      if (codeMode) {
-        const before = engineeringLifecycleRef.current?.snapshot().state;
-        engineeringLifecycleRef.current?.observeUserPrompt(text);
-        const after = engineeringLifecycleRef.current?.snapshot().state;
-        if (before === "idle" && after === "armed") {
-          log.pushInfo(
-            "Engineering lifecycle armed: high-risk mutations now require an approved structured plan.",
-          );
-        }
-      }
-
       // Large pastes (stack traces, log dumps, file contents) get a
       // collapsed preview in scrollback; the model still receives the full
       // text below via modelInput.
@@ -3163,9 +3050,16 @@ function AppInner({
       // the armed mirror so the badge flips to "escalated" (via the
       // warning handler) rather than staying at "armed" during the
       // actual run.
+      if (proArmed) {
+        setProArmed(false);
+        setTurnOnPro(true);
+      } else {
+        setTurnOnPro(false);
+      }
+
       const flush = () => {
         if (!contentBuf.current && !reasoningBuf.current && !toolCallBuildBuf.current) return;
-        translator.flushBuffers(reasoningBuf.current, contentBuf.current, loop.model);
+        translator.flushBuffers(reasoningBuf.current, contentBuf.current, loop.currentCallModel);
         streamRef.text += contentBuf.current;
         streamRef.reasoning += reasoningBuf.current;
         if (toolCallBuildBuf.current) {
@@ -3351,13 +3245,9 @@ function AppInner({
               setPendingChoice,
               planStepsRef,
               completedStepIdsRef,
-              stepCompletionsRef,
-              pendingStepCompletionsRef,
               planBodyRef,
               planSummaryRef,
               persistPlanState,
-              onPlanStepCompleted: (stepId) =>
-                engineeringLifecycleRef.current?.recordStepCompleted(stepId),
               log,
               session: session ?? null,
               codeModeOn: !!codeMode,
@@ -3371,7 +3261,7 @@ function AppInner({
               translator,
             });
           } else if (ev.role === "warning") {
-            handleWarningEvent(ev, { log });
+            handleWarningEvent(ev, { log, setTurnOnPro });
           }
         }
         flush();
@@ -3428,6 +3318,9 @@ function AppInner({
         setBusy(false);
         submittingRef.current = false;
         qq.clearTurnReply();
+        // Clear pro-on-turn badge; armed-for-next-turn already cleared
+        // at turn start when it was consumed.
+        setTurnOnPro(false);
         // Refresh balance lazily —don't block the return.
         refreshBalance();
       }
@@ -3466,7 +3359,7 @@ function AppInner({
       sealCurrentEntry,
       editMode,
       editModeRef,
-      setEditModeLive,
+      setEditMode,
       pendingEdits,
       syncPendingCount,
       reloadHooks,
@@ -3477,6 +3370,9 @@ function AppInner({
       refreshBalance,
       refreshLatestVersion,
       refreshModels,
+      proArmed,
+      setProArmed,
+      setTurnOnPro,
       persistPlanState,
       stdout,
       stopLoop,
@@ -3625,42 +3521,14 @@ function AppInner({
         return;
       }
 
-      if (choice === "refine") {
+      if (choice === "refine" || choice === "approve") {
         if (pendingPlan) {
           const questions = extractOpenQuestionsSection(pendingPlan) ?? undefined;
-          setStagedInput({ plan: pendingPlan, mode: "refine", questions });
+          setStagedInput({ plan: pendingPlan, mode: choice, questions });
           setPendingPlan(null);
+        } else if (choice === "approve") {
+          setStagedInput({ plan: "", mode: "approve" });
         }
-        return;
-      }
-
-      if (choice === "approve") {
-        if (pendingPlan) {
-          const questions = extractOpenQuestionsSection(pendingPlan) ?? undefined;
-          if (questions) {
-            // Plan flagged open questions — keep the staged input so the user
-            // can answer them before approve goes through.
-            setStagedInput({ plan: pendingPlan, mode: "approve", questions });
-            setPendingPlan(null);
-          } else {
-            // No open questions → Accept should execute the plan, not stop
-            // for an optional-guidance step. Resolve the gate directly via the
-            // same path handleStagedInputSubmit uses for explicit-feedback
-            // approvals so plan-card setup and lifecycle hooks stay in sync.
-            // #1475: the staged input was visually indistinguishable from the
-            // regular composer, trapping users after the picker reopened from
-            // a reject-flow Esc and breaking their "Accept = run it" mental
-            // model.
-            const plan = pendingPlan;
-            setPendingPlan(null);
-            await handlePlanFeedbackRef.current("", { plan, mode: "approve" });
-          }
-          return;
-        }
-        // `/apply-plan` slash fallback — model wrote a plan in assistant text
-        // instead of calling submit_plan, so there's no pending gate to resolve.
-        // Surface the staged input so we still capture the implement-now intent.
-        setStagedInput({ plan: "", mode: "approve" });
         return;
       }
 
@@ -3738,11 +3606,8 @@ function AppInner({
         // can dock it at the bottom —without this dispatch, no card with
         // variant: "active" exists and the live strip stays empty.
         const approvedSteps = planStepsRef.current;
-        engineeringLifecycleRef.current?.recordPlanApproved(approvedSteps ?? []);
         if (approvedSteps && approvedSteps.length > 0) {
           completedStepIdsRef.current = new Set();
-          stepCompletionsRef.current = new Map();
-          pendingStepCompletionsRef.current = new Map();
           log.showPlan({
             title: planSummaryRef.current ?? "plan",
             steps: approvedSteps.map((s) => ({
@@ -3762,12 +3627,9 @@ function AppInner({
         // no point keeping it around for resume.
         planStepsRef.current = null;
         completedStepIdsRef.current = new Set();
-        stepCompletionsRef.current = new Map();
-        pendingStepCompletionsRef.current = new Map();
         planBodyRef.current = null;
         planSummaryRef.current = null;
         persistPlanState();
-        engineeringLifecycleRef.current?.cancel();
         togglePlanMode(false);
         agentStore.dispatch({ type: "plan.drop" });
         marker = trimmed ? `plan rejected - ${tail}` : "plan cancelled";
@@ -3859,6 +3721,9 @@ function AppInner({
     return pauseGate.on((request) => {
       const payload = request.payload as Record<string, unknown>;
       pendingGateIdRef.current = request.id;
+      // Modal pickers reserve viewport rows from the bottom; if the chat is
+      // scrolled up, the picker mounts off-screen and the user can't see it.
+      chatScroll.jumpToBottom();
 
       qq.handlePauseRequest(request.kind, payload);
 
@@ -3910,9 +3775,6 @@ function AppInner({
           planStepsRef.current = p.steps ?? null;
           planSummaryRef.current = p.summary ?? null;
           planBodyRef.current = p.plan;
-          stepCompletionsRef.current = new Map();
-          pendingStepCompletionsRef.current = new Map();
-          engineeringLifecycleRef.current?.recordPlanProposed(p.steps);
           break;
         }
         case "plan_checkpoint": {
@@ -3921,19 +3783,10 @@ function AppInner({
             title?: string;
             result: string;
             notes?: string;
-            completion?: StepCompletion;
           };
-          if (p.completion?.kind === "step_completed") {
-            pendingStepCompletionsRef.current.set(p.stepId, p.completion);
-          }
-          // completed/total come from planStepsRef — don't have them via gate.
+          // completed/total come from planStepsRef —don't have them via gate
+          const completed = completedStepIdsRef.current.size;
           const total = planStepsRef.current?.length ?? 0;
-          const completed = completedCountIncludingStep(
-            completedStepIdsRef.current,
-            p.stepId,
-            total,
-          );
-          engineeringLifecycleRef.current?.recordCheckpointReached();
           // Shared policy (src/core/pause-policy.ts) decides whether to
           // auto-resolve. Per-step rollback snapshot still runs so /restore
           // granularity is preserved.
@@ -4015,9 +3868,6 @@ function AppInner({
         setStagedCheckpointRevise(snap);
         return;
       }
-      if (choice === "stop") {
-        engineeringLifecycleRef.current?.cancel();
-      }
       // Auto file-snapshot per plan step
       if (codeMode && choice === "continue") {
         const paths = touchedPaths();
@@ -4079,8 +3929,8 @@ function AppInner({
           }
         }
       }
+      const completed = completedStepIdsRef.current.size;
       const total = planStepsRef.current?.length ?? 0;
-      const completed = completedCountIncludingStep(completedStepIdsRef.current, stepId, total);
       const label = title ? `${stepId} - ${title}` : stepId;
       const counter = total > 0 ? ` (${completed}/${total})` : "";
       log.pushInfo(t("app.continuingAfter", { label, counter }));
@@ -4192,7 +4042,6 @@ function AppInner({
         merged.push(s);
       }
       planStepsRef.current = merged;
-      engineeringLifecycleRef.current?.recordPlanRevised(snap.remainingSteps);
       persistPlanState();
       // Replace the live active card so PlanLiveRow shows the new tail —      // existing card's stale ids would fail subsequent step completes.
       agentStore.dispatch({ type: "plan.drop" });
@@ -4235,423 +4084,425 @@ function AppInner({
 
   return (
     <>
+      <HistoryTypingCapture
+        input={input}
+        setInput={setInput}
+        enabled={!modalOpen && !busy}
+        onReturnToBottom={chatScroll.jumpToBottom}
+      />
       <TickerProvider disabled={tickerSuspended}>
-        <InflightProvider inflight={loop.inflight}>
-          <Box flexDirection="row">
-            <Box flexDirection="column" flexGrow={1}>
+        <ViewportBudgetProvider>
+          <InflightProvider inflight={loop.inflight}>
+            <Box flexDirection="row" height={stdout?.rows ?? 24}>
               <Box flexDirection="column" flexGrow={1}>
-                <LiveExpandContext.Provider value={liveExpand}>
-                  <VerboseContext.Provider value={verboseMode}>
-                    <StaticCardStream suppressLive={modalOpen} />
-                  </VerboseContext.Provider>
-                </LiveExpandContext.Provider>
-                {/*
+                <Box flexDirection="column" flexGrow={1}>
+                  <LiveExpandContext.Provider value={liveExpand}>
+                    <CardStream suppressLive={modalOpen} />
+                  </LiveExpandContext.Provider>
+                  {/*
           Welcome card on the empty state. Visible only when nothing
           has happened yet (no past events, nothing in flight, no
           modal up). Removes the "what do I type?" friction without
           surviving past the first turn.
         */}
-                {!hasConversation && !busy && !isStreaming && slashMatches === null ? (
-                  <Box flexGrow={1} justifyContent="center">
+                  {!hasConversation && !busy && !isStreaming && slashMatches === null ? (
                     <WelcomeBanner
                       inCodeMode={!!codeMode}
                       workspaceRoot={codeMode ? currentRootDir : undefined}
                       dashboardUrl={dashboardUrl}
                       languageVersion={languageVersion}
                     />
-                  </Box>
-                ) : null}
-                <LiveActivityArea
-                  noTakeoverOverlay={noTakeoverOverlay}
-                  ongoingTool={ongoingTool}
-                  toolProgress={toolProgress}
-                  subagentActivities={subagentActivities}
-                  statusLine={statusLine}
-                  busy={busy}
-                  isStreaming={isStreaming}
-                  activityLabel={activityLabel}
-                  undoBanner={undoBanner}
-                  hideUndo={
-                    !!(
-                      pendingShell ||
-                      pendingPlan ||
-                      pendingReviseEditor ||
-                      pendingSessionsPicker ||
-                      pendingCheckpointPicker ||
-                      pendingMcpHub ||
-                      stagedInput ||
-                      pendingEditReview ||
-                      pendingChoice ||
-                      stagedChoiceCustom ||
-                      pendingRevision ||
-                      stagedCheckpointRevise ||
-                      pendingCheckpoint
-                    )
-                  }
-                />
-              </Box>
-              {stagedInput ? (
-                <PlanRefineInput
-                  mode={stagedInput.mode}
-                  questions={stagedInput.questions}
-                  onSubmit={handleStagedInputSubmit}
-                  onCancel={handleStagedInputCancel}
-                />
-              ) : stagedChoiceCustom ? (
-                <PlanRefineInput
-                  mode="choice-custom"
-                  onSubmit={handleChoiceCustomSubmit}
-                  onCancel={handleChoiceCustomCancel}
-                />
-              ) : stagedCheckpointRevise ? (
-                <PlanRefineInput
-                  mode="checkpoint-revise"
-                  onSubmit={(text) => handleCheckpointReviseSubmit(text, stagedCheckpointRevise)}
-                  onCancel={handleCheckpointReviseCancel}
-                />
-              ) : pendingChoice ? (
-                <ChoiceConfirm
-                  question={pendingChoice.question}
-                  options={pendingChoice.options}
-                  allowCustom={pendingChoice.allowCustom}
-                  onChoose={stableHandleChoiceConfirm}
-                />
-              ) : pendingRevision ? (
-                <PlanReviseConfirm
-                  reason={pendingRevision.reason}
-                  oldRemaining={(planStepsRef.current ?? []).filter(
-                    (s) => !completedStepIdsRef.current.has(s.id),
-                  )}
-                  newRemaining={pendingRevision.remainingSteps}
-                  summary={pendingRevision.summary}
-                  onChoose={stableHandleReviseConfirm}
-                />
-              ) : pendingCheckpoint ? (
-                <PlanCheckpointConfirm
-                  stepId={pendingCheckpoint.stepId}
-                  title={pendingCheckpoint.title}
-                  completed={pendingCheckpoint.completed}
-                  total={pendingCheckpoint.total}
-                  steps={planStepsRef.current ?? undefined}
-                  completedStepIds={completedStepIdsRef.current}
-                  onChoose={stableHandleCheckpointConfirm}
-                />
-              ) : pendingCheckpointPicker ? (
-                <CheckpointPicker
-                  checkpoints={checkpointPickerList}
-                  workspace={currentRootDir}
-                  pickerPorts={pickerPorts}
-                  onChoose={(outcome) => {
-                    if (outcome.kind === "quit") {
-                      setPendingCheckpointPicker(false);
-                      return;
+                  ) : null}
+                  <LiveActivityArea
+                    noTakeoverOverlay={noTakeoverOverlay}
+                    ongoingTool={ongoingTool}
+                    toolProgress={toolProgress}
+                    subagentActivities={subagentActivities}
+                    statusLine={statusLine}
+                    busy={busy}
+                    isStreaming={isStreaming}
+                    activityLabel={activityLabel}
+                    undoBanner={undoBanner}
+                    hideUndo={
+                      !!(
+                        pendingShell ||
+                        pendingPlan ||
+                        pendingReviseEditor ||
+                        pendingSessionsPicker ||
+                        pendingCheckpointPicker ||
+                        pendingMcpHub ||
+                        stagedInput ||
+                        pendingEditReview ||
+                        pendingChoice ||
+                        stagedChoiceCustom ||
+                        pendingRevision ||
+                        stagedCheckpointRevise ||
+                        pendingCheckpoint
+                      )
                     }
-                    if (outcome.kind === "restore") {
-                      const target = checkpointPickerList.find((c) => c.id === outcome.id);
-                      setPendingCheckpointPicker(false);
-                      if (!target) return;
-                      const result = restoreCheckpoint(currentRootDir, target.id);
-                      const lines = [
-                        `restored "${target.name}" (${target.id.slice(0, 7)}, ${fmtAgo(target.createdAt)})`,
-                      ];
-                      if (result.restored.length > 0) {
-                        lines.push(
-                          `  wrote ${result.restored.length} file${result.restored.length === 1 ? "" : "s"}`,
-                        );
+                  />
+                </Box>
+                {stagedInput ? (
+                  <PlanRefineInput
+                    mode={stagedInput.mode}
+                    questions={stagedInput.questions}
+                    onSubmit={handleStagedInputSubmit}
+                    onCancel={handleStagedInputCancel}
+                  />
+                ) : stagedChoiceCustom ? (
+                  <PlanRefineInput
+                    mode="choice-custom"
+                    onSubmit={handleChoiceCustomSubmit}
+                    onCancel={handleChoiceCustomCancel}
+                  />
+                ) : stagedCheckpointRevise ? (
+                  <PlanRefineInput
+                    mode="checkpoint-revise"
+                    onSubmit={(text) => handleCheckpointReviseSubmit(text, stagedCheckpointRevise)}
+                    onCancel={handleCheckpointReviseCancel}
+                  />
+                ) : pendingChoice ? (
+                  <ChoiceConfirm
+                    question={pendingChoice.question}
+                    options={pendingChoice.options}
+                    allowCustom={pendingChoice.allowCustom}
+                    onChoose={stableHandleChoiceConfirm}
+                  />
+                ) : pendingRevision ? (
+                  <PlanReviseConfirm
+                    reason={pendingRevision.reason}
+                    oldRemaining={(planStepsRef.current ?? []).filter(
+                      (s) => !completedStepIdsRef.current.has(s.id),
+                    )}
+                    newRemaining={pendingRevision.remainingSteps}
+                    summary={pendingRevision.summary}
+                    onChoose={stableHandleReviseConfirm}
+                  />
+                ) : pendingCheckpoint ? (
+                  <PlanCheckpointConfirm
+                    stepId={pendingCheckpoint.stepId}
+                    title={pendingCheckpoint.title}
+                    completed={pendingCheckpoint.completed}
+                    total={pendingCheckpoint.total}
+                    steps={planStepsRef.current ?? undefined}
+                    completedStepIds={completedStepIdsRef.current}
+                    onChoose={stableHandleCheckpointConfirm}
+                  />
+                ) : pendingCheckpointPicker ? (
+                  <CheckpointPicker
+                    checkpoints={checkpointPickerList}
+                    workspace={currentRootDir}
+                    pickerPorts={pickerPorts}
+                    onChoose={(outcome) => {
+                      if (outcome.kind === "quit") {
+                        setPendingCheckpointPicker(false);
+                        return;
                       }
-                      if (result.removed.length > 0) {
-                        lines.push(
-                          `  removed ${result.removed.length} file${result.removed.length === 1 ? "" : "s"}`,
-                        );
-                      }
-                      if (result.skipped.length > 0) {
-                        lines.push(
-                          `  skipped ${result.skipped.length} file${result.skipped.length === 1 ? "" : "s"}`,
-                        );
-                      }
-                      log.pushInfo(lines.join("\n"));
-                      return;
-                    }
-                    if (outcome.kind === "delete") {
-                      const target = checkpointPickerList.find((c) => c.id === outcome.id);
-                      if (!target) return;
-                      deleteCheckpoint(currentRootDir, target.id);
-                      setCheckpointPickerList([...listCheckpoints(currentRootDir)].reverse());
-                    }
-                  }}
-                />
-              ) : pendingWorkspacePicker ? (
-                <WorkspacePicker
-                  workspaces={workspacePickerList}
-                  currentWorkspace={currentRootDir}
-                  onChoose={(outcome) => {
-                    setPendingWorkspacePicker(false);
-                    if (outcome.kind === "quit") return;
-                    const result = switchWorkspaceRoot(outcome.path);
-                    log.pushInfo(result.info);
-                    if (!result.ok) return;
-                    setSessionsPickerList(listSessionsForWorkspace(outcome.path));
-                    setPendingSessionsPicker(true);
-                  }}
-                />
-              ) : pendingSessionsPicker ? (
-                <SessionPicker
-                  sessions={sessionsPickerList}
-                  workspace={currentRootDir}
-                  walletCurrency={walletCurrencyRef.current}
-                  pickerPorts={pickerPorts}
-                  onFocusChange={setSessionsPickerFocus}
-                  onChoose={(outcome) => {
-                    if (outcome.kind === "open") {
-                      setPendingSessionsPicker(false);
-                      if (onSwitchSession) {
-                        onSwitchSession(outcome.name);
-                      } else {
-                        log.pushInfo(
-                          `to switch to "${outcome.name}", quit and run: reasonix chat --session ${outcome.name}`,
-                        );
-                      }
-                      return;
-                    }
-                    if (outcome.kind === "new") {
-                      setPendingSessionsPicker(false);
-                      if (onSwitchSession) {
-                        onSwitchSession(freshSessionName(session));
-                      } else {
-                        log.pushInfo(
-                          "to start a fresh session, quit and run: reasonix chat (no --session flag)",
-                        );
-                      }
-                      return;
-                    }
-                    if (outcome.kind === "delete") {
-                      deleteSession(outcome.name);
-                      setSessionsPickerList(listSessionsForWorkspace(currentRootDir));
-                      return;
-                    }
-                    if (outcome.kind === "rename") {
-                      renameSession(outcome.name, outcome.newName);
-                      setSessionsPickerList(listSessionsForWorkspace(currentRootDir));
-                      return;
-                    }
-                    if (outcome.kind === "quit") {
-                      setPendingSessionsPicker(false);
-                    }
-                  }}
-                />
-              ) : pendingThemePicker ? (
-                <ThemePicker
-                  currentPreference={loadTheme() ?? "auto"}
-                  activeTheme={themeName}
-                  onChoose={(outcome) => {
-                    setPendingThemePicker(false);
-                    if (outcome.kind === "quit") return;
-                    saveTheme(outcome.value);
-                    const active = resolveThemePreference(
-                      outcome.value,
-                      process.env.REASONIX_THEME,
-                    );
-                    setThemeName(active);
-                    log.pushInfo(`theme saved: ${outcome.value}\n  active now: ${active}`);
-                  }}
-                />
-              ) : pendingEditPicker ? (
-                <EditPicker
-                  entries={pendingEditPicker}
-                  onChoose={(outcome) => {
-                    setPendingEditPicker(null);
-                    if (outcome.kind === "cancel") return;
-                    const userText = loop.rewindToUserTurn(outcome.entry.userTurnIndex);
-                    if (userText === null) {
-                      log.pushInfo(t("editPicker.empty"));
-                      return;
-                    }
-                    agentStore.dispatch({
-                      type: "session.fork",
-                      cardId: outcome.entry.cardId,
-                    });
-                    setInput(outcome.entry.text);
-                    log.pushInfo(t("editPicker.forked", { turn: outcome.entry.userTurnIndex + 1 }));
-                  }}
-                />
-              ) : pendingModelPicker ? (
-                <ModelPicker
-                  models={models}
-                  current={loop.model}
-                  currentEffort={loop.reasoningEffort}
-                  onRefresh={refreshModels}
-                  onChoose={(outcome) => {
-                    setPendingModelPicker(false);
-                    if (outcome.kind === "select") {
-                      loop.configure({ model: outcome.id });
-                      agentStore.dispatch({ type: "session.model.change", model: outcome.id });
-                      try {
-                        saveModel(outcome.id);
-                      } catch {
-                        /* disk full / perms — runtime change still took effect */
-                      }
-                      log.pushInfo(`model: ${outcome.id}`);
-                      return;
-                    }
-                    if (outcome.kind === "effort") {
-                      loop.configure({ reasoningEffort: outcome.effort });
-                      agentStore.dispatch({
-                        type: "session.effort.change",
-                        reasoningEffort: outcome.effort,
-                      });
-                      try {
-                        saveReasoningEffort(outcome.effort);
-                      } catch {
-                        /* disk full / perms — runtime change still took effect */
-                      }
-                      log.pushInfo(`effort: ${outcome.effort}`);
-                    }
-                  }}
-                />
-              ) : pendingMcpHub ? (
-                <McpHub
-                  initialTab={pendingMcpHub.tab}
-                  liveServers={liveMcpServers}
-                  configPath={defaultConfigPath()}
-                  pickerPorts={pickerPorts}
-                  onClose={() => setPendingMcpHub(null)}
-                  postInfo={(text) => log.pushInfo(text)}
-                  applyAppend={(target, addedTools) => {
-                    const updated = applyMcpAppend(loop, target, addedTools);
-                    setLiveMcpServers((prev) => replaceMcpServerSummary(prev, target, updated));
-                    return updated;
-                  }}
-                  reloadMcp={
-                    mcpRuntime
-                      ? async () => {
-                          const r = await mcpRuntime.reloadFromConfig(loop);
-                          setLiveMcpServers(r.summaries);
-                          return r;
+                      if (outcome.kind === "restore") {
+                        const target = checkpointPickerList.find((c) => c.id === outcome.id);
+                        setPendingCheckpointPicker(false);
+                        if (!target) return;
+                        const result = restoreCheckpoint(currentRootDir, target.id);
+                        const lines = [
+                          `restored "${target.name}" (${target.id.slice(0, 7)}, ${fmtAgo(target.createdAt)})`,
+                        ];
+                        if (result.restored.length > 0) {
+                          lines.push(
+                            `  wrote ${result.restored.length} file${result.restored.length === 1 ? "" : "s"}`,
+                          );
                         }
-                      : undefined
-                  }
-                />
-              ) : pendingPlan ? (
-                <PlanConfirm
-                  plan={pendingPlan}
-                  steps={planStepsRef.current ?? undefined}
-                  summary={planSummaryRef.current ?? undefined}
-                  onChoose={stableHandlePlanConfirm}
-                  projectRoot={currentRootDir}
-                />
-              ) : pendingReviseEditor ? (
-                <PlanReviseEditor
-                  steps={planStepsRef.current ?? []}
-                  completedStepIds={completedStepIdsRef.current}
-                  onAccept={(revised, skippedIds) => {
-                    planStepsRef.current = revised;
-                    for (const id of skippedIds) completedStepIdsRef.current.add(id);
-                    persistPlanState();
-                    const planText = pendingReviseEditor;
-                    setPendingReviseEditor(null);
-                    setPendingPlan(planText);
-                  }}
-                  onCancel={() => {
-                    const planText = pendingReviseEditor;
-                    setPendingReviseEditor(null);
-                    setPendingPlan(planText);
-                  }}
-                />
-              ) : pendingShell ? (
-                <ShellConfirm
-                  prompt={toApprovalPrompt({
-                    id: pendingShell.id,
-                    kind: pendingShell.kind,
-                    payload: {
-                      command: pendingShell.command,
-                      cwd: pendingShell.cwd,
-                      timeoutSec: pendingShell.timeoutSec,
-                      waitSec: pendingShell.waitSec,
-                    },
-                  })}
-                  onChoose={handleShellConfirm}
-                />
-              ) : pendingPath ? (
-                <PathConfirm
-                  prompt={toApprovalPrompt({
-                    id: pendingPath.id,
-                    kind: "path_access",
-                    payload: {
-                      path: pendingPath.path,
-                      intent: pendingPath.intent,
-                      toolName: pendingPath.toolName,
-                      sandboxRoot: pendingPath.sandboxRoot,
-                      allowPrefix: pendingPath.allowPrefix,
-                    },
-                  })}
-                  onChoose={handlePathConfirm}
-                />
-              ) : pendingEditReview ? (
-                <EditConfirm
-                  block={pendingEditReview}
-                  onChoose={(choice, denyContext) => {
-                    const resolve = editReviewResolveRef.current;
-                    if (resolve) {
-                      editReviewResolveRef.current = null;
-                      resolve({ choice, denyContext });
+                        if (result.removed.length > 0) {
+                          lines.push(
+                            `  removed ${result.removed.length} file${result.removed.length === 1 ? "" : "s"}`,
+                          );
+                        }
+                        if (result.skipped.length > 0) {
+                          lines.push(
+                            `  skipped ${result.skipped.length} file${result.skipped.length === 1 ? "" : "s"}`,
+                          );
+                        }
+                        log.pushInfo(lines.join("\n"));
+                        return;
+                      }
+                      if (outcome.kind === "delete") {
+                        const target = checkpointPickerList.find((c) => c.id === outcome.id);
+                        if (!target) return;
+                        deleteCheckpoint(currentRootDir, target.id);
+                        setCheckpointPickerList([...listCheckpoints(currentRootDir)].reverse());
+                      }
+                    }}
+                  />
+                ) : pendingWorkspacePicker ? (
+                  <WorkspacePicker
+                    workspaces={workspacePickerList}
+                    currentWorkspace={currentRootDir}
+                    onChoose={(outcome) => {
+                      setPendingWorkspacePicker(false);
+                      if (outcome.kind === "quit") return;
+                      const result = switchWorkspaceRoot(outcome.path);
+                      log.pushInfo(result.info);
+                      if (!result.ok) return;
+                      setSessionsPickerList(listSessionsForWorkspace(outcome.path));
+                      setPendingSessionsPicker(true);
+                    }}
+                  />
+                ) : pendingSessionsPicker ? (
+                  <SessionPicker
+                    sessions={sessionsPickerList}
+                    workspace={currentRootDir}
+                    walletCurrency={walletCurrencyRef.current}
+                    pickerPorts={pickerPorts}
+                    onFocusChange={setSessionsPickerFocus}
+                    onChoose={(outcome) => {
+                      if (outcome.kind === "open") {
+                        setPendingSessionsPicker(false);
+                        if (onSwitchSession) {
+                          onSwitchSession(outcome.name);
+                        } else {
+                          log.pushInfo(
+                            `to switch to "${outcome.name}", quit and run: reasonix chat --session ${outcome.name}`,
+                          );
+                        }
+                        return;
+                      }
+                      if (outcome.kind === "new") {
+                        setPendingSessionsPicker(false);
+                        if (onSwitchSession) {
+                          onSwitchSession(freshSessionName(session));
+                        } else {
+                          log.pushInfo(
+                            "to start a fresh session, quit and run: reasonix chat (no --session flag)",
+                          );
+                        }
+                        return;
+                      }
+                      if (outcome.kind === "delete") {
+                        deleteSession(outcome.name);
+                        setSessionsPickerList(listSessionsForWorkspace(currentRootDir));
+                        return;
+                      }
+                      if (outcome.kind === "rename") {
+                        renameSession(outcome.name, outcome.newName);
+                        setSessionsPickerList(listSessionsForWorkspace(currentRootDir));
+                        return;
+                      }
+                      if (outcome.kind === "quit") {
+                        setPendingSessionsPicker(false);
+                      }
+                    }}
+                  />
+                ) : pendingThemePicker ? (
+                  <ThemePicker
+                    currentPreference={loadTheme() ?? "auto"}
+                    activeTheme={themeName}
+                    onChoose={(outcome) => {
+                      setPendingThemePicker(false);
+                      if (outcome.kind === "quit") return;
+                      saveTheme(outcome.value);
+                      const active = resolveThemePreference(
+                        outcome.value,
+                        process.env.REASONIX_THEME,
+                      );
+                      setThemeName(active);
+                      log.pushInfo(`theme saved: ${outcome.value}\n  active now: ${active}`);
+                    }}
+                  />
+                ) : pendingCopyMode ? (
+                  <CopyMode
+                    cards={agentStore.getState().cards}
+                    onClose={(yanked) => {
+                      setPendingCopyMode(false);
+                      if (yanked) {
+                        const path = yanked.filePath;
+                        const info = yanked.osc52
+                          ? t("copyMode.yankedToast", { size: yanked.size })
+                          : t("copyMode.yankedToastFile", {
+                              size: yanked.size,
+                              path: path ?? "unknown",
+                            });
+                        log.pushInfo(info);
+                      }
+                    }}
+                  />
+                ) : pendingModelPicker ? (
+                  <ModelPicker
+                    models={models}
+                    current={loop.model}
+                    currentEffort={loop.reasoningEffort}
+                    currentAutoEscalate={loop.autoEscalate}
+                    onRefresh={refreshModels}
+                    onChoose={(outcome) => {
+                      setPendingModelPicker(false);
+                      if (outcome.kind === "select") {
+                        // Manual model pick = explicit pin: turn off auto-escalate
+                        // so flash doesn't get bumped, persist inferred preset.
+                        loop.configure({ model: outcome.id, autoEscalate: false });
+                        agentStore.dispatch({ type: "session.model.change", model: outcome.id });
+                        const inferred =
+                          outcome.id === "deepseek-v4-pro"
+                            ? "pro"
+                            : outcome.id === "deepseek-v4-flash"
+                              ? "flash"
+                              : null;
+                        setPreset(inferred ?? "flash");
+                        agentStore.dispatch({
+                          type: "session.preset.change",
+                          preset: inferred,
+                        });
+                        if (inferred) {
+                          try {
+                            savePreset(inferred);
+                          } catch {
+                            /* disk full / perms —runtime change still took effect */
+                          }
+                        }
+                        log.pushInfo(`model: ${outcome.id}`);
+                        return;
+                      }
+                      if (outcome.kind === "preset") {
+                        const p = PRESETS[outcome.name];
+                        loop.configure({
+                          model: p.model,
+                          autoEscalate: p.autoEscalate,
+                          reasoningEffort: p.reasoningEffort,
+                        });
+                        agentStore.dispatch({ type: "session.model.change", model: p.model });
+                        setPreset(outcome.name);
+                        agentStore.dispatch({
+                          type: "session.preset.change",
+                          preset: outcome.name,
+                        });
+                        try {
+                          savePreset(outcome.name);
+                        } catch {
+                          /* disk full / perms —runtime change still took effect */
+                        }
+                        log.pushInfo(`preset: ${outcome.name} - ${p.model}`);
+                      }
+                    }}
+                  />
+                ) : pendingMcpHub ? (
+                  <McpHub
+                    initialTab={pendingMcpHub.tab}
+                    liveServers={liveMcpServers}
+                    configPath={defaultConfigPath()}
+                    pickerPorts={pickerPorts}
+                    onClose={() => setPendingMcpHub(null)}
+                    postInfo={(text) => log.pushInfo(text)}
+                    applyAppend={(target, addedTools) => {
+                      const updated = applyMcpAppend(loop, target, addedTools);
+                      setLiveMcpServers((prev) => replaceMcpServerSummary(prev, target, updated));
+                      return updated;
+                    }}
+                    reloadMcp={
+                      mcpRuntime
+                        ? async () => {
+                            const r = await mcpRuntime.reloadFromConfig(loop);
+                            setLiveMcpServers(r.summaries);
+                            return r;
+                          }
+                        : undefined
                     }
-                  }}
-                />
-              ) : walkthroughActive && pendingEdits.current.length > 0 ? (
-                <EditConfirm
-                  // pendingTick re-keys the modal so each apply/discard
-                  // forces a remount with the NEW first block. Without it,
-                  // EditConfirm's internal scroll state would persist
-                  // across blocks, which is the wrong UX.
-                  key={`walk-${pendingTick}`}
-                  block={pendingEdits.current[0]!}
-                  onChoose={handleWalkChoice}
-                />
-              ) : (
-                <ComposerArea
-                  editMode={editMode}
-                  pendingCount={pendingCount}
-                  modeFlash={modeFlash}
-                  planMode={planMode}
-                  undoArmed={!!undoBanner || hasUndoable()}
-                  jobs={codeMode ? codeMode.jobs : undefined}
-                  activeLoop={activeLoop}
-                  statusBar={statusBar}
-                  showShortcuts={pendingShortcuts}
-                  mode={
-                    editMode === "yolo"
-                      ? t("statsPanel.modeYolo")
-                      : editMode === "auto"
-                        ? t("statsPanel.modeAuto")
-                        : editMode === "review"
-                          ? t("statsPanel.modeReview")
-                          : editMode
-                  }
-                  model={`${sessionModel} \u00b7 ${sessionEffort ?? loop.reasoningEffort}`}
-                  input={input}
-                  setInput={setInput}
-                  busy={busy}
-                  steerBusy={busy}
-                  onSubmit={handleSubmit}
-                  onHistoryPrev={handleHistoryPrev}
-                  onHistoryNext={handleHistoryNext}
-                  onOpenExternalEditor={handleOpenExternalEditor}
-                  onCursorChange={setComposerCursor}
-                  isHistoryMode={isHistoryMode}
-                  slashMatches={slashMatches}
-                  slashSelected={slashSelected}
-                  slashGroupMode={slashGroupMode}
-                  slashAdvancedHidden={slashAdvancedHidden}
-                  atState={atState}
-                  atSelected={atSelected}
-                  slashArgContext={slashArgContext}
-                  slashArgMatches={slashArgMatches}
-                  slashArgSelected={slashArgSelected}
-                />
-              )}
+                  />
+                ) : pendingPlan ? (
+                  <PlanConfirm
+                    plan={pendingPlan}
+                    steps={planStepsRef.current ?? undefined}
+                    summary={planSummaryRef.current ?? undefined}
+                    onChoose={stableHandlePlanConfirm}
+                    projectRoot={currentRootDir}
+                  />
+                ) : pendingReviseEditor ? (
+                  <PlanReviseEditor
+                    steps={planStepsRef.current ?? []}
+                    completedStepIds={completedStepIdsRef.current}
+                    onAccept={(revised, skippedIds) => {
+                      planStepsRef.current = revised;
+                      for (const id of skippedIds) completedStepIdsRef.current.add(id);
+                      persistPlanState();
+                      const planText = pendingReviseEditor;
+                      setPendingReviseEditor(null);
+                      setPendingPlan(planText);
+                    }}
+                    onCancel={() => {
+                      const planText = pendingReviseEditor;
+                      setPendingReviseEditor(null);
+                      setPendingPlan(planText);
+                    }}
+                  />
+                ) : pendingShell ? (
+                  <ShellConfirm
+                    command={pendingShell.command}
+                    allowPrefix={derivePrefix(pendingShell.command)}
+                    kind={pendingShell.kind}
+                    cwd={pendingShell.cwd}
+                    timeoutSec={pendingShell.timeoutSec}
+                    waitSec={pendingShell.waitSec}
+                    onChoose={handleShellConfirm}
+                  />
+                ) : pendingPath ? (
+                  <PathConfirm
+                    path={pendingPath.path}
+                    intent={pendingPath.intent}
+                    toolName={pendingPath.toolName}
+                    sandboxRoot={pendingPath.sandboxRoot}
+                    allowPrefix={pendingPath.allowPrefix}
+                    onChoose={handlePathConfirm}
+                  />
+                ) : pendingEditReview ? (
+                  <EditConfirm
+                    block={pendingEditReview}
+                    onChoose={(choice, denyContext) => {
+                      const resolve = editReviewResolveRef.current;
+                      if (resolve) {
+                        editReviewResolveRef.current = null;
+                        resolve({ choice, denyContext });
+                      }
+                    }}
+                  />
+                ) : walkthroughActive && pendingEdits.current.length > 0 ? (
+                  <EditConfirm
+                    // pendingTick re-keys the modal so each apply/discard
+                    // forces a remount with the NEW first block. Without it,
+                    // EditConfirm's internal scroll state would persist
+                    // across blocks, which is the wrong UX.
+                    key={`walk-${pendingTick}`}
+                    block={pendingEdits.current[0]!}
+                    onChoose={handleWalkChoice}
+                  />
+                ) : (
+                  <ComposerArea
+                    editMode={editMode}
+                    pendingCount={pendingCount}
+                    modeFlash={modeFlash}
+                    planMode={planMode}
+                    undoArmed={!!undoBanner || hasUndoable()}
+                    jobs={codeMode ? codeMode.jobs : undefined}
+                    activeLoop={activeLoop}
+                    statusBar={statusBar}
+                    input={input}
+                    setInput={setInput}
+                    busy={busy}
+                    onSubmit={handleSubmit}
+                    onHistoryPrev={handleHistoryPrev}
+                    onHistoryNext={handleHistoryNext}
+                    onOpenExternalEditor={handleOpenExternalEditor}
+                    onCursorChange={setComposerCursor}
+                    slashMatches={slashMatches}
+                    slashSelected={slashSelected}
+                    slashGroupMode={slashGroupMode}
+                    slashAdvancedHidden={slashAdvancedHidden}
+                    atState={atState}
+                    atSelected={atSelected}
+                    slashArgContext={slashArgContext}
+                    slashArgMatches={slashArgMatches}
+                    slashArgSelected={slashArgSelected}
+                  />
+                )}
+              </Box>
             </Box>
-          </Box>
-        </InflightProvider>
+          </InflightProvider>
+        </ViewportBudgetProvider>
       </TickerProvider>
     </>
   );

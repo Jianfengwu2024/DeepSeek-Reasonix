@@ -39,12 +39,6 @@ describe("parseSlash", () => {
     expect(parseSlash("")).toBeNull();
     expect(parseSlash("/")).toBeNull();
   });
-  it("returns null on comment-like input starting with //", () => {
-    expect(parseSlash("// some comment")).toBeNull();
-    expect(parseSlash("//")).toBeNull();
-    expect(parseSlash("//help")).toBeNull();
-    expect(parseSlash("// /still/a/comment")).toBeNull();
-  });
   it("lowercases the command and splits args", () => {
     expect(parseSlash("/Harvest on")).toEqual({ cmd: "harvest", args: ["on"] });
     expect(parseSlash("/branch 3")).toEqual({ cmd: "branch", args: ["3"] });
@@ -110,7 +104,7 @@ describe("handleSlash", () => {
   it("/help returns a multi-line message", () => {
     const r = handleSlash("help", [], makeLoop());
     expect(r.info).toMatch(/\/status/);
-    expect(r.info).toMatch(/\/effort/);
+    expect(r.info).toMatch(/\/preset/);
     expect(r.info).toMatch(/\/compact/);
   });
 
@@ -121,15 +115,6 @@ describe("handleSlash", () => {
     ].map((match) => match[1]);
     expect(groupHeaders).toEqual(SLASH_GROUP_ORDER.map((group) => group.toUpperCase()));
     expect(info.indexOf("  SETUP")).toBeLessThan(info.indexOf("  CHAT"));
-  });
-
-  it("/about prints version, website, repo, and MIT license", () => {
-    const r = handleSlash("about", [], makeLoop());
-    expect(r.info).toContain(VERSION);
-    expect(r.info).toContain("https://esengine.github.io/DeepSeek-Reasonix/");
-    expect(r.info).toContain("https://github.com/esengine/DeepSeek-Reasonix");
-    expect(r.info).toContain("MIT");
-    expect(SLASH_COMMANDS.find((s) => s.cmd === "about")?.group).toBe("info");
   });
 
   it("/title starts AI session title regeneration", async () => {
@@ -154,7 +139,7 @@ describe("handleSlash", () => {
     const loop = makeLoop();
     const r = handleSlash("status", [], loop);
     expect(r.info).toMatch(/model\s+deepseek-/);
-    expect(r.info).toMatch(/effort=high/);
+    expect(r.info).toMatch(/effort=max/);
   });
 
   it("/model switches the model", () => {
@@ -180,10 +165,9 @@ describe("handleSlash", () => {
     expect(r.openModelPicker).toBe(true);
   });
 
-  it("/effort with no arg returns the current value", () => {
-    const r = handleSlash("effort", [], makeLoop());
-    expect(r.info).toMatch(/effort/);
-    expect(r.info).toMatch(/low.*medium.*high.*max/);
+  it("/preset with no arg opens the unified picker", () => {
+    const r = handleSlash("preset", [], makeLoop());
+    expect(r.openModelPicker).toBe(true);
   });
 
   it("unknown commands return an unknown flag with hint", () => {
@@ -234,17 +218,42 @@ describe("handleSlash", () => {
     expect(posted).toMatch(/nothing to fold|folded/);
   });
 
-  it("/effort accepts each enum value", () => {
-    for (const e of ["low", "medium", "high", "max"] as const) {
-      const loop = makeLoop();
-      handleSlash("effort", [e], loop);
-      expect(loop.reasoningEffort).toBe(e);
-    }
+  it("/preset auto = v4-flash with auto-escalate", () => {
+    const loop = makeLoop();
+    handleSlash("model", ["deepseek-v4-pro"], loop);
+    handleSlash("preset", ["auto"], loop);
+    expect(loop.model).toBe("deepseek-v4-flash");
+    expect(loop.reasoningEffort).toBe("max");
+    expect(loop.autoEscalate).toBe(true);
   });
 
-  it("/effort with bad name returns usage", () => {
-    const r = handleSlash("effort", ["nonsense"], makeLoop());
+  it("/preset flash = v4-flash, no auto-escalate", () => {
+    const loop = makeLoop();
+    handleSlash("preset", ["flash"], loop);
+    expect(loop.model).toBe("deepseek-v4-flash");
+    expect(loop.reasoningEffort).toBe("max");
+    expect(loop.autoEscalate).toBe(false);
+  });
+
+  it("/preset pro = v4-pro pinned", () => {
+    const loop = makeLoop();
+    handleSlash("preset", ["pro"], loop);
+    expect(loop.model).toBe("deepseek-v4-pro");
+    expect(loop.reasoningEffort).toBe("max");
+    expect(loop.autoEscalate).toBe(false);
+  });
+
+  it("/preset with bad name returns usage", () => {
+    const r = handleSlash("preset", ["nonsense"], makeLoop());
     expect(r.info).toMatch(/usage/);
+  });
+
+  it("/help mentions presets", () => {
+    const r = handleSlash("help", [], makeLoop());
+    expect(r.info).toMatch(/Presets/);
+    expect(r.info).toMatch(/auto/);
+    expect(r.info).toMatch(/flash/);
+    expect(r.info).toMatch(/pro/);
   });
 
   it("/help mentions sessions", () => {
@@ -255,14 +264,6 @@ describe("handleSlash", () => {
   it("/help mentions /mcp", () => {
     const r = handleSlash("help", [], makeLoop());
     expect(r.info).toMatch(/\/mcp/);
-  });
-
-  it("/help explains the per-call shell-exec approval flow (issue #866)", () => {
-    const r = handleSlash("help", [], makeLoop());
-    expect(r.info).toMatch(/per-call approval/i);
-    expect(r.info).toMatch(/allow once/i);
-    expect(r.info).toMatch(/allow always/i);
-    expect(r.info).toMatch(/deny/i);
   });
 
   it("/undo outside code mode says it's not available", () => {
@@ -370,7 +371,7 @@ describe("handleSlash", () => {
   describe("detectSlashArgContext", () => {
     it("returns null before the user commits to a slash name", () => {
       expect(detectSlashArgContext("/pr")).toBeNull();
-      expect(detectSlashArgContext("/effort")).toBeNull();
+      expect(detectSlashArgContext("/preset")).toBeNull();
     });
 
     it("returns null when the command doesn't exist", () => {
@@ -381,13 +382,14 @@ describe("handleSlash", () => {
       expect(detectSlashArgContext("just some text")).toBeNull();
     });
 
-    it("activates enum picker for /effort", () => {
-      const ctx = detectSlashArgContext("/effort hi");
+    it("activates enum picker for /preset", () => {
+      const ctx = detectSlashArgContext("/preset fl");
       expect(ctx).not.toBeNull();
       expect(ctx!.kind).toBe("picker");
-      expect(ctx!.spec.argCompleter).toEqual(["low", "medium", "high", "max"]);
-      expect(ctx!.partial).toBe("hi");
-      expect(ctx!.partialOffset).toBe("/effort ".length);
+      expect(ctx!.spec.argCompleter).toEqual(["auto", "flash", "pro"]);
+      expect(ctx!.partial).toBe("fl");
+      // Offset is the char index where the partial starts in the buffer.
+      expect(ctx!.partialOffset).toBe("/preset ".length);
     });
 
     it("activates model picker for /model", () => {
@@ -401,7 +403,7 @@ describe("handleSlash", () => {
       const ctx = detectSlashArgContext("/plan o", true);
       expect(ctx).not.toBeNull();
       expect(ctx!.kind).toBe("picker");
-      expect(ctx!.spec.argCompleter).toEqual(["on", "off", "strict"]);
+      expect(ctx!.spec.argCompleter).toEqual(["on", "off"]);
     });
 
     it("hides /plan outside code mode (command is contextual)", () => {
@@ -409,13 +411,14 @@ describe("handleSlash", () => {
     });
 
     it("surfaces a hint-only row once the user types a space inside the partial", () => {
-      const ctx = detectSlashArgContext("/effort high foo");
+      // "/preset auto foo" — typed past the one enum slot.
+      const ctx = detectSlashArgContext("/preset auto foo");
       expect(ctx).not.toBeNull();
       expect(ctx!.kind).toBe("hint");
     });
 
     it("returns picker with empty partial when the user just hit space", () => {
-      const ctx = detectSlashArgContext("/effort ");
+      const ctx = detectSlashArgContext("/preset ");
       expect(ctx).not.toBeNull();
       expect(ctx!.kind).toBe("picker");
       expect(ctx!.partial).toBe("");
@@ -430,10 +433,15 @@ describe("handleSlash", () => {
     });
 
     it("still surfaces picker kind when partial exactly matches an enum value", () => {
-      const ctx = detectSlashArgContext("/effort medium");
+      // Detector itself is kind-only — it doesn't know whether the
+      // partial is a complete match. The App's slashArgMatches memo
+      // is responsible for hiding the picker on exact match so Enter
+      // submits; this test documents that the detector's contract is
+      // "we're in picker mode" regardless of match state.
+      const ctx = detectSlashArgContext("/preset smart");
       expect(ctx).not.toBeNull();
       expect(ctx!.kind).toBe("picker");
-      expect(ctx!.partial).toBe("medium");
+      expect(ctx!.partial).toBe("smart");
     });
   });
 
@@ -521,7 +529,7 @@ describe("handleSlash", () => {
     for (const required of [
       "help",
       "status",
-      "effort",
+      "preset",
       "model",
       "language",
       "theme",
@@ -915,31 +923,6 @@ describe("handleSlash", () => {
     expect(r.info).toMatch(/no turn yet/);
   });
 
-  it("/cost posts the session-aggregate cacheHit so the card matches the status bar (#1479)", () => {
-    const loop = makeLoop();
-    // Two turns with very different per-turn cache hits — last turn is 10%
-    // but the session average is ~75% once both turns are summed. Without
-    // the fix the slash card would have shown 10% while the bottom status
-    // bar showed ~75%, which is exactly the bug.
-    loop.stats.record(1, loop.model, new Usage(10_000, 100, 10_100, 9_000, 1_000));
-    loop.stats.record(2, loop.model, new Usage(10_000, 100, 10_100, 1_000, 9_000));
-    const lastTurn = loop.stats.turns[loop.stats.turns.length - 1]!;
-    const summary = loop.stats.summary();
-    // Sanity: per-turn and session-aggregate must actually differ, otherwise
-    // the test passes for the wrong reason.
-    expect(lastTurn.cacheHitRatio).not.toBe(summary.cacheHitRatio);
-
-    let posted: { cacheHit: number; sessionCost: number } | null = null;
-    handleSlash("cost", [], loop, {
-      postUsage: (args) => {
-        posted = { cacheHit: args.cacheHit, sessionCost: args.sessionCost };
-      },
-    });
-    expect(posted).not.toBeNull();
-    expect(posted!.cacheHit).toBeCloseTo(summary.cacheHitRatio, 6);
-    expect(posted!.cacheHit).not.toBe(lastTurn.cacheHitRatio);
-  });
-
   it("/status with pendingEditCount=0 hides the edits line", () => {
     const r = handleSlash("status", [], makeLoop(), { pendingEditCount: 0 });
     expect(r.info).not.toMatch(/pending/);
@@ -1105,114 +1088,6 @@ describe("handleSlash", () => {
       expect(r.info).toMatch(/Refactor auth into signed tokens/);
       expect(r.info).toMatch(/1\/2/);
     });
-
-    it("/plans surfaces active step evidence and pending evidence state", () => {
-      const loop = loopWithSession("plans-active-evidence");
-      const fs = require("node:fs") as typeof import("node:fs");
-      const dir = join(tempHome, ".reasonix", "sessions");
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(
-        join(dir, "plans-active-evidence.plan.json"),
-        JSON.stringify({
-          version: 2,
-          steps: [
-            { id: "step-1", title: "Update router", action: "Update router references." },
-            { id: "step-2", title: "Run migration", action: "Run the migration." },
-          ],
-          completedStepIds: ["step-1"],
-          stepCompletions: {
-            "step-1": {
-              kind: "step_completed",
-              stepId: "step-1",
-              result: "Updated router references.",
-              evidence: [
-                {
-                  kind: "verification",
-                  summary: "focused router tests passed",
-                  command: "npm test -- tests/router.test.ts",
-                },
-                {
-                  kind: "diff",
-                  summary: "updated router imports",
-                  paths: ["src/router.ts", "src/routes.ts"],
-                },
-              ],
-            },
-          },
-          updatedAt: new Date().toISOString(),
-          summary: "Router migration",
-        }),
-      );
-
-      const r = handleSlash("plans", [], loop, {
-        getEngineeringLifecycleSnapshot: () => ({
-          mode: "strict",
-          state: "executing",
-          planSteps: [],
-          completedStepIds: ["step-1"],
-          mutatedSinceLastStep: true,
-        }),
-      });
-
-      expect(r.info).toContain("Router migration");
-      expect(r.info).toContain("evidence pending");
-      expect(r.info).toContain("step-1");
-      expect(r.info).toContain("verification - focused router tests passed");
-      expect(r.info).toContain("npm test -- tests/router.test.ts");
-      expect(r.info).toContain("diff - updated router imports");
-      expect(r.info).toContain("src/router.ts, src/routes.ts");
-    });
-
-    it("/plans surfaces archived plan evidence summaries", () => {
-      const loop = loopWithSession("plans-archived-evidence");
-      writeArchive("plans-archived-evidence", "2026-04-20-evidence", {
-        version: 2,
-        steps: [
-          { id: "step-1", title: "Migrate config", action: "Update dependency config." },
-          { id: "step-2", title: "Confirm rollout", action: "Confirm rollout notes." },
-        ],
-        completedStepIds: ["step-1", "step-2"],
-        stepCompletions: {
-          "step-1": {
-            kind: "step_completed",
-            stepId: "step-1",
-            result: "Updated dependency config.",
-            evidence: [
-              {
-                kind: "diff",
-                summary: "updated package and lockfile",
-                paths: ["package.json", "pnpm-lock.yaml"],
-              },
-              {
-                kind: "verification",
-                summary: "install completed",
-                command: "npm install",
-              },
-            ],
-          },
-          "step-2": {
-            kind: "step_completed",
-            stepId: "step-2",
-            result: "Confirmed rollout notes.",
-            evidence: [{ kind: "manual", summary: "owner approved rollout note" }],
-          },
-        },
-        updatedAt: "2026-04-20T00:00:00.000Z",
-        summary: "Config migration",
-      });
-
-      const r = handleSlash("plans", [], loop);
-
-      expect(r.info).toContain("Config migration");
-      expect(r.info).toContain("evidence:");
-      expect(r.info).toContain("step-1");
-      expect(r.info).toContain("diff - updated package and lockfile");
-      expect(r.info).toContain("package.json, pnpm-lock.yaml");
-      expect(r.info).toContain("verification - install completed");
-      expect(r.info).toContain("npm install");
-      expect(r.info).toContain("step-2");
-      expect(r.info).toContain("manual - owner approved rollout note");
-    });
   });
 
   describe("/memory", () => {
@@ -1304,7 +1179,7 @@ describe("handleSlash", () => {
       expect(r2.info).toMatch(/plan mode OFF/);
     });
 
-    it("/plan on / off / true / false / 0 / 1 / strict parse correctly", () => {
+    it("/plan on / off / true / false / 0 / 1 parse correctly", () => {
       const check = (arg: string, expected: boolean) => {
         const calls: boolean[] = [];
         handleSlash("plan", [arg], makeLoop(), {
@@ -1319,25 +1194,6 @@ describe("handleSlash", () => {
       check("off", false);
       check("false", false);
       check("0", false);
-      check("strict", true);
-    });
-
-    it("/plan strict is explicit, not a toggle", () => {
-      const calls: boolean[] = [];
-      handleSlash("plan", ["strict"], makeLoop(), {
-        planMode: true,
-        setPlanMode: (on) => calls.push(on),
-      });
-      expect(calls).toEqual([true]);
-    });
-
-    it("/plan off marks the change as a user slash action", () => {
-      const calls: Array<{ on: boolean; source?: string }> = [];
-      handleSlash("plan", ["off"], makeLoop(), {
-        planMode: true,
-        setPlanMode: (on, source) => calls.push({ on, source }),
-      });
-      expect(calls).toEqual([{ on: false, source: "slash" }]);
     });
 
     it("/plan explains the stronger-constraint relationship with autonomous submit_plan", () => {
@@ -1360,54 +1216,6 @@ describe("handleSlash", () => {
     it("/status hides the plan line when plan mode is off", () => {
       const r = handleSlash("status", [], makeLoop(), { planMode: false });
       expect(r.info).not.toMatch(/plan\s+ON/);
-    });
-
-    it("/status surfaces strict lifecycle state when enabled", () => {
-      const r = handleSlash("status", [], makeLoop(), {
-        getEngineeringLifecycleSnapshot: () => ({
-          mode: "strict",
-          state: "armed",
-          planSteps: [],
-          completedStepIds: [],
-          mutatedSinceLastStep: false,
-        }),
-      });
-
-      expect(r.info).toMatch(/lifecycle\s+strict\/armed/);
-    });
-
-    it("/status surfaces lifecycle progress and evidence pending", () => {
-      const r = handleSlash("status", [], makeLoop(), {
-        getEngineeringLifecycleSnapshot: () => ({
-          mode: "strict",
-          state: "executing",
-          planSteps: [
-            { id: "step-1", title: "Refactor", action: "Move code." },
-            { id: "step-2", title: "Verify", action: "Run tests." },
-            { id: "step-3", title: "Document", action: "Write notes." },
-          ],
-          completedStepIds: ["step-1"],
-          mutatedSinceLastStep: true,
-        }),
-      });
-
-      expect(r.info).toMatch(/lifecycle\s+strict\/executing/);
-      expect(r.info).toMatch(/1\/3/);
-      expect(r.info).toMatch(/evidence pending/);
-    });
-
-    it("/status hides lifecycle when it is off", () => {
-      const r = handleSlash("status", [], makeLoop(), {
-        getEngineeringLifecycleSnapshot: () => ({
-          mode: "off",
-          state: "idle",
-          planSteps: [],
-          completedStepIds: [],
-          mutatedSinceLastStep: false,
-        }),
-      });
-
-      expect(r.info).not.toMatch(/lifecycle/);
     });
   });
 
@@ -1445,15 +1253,15 @@ describe("handleSlash", () => {
     });
 
     it("persists a registered theme", () => {
-      const r = handleSlash("theme", ["midnight"], makeLoop());
-      expect(r.info).toMatch(/theme saved: midnight/);
+      const r = handleSlash("theme", ["tokyo-night"], makeLoop());
+      expect(r.info).toMatch(/theme saved: tokyo-night/);
       expect(r.openThemePicker).toBeUndefined();
-      expect(loadTheme()).toBe("midnight");
+      expect(loadTheme()).toBe("tokyo-night");
     });
 
     it("persists auto so env can resolve the active theme", () => {
       const r = handleSlash("theme", ["auto"], makeLoop());
-      expect(r.info).toMatch(/active on next launch: dark/);
+      expect(r.info).toMatch(/active on next launch: github-dark/);
       expect(loadTheme()).toBe("auto");
     });
 

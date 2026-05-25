@@ -1,10 +1,10 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { check as checkUpdate } from "@tauri-apps/plugin-updater";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { t } from "../i18n";
 import { I } from "../icons";
 
 const REPO_URL = "https://github.com/esengine/DeepSeek-Reasonix";
+const RELEASES_API = "https://api.github.com/repos/esengine/DeepSeek-Reasonix/releases";
 const RELEASES_PAGE = `${REPO_URL}/releases`;
 
 type CheckState =
@@ -14,17 +14,20 @@ type CheckState =
   | { kind: "outdated"; latest: string }
   | { kind: "error"; message: string };
 
+/** Lexicographic-but-numeric semver compare. Returns 1 if a > b, -1 if a < b, 0 if equal. */
+function cmpSemver(a: string, b: string): number {
+  const pa = a.split(/[.+-]/).map((s) => Number.parseInt(s, 10));
+  const pb = b.split(/[.+-]/).map((s) => Number.parseInt(s, 10));
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const av = Number.isFinite(pa[i]) ? (pa[i] as number) : 0;
+    const bv = Number.isFinite(pb[i]) ? (pb[i] as number) : 0;
+    if (av !== bv) return av > bv ? 1 : -1;
+  }
+  return 0;
+}
+
 export function AboutModal({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
   const [check, setCheck] = useState<CheckState>({ kind: "idle" });
 
   const openGitHub = useCallback(() => {
@@ -37,12 +40,31 @@ export function AboutModal({ onClose }: { onClose: () => void }) {
   const checkForUpdates = useCallback(async () => {
     setCheck({ kind: "checking" });
     try {
-      const update = await checkUpdate();
-      if (!update) {
-        setCheck({ kind: "up-to-date", latest: __APP_VERSION__ });
-      } else {
-        setCheck({ kind: "outdated", latest: update.version });
+      const resp = await fetch(RELEASES_API, {
+        headers: { Accept: "application/vnd.github+json" },
+      });
+      if (!resp.ok) {
+        setCheck({ kind: "error", message: `HTTP ${resp.status}` });
+        return;
       }
+      const releases = (await resp.json()) as Array<{ tag_name?: string; draft?: boolean; prerelease?: boolean }>;
+      // Desktop releases live under the `desktop-v*` tag namespace (#1153).
+      // Fall back to bare `v*` so the check still works before the desktop
+      // track has cut its own tag.
+      const stable = releases.filter((r) => !r.draft && !r.prerelease);
+      const desktopTag = stable.find((r) => r.tag_name?.startsWith("desktop-v"))?.tag_name;
+      const fallbackTag = stable.find((r) => r.tag_name?.startsWith("v"))?.tag_name;
+      const tag = desktopTag ?? fallbackTag;
+      if (!tag) {
+        setCheck({ kind: "error", message: t("about.checkNoRelease") });
+        return;
+      }
+      const latest = tag.replace(/^desktop-v|^v/, "");
+      const current = __APP_VERSION__;
+      setCheck({
+        kind: cmpSemver(latest, current) > 0 ? "outdated" : "up-to-date",
+        latest,
+      });
     } catch (err) {
       setCheck({ kind: "error", message: (err as Error).message });
     }

@@ -1,4 +1,3 @@
-import { t } from "../../i18n/index.js";
 import { listSessions, pruneStaleSessions } from "../../memory/session.js";
 
 export interface PruneSessionsOptions {
@@ -9,30 +8,30 @@ export interface PruneSessionsOptions {
 export function pruneSessionsCommand(opts: PruneSessionsOptions): void {
   const days = opts.days ?? 90;
   if (!Number.isFinite(days) || days < 1) {
-    console.error(t("sessions.daysInvalid", { days }));
+    console.error(`--days must be a positive integer (got ${days}).`);
     process.exit(1);
   }
   if (opts.dryRun) {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     const stale = listSessions().filter((s) => s.mtime.getTime() < cutoff);
     if (stale.length === 0) {
-      console.log(t("sessions.noIdleSessions", { days }));
+      console.log(`no sessions idle ≥${days} days. Nothing would be pruned.`);
       return;
     }
-    console.log(t("sessions.wouldPrune", { count: stale.length, days }));
+    console.log(`would prune ${stale.length} session(s) idle ≥${days} days:`);
     for (const s of stale) {
       console.log(`  ${s.name}`);
     }
     console.log("");
-    console.log(t("sessions.dryRunHint"));
+    console.log("re-run without --dry-run to actually delete.");
     return;
   }
   const removed = pruneStaleSessions(days);
   if (removed.length === 0) {
-    console.log(t("sessions.noIdleSessions", { days }));
+    console.log(`no sessions idle ≥${days} days. Nothing pruned.`);
     return;
   }
-  console.log(t("sessions.prunedCount", { count: removed.length, days }));
+  console.log(`pruned ${removed.length} session(s) idle ≥${days} days:`);
   for (const name of removed) {
     console.log(`  ${name}`);
   }

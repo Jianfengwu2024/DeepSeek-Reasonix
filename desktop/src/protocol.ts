@@ -9,7 +9,6 @@ export type PathAccessRequiredEvent = {
   toolName: string;
   sandboxRoot: string;
   allowPrefix: string;
-  prompt?: import("@reasonix/core-utils").ApprovalPrompt;
 };
 
 export type ConfirmRequiredEvent = {
@@ -17,7 +16,6 @@ export type ConfirmRequiredEvent = {
   id: number;
   kind: "run_command" | "run_background";
   command: string;
-  prompt?: import("@reasonix/core-utils").ApprovalPrompt;
 };
 
 export type ConfirmationChoice =
@@ -169,8 +167,6 @@ export type SkillsEvent = {
 export type CtxBreakdownEvent = {
   type: "$ctx_breakdown";
   reservedTokens: number;
-  /** Current log token count (real-time) — sent after /compact to refresh the meter. */
-  logTokens?: number;
 };
 
 export type MemoryEntryInfo = {
@@ -235,7 +231,6 @@ export type SessionLoadedEvent = {
     totalCostUsd: number;
     cacheHitTokens: number;
     cacheMissTokens: number;
-    totalCompletionTokens: number;
   };
 };
 
@@ -250,21 +245,13 @@ export type NeedsSetupEvent = {
   reason: "no_api_key";
 };
 
-export type EditMode = "review" | "auto" | "yolo" | "plan";
+export type EditMode = "review" | "auto" | "yolo";
 
-export type ReasoningEffort = "low" | "medium" | "high" | "max";
-
-export type WebSearchEngineName =
-  | "bing"
-  | "searxng"
-  | "metaso"
-  | "tavily"
-  | "perplexity"
-  | "exa";
+export type PresetName = "auto" | "flash" | "pro";
 
 export type SettingsEvent = {
   type: "$settings";
-  reasoningEffort: ReasoningEffort;
+  reasoningEffort: "high" | "max";
   editMode: EditMode;
   budgetUsd: number | null;
   baseUrl?: string;
@@ -272,10 +259,8 @@ export type SettingsEvent = {
   workspaceDir: string;
   recentWorkspaces: string[];
   model: string;
+  preset: PresetName;
   editor?: string;
-  webSearchEngine?: WebSearchEngineName;
-  subagentModels?: Record<string, "flash" | "pro">;
-  showSystemEvents?: boolean;
   version: string;
 };
 
@@ -286,8 +271,7 @@ export type QQSettingsEvent = {
   sandbox: boolean;
   enabled: boolean;
   configured: boolean;
-  runtimeState: "disconnected" | "connecting" | "connected" | "failed";
-  lastError?: string;
+  connected: boolean;
   appIdPreview?: string;
   access: string;
 };
@@ -300,16 +284,13 @@ export type BalanceEvent = {
 };
 
 export type SettingsPatch = {
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: "high" | "max";
   editMode?: EditMode;
   budgetUsd?: number | null;
   baseUrl?: string;
   workspaceDir?: string;
-  model?: string;
+  preset?: PresetName;
   editor?: string;
-  webSearchEngine?: WebSearchEngineName;
-  subagentModels?: Record<string, "flash" | "pro">;
-  showSystemEvents?: boolean;
 };
 
 export type QQConfigPatch = {
@@ -332,7 +313,7 @@ export type ModelTurnStartedEvent = {
   ts: string;
   turn: number;
   model: string;
-  reasoningEffort: ReasoningEffort;
+  reasoningEffort: "high" | "max";
   prefixHash: string;
 };
 
@@ -401,15 +382,6 @@ export type StatusEvent = {
   text: string;
 };
 
-export type WarningEvent = {
-  type: "warning";
-  id: number;
-  ts: string;
-  turn: number;
-  text: string;
-  severity: "low" | "high";
-};
-
 export type KernelErrorEvent = {
   type: "error";
   id: number;
@@ -455,7 +427,6 @@ export type IncomingEvent = { tabId?: string } & (
   | ToolIntentEvent
   | ToolResultEvent
   | StatusEvent
-  | WarningEvent
   | KernelErrorEvent
   | RetryResultEvent
   | BtwResultEvent
@@ -472,7 +443,6 @@ export type OutgoingCommand = { tabId?: string } & (
   | { cmd: "session_list" }
   | { cmd: "session_delete"; name: string }
   | { cmd: "session_load"; name: string }
-  | { cmd: "session_rename"; name: string; title: string }
   | { cmd: "new_chat" }
   | { cmd: "setup_save_key"; key: string }
   | { cmd: "settings_get" }

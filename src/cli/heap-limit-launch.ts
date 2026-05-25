@@ -2,34 +2,24 @@
 
 import { spawnSync } from "node:child_process";
 import { totalmem } from "node:os";
-import { fileURLToPath } from "node:url";
 import { getHeapStatistics } from "node:v8";
 import { RX_HEAP_REEXEC_ENV, decideHeapTargetMb } from "./heap-limit.js";
-
-const runningUnderVitest =
-  process.env.VITEST === "true" || process.env.VITEST_WORKER_ID !== undefined;
 
 const target = decideHeapTargetMb({
   currentLimitMb: Math.floor(getHeapStatistics().heap_size_limit / 1024 / 1024),
   totalMemMb: Math.floor(totalmem() / 1024 / 1024),
   nodeOptions: process.env.NODE_OPTIONS ?? "",
   execArgv: process.execArgv,
-  alreadyReexec: process.env[RX_HEAP_REEXEC_ENV] === "1" || runningUnderVitest,
+  alreadyReexec: process.env[RX_HEAP_REEXEC_ENV] === "1",
 });
 
 if (target !== null) {
   const existing = process.env.NODE_OPTIONS ?? "";
   const nextOptions = `${existing} --max-old-space-size=${target}`.trim();
   const childEnv = { ...process.env, NODE_OPTIONS: nextOptions, [RX_HEAP_REEXEC_ENV]: "1" };
-  const extension = import.meta.url.endsWith(".ts") ? "ts" : "js";
-  const entrypoint = fileURLToPath(new URL(`./index.${extension}`, import.meta.url));
-  const result = spawnSync(
-    process.execPath,
-    [...process.execArgv, entrypoint, ...process.argv.slice(2)],
-    {
-      env: childEnv,
-      stdio: "inherit",
-    },
-  );
+  const result = spawnSync(process.execPath, process.argv.slice(1), {
+    env: childEnv,
+    stdio: "inherit",
+  });
   process.exit(result.status ?? 0);
 }

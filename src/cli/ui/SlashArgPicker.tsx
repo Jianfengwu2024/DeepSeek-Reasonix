@@ -4,7 +4,6 @@ import React from "react";
 import { t } from "../../i18n/index.js";
 import type { SlashCommandSpec } from "./slash.js";
 import { GLYPH, useColor } from "./theme.js";
-import { SURFACE } from "./theme/tokens.js";
 import type { AtPickerEntry } from "./useCompletionPickers.js";
 
 export interface SlashArgPickerProps {
@@ -125,7 +124,7 @@ function ArgRow({
 }) {
   const color = useColor();
   return (
-    <Box backgroundColor={isSelected ? SURFACE.bgElev : undefined}>
+    <Box>
       <Text color={isSelected ? color.primary : color.info} bold={isSelected}>
         {isSelected ? `${GLYPH.cur} ` : "  "}
       </Text>

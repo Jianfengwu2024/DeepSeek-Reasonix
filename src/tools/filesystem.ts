@@ -3,7 +3,6 @@
 import { promises as fs } from "node:fs";
 import * as pathMod from "node:path";
 import picomatch from "picomatch";
-import { decodeFileBuffer, encodeFile } from "../code/file-encoding.js";
 import { addProjectPathAllowed, loadProjectPathAllowed } from "../config.js";
 import { type ConfirmationChoice, pauseGate as defaultPauseGate } from "../core/pause-gate.js";
 import { DEFAULT_INDEX_EXCLUDES } from "../index/config.js";
@@ -27,14 +26,13 @@ export interface FilesystemToolsOptions {
   rootDir: string;
   /** false → register only read-side tools. Default true. */
   allowWriting?: boolean;
-  /** Files at or under this size get full content; larger go to outline mode. Default 64 KiB. */
+  /** Files at or under this size get full content; larger go to outline mode. Default 512 KiB. */
   outlineThresholdBytes?: number;
   /** Cap on total bytes from listing/grep tools — bounds tree-as-one-string accidents. */
   maxListBytes?: number;
 }
 
-/** 64 KiB covers ~99% of source files; larger ones (generated bundles, lockfiles, novels) outline-mode by default to keep the cache prefix slim. */
-const DEFAULT_OUTLINE_THRESHOLD_BYTES = 64 * 1024;
+const DEFAULT_OUTLINE_THRESHOLD_BYTES = 512 * 1024;
 const DEFAULT_MAX_LIST_BYTES = 256 * 1024;
 
 /** Refuse load above this; outline-mode would have to slurp the whole file to scan it. */
@@ -43,13 +41,8 @@ const HARD_MAX_FILE_BYTES = 32 * 1024 * 1024;
 /** Lines shown for orientation when a file is too big for full content. */
 const OUTLINE_HEAD_LINES = 80;
 
-// Skipped unless `include_deps:true`. Derived from the semantic indexer's exclude
-// list, minus `.reasonix` — the indexer shouldn't embed session logs / cache, but
-// user skills live at `<root>/.reasonix/skills/` (and `~/.reasonix/skills/`) and
-// must stay reachable to read_file / search_files / search_content (#1357).
-const SKIP_DIR_NAMES: ReadonlySet<string> = new Set(
-  DEFAULT_INDEX_EXCLUDES.dirs.filter((d) => d !== ".reasonix"),
-);
+/** Skipped unless `include_deps:true` — shared with the semantic indexer via DEFAULT_INDEX_EXCLUDES. */
+const SKIP_DIR_NAMES: ReadonlySet<string> = new Set(DEFAULT_INDEX_EXCLUDES.dirs);
 
 /** First line of binary defense; NUL-byte sniff is the second (catches mislabeled `.txt`). */
 const BINARY_EXTENSIONS: ReadonlySet<string> = new Set(DEFAULT_INDEX_EXCLUDES.exts);
@@ -229,7 +222,11 @@ export function registerFilesystemTools(
   registry.register({
     name: "read_file",
     parallelSafe: true,
-    description: `Read a file under the sandbox root. Default returns FULL CONTENT for files ≤ ${Math.round(DEFAULT_OUTLINE_THRESHOLD_BYTES / 1024)} KiB. Optional scoping: head/tail (N lines), range "A-B" (1-indexed inclusive). Larger files auto-switch to outline mode (metadata + head + symbol outline for TS/JS/Python/Go/Rust/Markdown/Protobuf/text) — drill in with range or search_content. Files over ${Math.round(HARD_MAX_FILE_BYTES / (1024 * 1024))} MiB and binaries are refused — use get_file_info for stat.`,
+    description: `Read a file under the sandbox root. Default behaviour returns FULL CONTENT for files at or under ${Math.round(DEFAULT_OUTLINE_THRESHOLD_BYTES / 1024)} KiB — trust the prompt cache, don't pre-truncate. Optional scoping:
+  - head: N  → first N lines (cheap probe of imports / config head)
+  - tail: N  → last N lines (recent-tail of a log)
+  - range: "A-B"  → inclusive 1-indexed range (e.g. "120-180" around an edit site)
+Files OVER the threshold auto-switch to outline mode: file metadata + first ${OUTLINE_HEAD_LINES} lines + a top-level symbol outline (TS/JS exports, Python def/class, Go func/type, Rust fn/struct/impl/trait, Markdown headings, Protobuf message/service/rpc, plain-text chapter markers) + concrete next-step commands. No middle bytes — drill in with range / search_content. Files over ${Math.round(HARD_MAX_FILE_BYTES / (1024 * 1024))} MiB are refused entirely (use grep / range). Binary files are refused — use get_file_info if you only need stat.`,
     readOnly: true,
     stormExempt: true,
     parameters: {
@@ -281,11 +278,7 @@ export function registerFilesystemTools(
         return `[refused: ${rel} appears to be binary (${formatBytes(sizeBytes)}) — read_file returns text only. Use get_file_info for stat.]`;
       }
 
-      const { text } = decodeFileBuffer(raw);
-      // Any successful read (full, range, head, tail, outline) marks the
-      // file as seen so the edit gate accepts subsequent edits. Partial-
-      // read mistakes still fail later via "search text not found".
-      ctx?.readTracker?.markRead(abs);
+      const text = raw.toString("utf8");
       let lines = text.split(/\r?\n/);
       // Most files end with '\n' which splits into an empty trailing
       // entry; drop it so head/tail/range counts match the user's
@@ -379,7 +372,11 @@ export function registerFilesystemTools(
   registry.register({
     name: "directory_tree",
     parallelSafe: true,
-    description: `Recursively list entries with indented tree structure (dirs marked '/'). Budget-aware: maxDepth defaults to 2, large subtrees (>50 children) auto-collapse to "[N hidden — list_directory to inspect]", and ${[...SKIP_DIR_NAMES].sort().join(" / ")} are skipped unless include_deps:true. For single-level use list_directory; for path lookups use search_files; for code lookups use search_content.`,
+    description: `Recursively list entries in a directory. Shows indented tree structure with directories marked '/'. Budget-aware by default:
+  - maxDepth defaults to 2 (root + one level). A depth-4 tree on a real repo blew ~5K tokens in one call. If you truly need deeper, pass maxDepth:N explicitly.
+  - Skips ${[...SKIP_DIR_NAMES].sort().join(", ")} unless include_deps:true. Traversing into node_modules / .git / dist is almost always token-waste.
+  - Large subtrees (>50 children) auto-collapse to "[N files, M dirs hidden — list_directory <path> to inspect]" so one huge folder can't dominate the output.
+Prefer \`list_directory\` for a single-level view, \`search_files\` to find specific paths, and \`search_content\` to find code.`,
     readOnly: true,
     parameters: {
       type: "object",
@@ -499,41 +496,42 @@ export function registerFilesystemTools(
     name: "search_content",
     parallelSafe: true,
     description:
-      "Recursively grep file CONTENTS for a substring or regex — 'where is X called', 'what files contain Y'. Returns one match per line as `path:line: text`. Per-file hit cap 30; when the byte budget is mostly spent, remaining files switch to a `rel: N matches` histogram. Pass `summary_only:true` for just the histogram. Skips dependency / VCS / build dirs and binary files. For file NAMES use search_files.",
+      "Recursively grep file CONTENTS for a substring or regex. This is the right tool for 'find all places that call X', 'where is Y referenced', 'what files contain Z'. Different from search_files (which matches FILE NAMES). Returns one match per line in 'path:line: text' format. Per-file hits are capped at 30 (a footer reports any extras); when the byte budget is mostly spent the remaining files switch to a 'rel: N matches' histogram so distribution stays visible instead of one popular file drowning the rest. Pass `summary_only:true` to skip line content entirely and get just the histogram. Skips dependency / VCS / build directories (node_modules, .git, dist, build, .next, target, .venv) and binary files by default.",
     readOnly: true,
     parameters: {
       type: "object",
       properties: {
         pattern: {
           type: "string",
-          description: "Substring or regex.",
+          description: "Substring (or regex) to search file contents for.",
         },
         path: {
           type: "string",
-          description: "Search root (default: sandbox root).",
+          description: "Directory to start the search at (default: sandbox root).",
         },
         glob: {
           type: "string",
           description:
-            "Filename filter. Glob when it contains `*`/`?`/`{`/`[`; otherwise substring. Patterns with `/` match the path relative to the search root.",
+            "Optional filename filter. Real glob when the value contains `*`, `?`, `{`, or `[` — e.g. '*.ts', '**/*.tsx', 'src/**/*.{ts,tsx}'. Plain substring otherwise — e.g. '.ts' (suffix), 'test' (anywhere in the name). Patterns containing `/` match against the path relative to the search root; otherwise just the basename.",
         },
         case_sensitive: {
           type: "boolean",
-          description: "Default false.",
+          description: "When true, match case exactly. Default false (case-insensitive).",
         },
         include_deps: {
           type: "boolean",
-          description: "Also search node_modules / .git / dist / build / etc. Default off.",
+          description:
+            "When true, also search inside node_modules / .git / dist / build / etc. Off by default — most exploration questions are about the user's own code.",
         },
         context: {
           type: "integer",
           description:
-            "Lines of context around each match (both sides). Default 0, capped 20. Ripgrep-style output.",
+            "Lines of context to show around each match (both before and after). Default 0 (just the matching line). Capped at 20. Output uses ripgrep style: `:` after the line number on the matching line, `-` on context lines, `--` separating non-adjacent windows.",
         },
         summary_only: {
           type: "boolean",
           description:
-            "Skip line content, return `rel: N matches` per file. Use for 'where does this exist at all' before drilling in.",
+            "When true, skip line content and return one 'rel: N matches' line per matching file. Use for 'where does this exist at all' questions before drilling in with a targeted read_file.",
         },
       },
       required: ["pattern"],
@@ -658,16 +656,7 @@ export function registerFilesystemTools(
     fn: async (args: { path: string; content: string }, ctx?: ToolCallContext) => {
       const abs = await safePath(args.path, "write_file", ctx, "write");
       await fs.mkdir(pathMod.dirname(abs), { recursive: true });
-      let encoding: ReturnType<typeof decodeFileBuffer>["encoding"] = "utf8";
-      try {
-        encoding = decodeFileBuffer(await fs.readFile(abs)).encoding;
-      } catch {
-        // New file or unreadable — fall back to utf8.
-      }
-      await fs.writeFile(abs, encodeFile(args.content, encoding));
-      // Just wrote the content; the model knows what's on disk, so a
-      // follow-up edit_file shouldn't be gated for re-reading.
-      ctx?.readTracker?.markRead(abs);
+      await fs.writeFile(abs, args.content, "utf8");
       return `wrote ${args.content.length} chars to ${displayRel(rootDir, abs)}`;
     },
   });
@@ -675,7 +664,7 @@ export function registerFilesystemTools(
   registry.register({
     name: "edit_file",
     description:
-      "Apply a SEARCH/REPLACE edit to an existing file. Call `read_file` on this path first this session — the tool refuses otherwise, since SEARCH must match on-disk bytes exactly. `search` is whitespace-sensitive plain text (no regex) and must be unique in the file; otherwise the edit is refused to avoid surprise rewrites.",
+      "Apply a SEARCH/REPLACE edit to an existing file. `search` must match exactly (whitespace sensitive) — no regex. The match must be unique in the file; otherwise the edit is refused to avoid surprise rewrites.",
     parameters: {
       type: "object",
       properties: {
@@ -686,18 +675,13 @@ export function registerFilesystemTools(
       required: ["path", "search", "replace"],
     },
     fn: async (args: { path: string; search: string; replace: string }, ctx?: ToolCallContext) =>
-      applyEdit(
-        rootDir,
-        await safePath(args.path, "edit_file", ctx, "write"),
-        args,
-        ctx?.readTracker ? (abs) => ctx.readTracker!.hasRead(abs) : undefined,
-      ),
+      applyEdit(rootDir, await safePath(args.path, "edit_file", ctx, "write"), args),
   });
 
   registry.register({
     name: "multi_edit",
     description:
-      "Apply N SEARCH/REPLACE edits across ONE OR MORE files in one call. Every target file must have been `read_file`'d this session — the tool refuses the whole batch otherwise. Edits validate across the full batch before writing. Validation failures leave all files untouched; disk write failures trigger best-effort rollback of files that may have been modified. Per-file edits run in array order, so a later edit can match text inserted by an earlier one. Same per-edit rules as edit_file: `search` is exact text (whitespace sensitive, no regex) and must be unique in its target file at the moment that edit applies. Use this for renames spanning multiple files, cross-file refactors, or any batch where you'd otherwise loop edit_file.",
+      "Apply N SEARCH/REPLACE edits across ONE OR MORE files in a single atomic call. Edits run sequentially in array order; for edits that touch the same file, a later edit can match text inserted by an earlier one. If ANY edit fails (search not found, ambiguous match, empty search, file unreadable), NO files are written — atomic at the validation layer. Same per-edit rules as edit_file: `search` is exact text (whitespace sensitive, no regex) and must be unique in its target file at the moment that edit applies. Use this for renames spanning multiple files, cross-file refactors, or any batch where you'd otherwise loop edit_file.",
     parameters: {
       type: "object",
       properties: {
@@ -734,11 +718,7 @@ export function registerFilesystemTools(
           replace: e?.replace,
         })),
       );
-      return applyMultiEdit(
-        rootDir,
-        resolved,
-        ctx?.readTracker ? (abs) => ctx.readTracker!.hasRead(abs) : undefined,
-      );
+      return applyMultiEdit(rootDir, resolved);
     },
   });
 

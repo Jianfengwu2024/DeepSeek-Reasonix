@@ -4,22 +4,13 @@ import { setLang, t, useLang } from "../i18n";
 import { I } from "../icons";
 import type { McpSpecInfo, SettingsPatch, SkillInfo } from "../protocol";
 import {
+  describeQQAccessLabel,
   describeQQRowSummary,
   getQQConnectIntent,
   getQQStatusLabel,
   type QQDesktopSettingsState,
 } from "../qq-settings";
-import {
-  FONT_FAMILY,
-  FONT_SCALE,
-  type FontFamily,
-  type FontScale,
-  THEME,
-  THEME_STYLES,
-  type Theme,
-  type ThemeStyle,
-  themeForStyle,
-} from "../theme";
+import { FONT_FAMILY, FONT_SCALE, type FontFamily, type FontScale, THEME, type Theme } from "../theme";
 import { Shortcut, type ShortcutKey } from "./shortcut";
 
 export type PageId =
@@ -49,15 +40,11 @@ export function SettingsModal({
   usage,
   currency,
   theme,
-  themeStyle,
   onSetTheme,
-  onSetThemeStyle,
   fontScale,
   onSetFontScale,
   fontFamily,
   onSetFontFamily,
-  customFontFamily,
-  onSetCustomFontFamily,
   initialPage,
   mcpSpecs,
   mcpBridged,
@@ -80,15 +67,11 @@ export function SettingsModal({
   usage: UsageStats;
   currency: "CNY" | "USD";
   theme: Theme;
-  themeStyle: ThemeStyle;
   onSetTheme: (theme: Theme) => void;
-  onSetThemeStyle: (style: ThemeStyle) => void;
   fontScale: FontScale;
   onSetFontScale: (scale: FontScale) => void;
   fontFamily: FontFamily;
   onSetFontFamily: (family: FontFamily) => void;
-  customFontFamily: string;
-  onSetCustomFontFamily: (family: string) => void;
   initialPage?: PageId;
   mcpSpecs: McpSpecInfo[];
   mcpBridged: boolean;
@@ -108,16 +91,6 @@ export function SettingsModal({
 }) {
   const [page, setPage] = useState<PageId>(initialPage ?? "general");
   const [qqConfigureOpen, setQQConfigureOpen] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
   const currentMeta = PAGE_META.find((p) => p.id === page) ?? PAGE_META[0]!;
   return (
     <div className="settings-mask" onClick={onClose}>
@@ -160,15 +133,11 @@ export function SettingsModal({
               <PageGeneral
                 settings={settings}
                 theme={theme}
-                themeStyle={themeStyle}
                 onSetTheme={onSetTheme}
-                onSetThemeStyle={onSetThemeStyle}
                 fontScale={fontScale}
                 onSetFontScale={onSetFontScale}
                 fontFamily={fontFamily}
                 onSetFontFamily={onSetFontFamily}
-                customFontFamily={customFontFamily}
-                onSetCustomFontFamily={onSetCustomFontFamily}
                 onSave={onSave}
                 onPickWorkspace={onPickWorkspace}
               />
@@ -182,13 +151,7 @@ export function SettingsModal({
                 onRemove={onRemoveMcpSpec}
               />
             )}
-            {page === "skills" && (
-              <PageSkills
-                skills={skills}
-                subagentModels={settings.subagentModels ?? {}}
-                onSave={onSave}
-              />
-            )}
+            {page === "skills" && <PageSkills skills={skills} />}
             {page === "memory" && <PageMemory />}
             {page === "rules" && <PageRules settings={settings} onSave={onSave} />}
             {page === "billing" && (
@@ -256,7 +219,7 @@ export function QQChannelSection({
     sandbox: true,
     enabled: false,
     configured: false,
-    runtimeState: "disconnected",
+    connected: false,
     access: "open (unbound)",
   };
   const [appId, setAppId] = useState(current.appId ?? "");
@@ -281,33 +244,32 @@ export function QQChannelSection({
             <div className="h">{describeQQRowSummary(current)}</div>
           </div>
           <div className="qq-row-actions">
+            <span className={`qq-status-badge ${current.connected ? "on" : "off"}`}>
+              {getQQStatusLabel(current)}
+            </span>
             <button
               type="button"
-              className={`btn qq-status-btn qq-status-${
-                current.runtimeState === "connected"
-                  ? "on"
-                  : current.runtimeState === "connecting"
-                    ? "connecting"
-                    : current.runtimeState === "failed"
-                      ? "failed"
-                      : "off"
-              }`}
+              className="btn"
               onClick={() => {
                 if (getQQConnectIntent(current) === "configure") {
                   onOpenConfigure();
                   return;
                 }
-                if (current.runtimeState === "connected") {
-                  onDisconnect();
-                  return;
-                }
                 onConnect();
               }}
             >
-              {getQQStatusLabel(current)}
+              {t("settings.qqConnect")}
             </button>
             <button type="button" className="btn" onClick={onOpenConfigure}>
               {t("settings.qqConfigure")}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={!current.connected}
+              onClick={onDisconnect}
+            >
+              {t("settings.qqDisconnect")}
             </button>
           </div>
         </div>
@@ -347,7 +309,7 @@ export function QQChannelSection({
           </div>
           <div className="setting-row">
             <div className="l">
-              <div className="n">{t("settings.qqEnvironment")}</div>
+              <div className="n">{t("settings.environment")}</div>
             </div>
             <div className="seg-ctrl">
               <button type="button" data-on={sandbox} onClick={() => setSandbox(true)}>
@@ -360,10 +322,11 @@ export function QQChannelSection({
           </div>
           <div className="setting-row">
             <div className="l">
-              <div className="n">{t("settings.qqApplyLabel")}</div>
+              <div className="n">{t("settings.qqAccess")}</div>
+              <div className="h">{describeQQAccessLabel(current.access)}</div>
             </div>
             <button type="button" className="btn" onClick={onOpenApplyLink}>
-              {t("settings.qqApplyAction")}
+              {t("settings.qqApply")}
             </button>
           </div>
           <div className="qq-config-actions">
@@ -387,6 +350,9 @@ export function QQChannelSection({
             >
               {t("settings.qqSaveAndConnect")}
             </button>
+            <button type="button" className="btn" onClick={onDisconnect}>
+              {t("settings.qqDisconnect")}
+            </button>
           </div>
         </div>
       )}
@@ -397,43 +363,26 @@ export function QQChannelSection({
 function PageGeneral({
   settings,
   theme,
-  themeStyle,
   onSetTheme,
-  onSetThemeStyle,
   fontScale,
   onSetFontScale,
   fontFamily,
   onSetFontFamily,
-  customFontFamily,
-  onSetCustomFontFamily,
   onSave,
   onPickWorkspace,
 }: {
   settings: SettingsType;
   theme: Theme;
-  themeStyle: ThemeStyle;
   onSetTheme: (theme: Theme) => void;
-  onSetThemeStyle: (style: ThemeStyle) => void;
   fontScale: FontScale;
   onSetFontScale: (scale: FontScale) => void;
   fontFamily: FontFamily;
   onSetFontFamily: (family: FontFamily) => void;
-  customFontFamily: string;
-  onSetCustomFontFamily: (family: string) => void;
   onSave: (patch: SettingsPatch) => void;
   onPickWorkspace: () => void;
 }) {
   const [editorDraft, setEditorDraft] = useState(settings.editor ?? "");
-  const [customFontDraft, setCustomFontDraft] = useState(customFontFamily);
   const lang = useLang();
-  useEffect(() => {
-    setCustomFontDraft(customFontFamily);
-  }, [customFontFamily]);
-  const commitCustomFont = (value: string) => {
-    const next = value.trim();
-    setCustomFontDraft(next);
-    onSetCustomFontFamily(next);
-  };
   return (
     <>
       <section className="section">
@@ -458,43 +407,6 @@ function PageGeneral({
             >
               {t("settings.themeLight")}
             </button>
-          </div>
-        </div>
-        <div className="setting-row theme-style-row">
-          <div className="l">
-            <div className="n">{t("settings.themeStyle")}</div>
-            <div className="h">{t("settings.themeStyleHint")}</div>
-          </div>
-          <div className="style-grid">
-            {THEME_STYLES.map((style) => (
-              <button
-                key={style}
-                type="button"
-                className="style-card"
-                data-on={themeStyle === style}
-                data-style={style}
-                onClick={() => onSetThemeStyle(style)}
-              >
-                <span className="style-card-head">
-                  <span className="style-name">
-                    {t(`settings.themeStyle${style[0]!.toUpperCase()}${style.slice(1)}` as any)}
-                  </span>
-                  <span className="style-mode">
-                    {themeForStyle(style) === THEME.DARK
-                      ? t("settings.themeDark")
-                      : t("settings.themeLight")}
-                  </span>
-                </span>
-                <span className="style-swatches" aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-                <span className="style-desc">
-                  {t(`settings.themeStyle${style[0]!.toUpperCase()}${style.slice(1)}Desc` as any)}
-                </span>
-              </button>
-            ))}
           </div>
         </div>
         <div className="setting-row">
@@ -553,38 +465,8 @@ function PageGeneral({
             >
               {t("settings.fontFamilySerif")}
             </button>
-            <button
-              type="button"
-              data-on={fontFamily === FONT_FAMILY.CUSTOM}
-              onClick={() => onSetFontFamily(FONT_FAMILY.CUSTOM)}
-            >
-              {t("settings.fontFamilyCustom")}
-            </button>
           </div>
         </div>
-        {fontFamily === FONT_FAMILY.CUSTOM && (
-          <div className="setting-row">
-            <div className="l">
-              <div className="n">{t("settings.customFontFamily")}</div>
-              <div className="h">{t("settings.customFontFamilyHint")}</div>
-            </div>
-            <input
-              className="field font-family-field"
-              value={customFontDraft}
-              placeholder={`"Microsoft YaHei", "PingFang SC", sans-serif`}
-              onChange={(e) => {
-                setCustomFontDraft(e.target.value);
-                onSetCustomFontFamily(e.target.value);
-              }}
-              onBlur={(e) => commitCustomFont(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.currentTarget.blur();
-                }
-              }}
-            />
-          </div>
-        )}
         <div className="setting-row">
           <div className="l">
             <div className="n">{t("settings.language")}</div>
@@ -639,16 +521,20 @@ function PageGeneral({
             <div className="h">{t("settings.reasoningEffortHint")}</div>
           </div>
           <div className="seg-ctrl">
-            {(["low", "medium", "high", "max"] as const).map((e) => (
-              <button
-                type="button"
-                key={e}
-                data-on={settings.reasoningEffort === e}
-                onClick={() => onSave({ reasoningEffort: e })}
-              >
-                {e}
-              </button>
-            ))}
+            <button
+              type="button"
+              data-on={settings.reasoningEffort === "high"}
+              onClick={() => onSave({ reasoningEffort: "high" })}
+            >
+              high
+            </button>
+            <button
+              type="button"
+              data-on={settings.reasoningEffort === "max"}
+              onClick={() => onSave({ reasoningEffort: "max" })}
+            >
+              max
+            </button>
           </div>
         </div>
         <div className="setting-row">
@@ -657,7 +543,7 @@ function PageGeneral({
             <div className="h">{t("settings.editModeHint")}</div>
           </div>
           <div className="seg-ctrl">
-            {(["plan", "review", "auto", "yolo"] as const).map((m) => (
+            {(["review", "auto", "yolo"] as const).map((m) => (
               <button
                 type="button"
                 key={m}
@@ -667,28 +553,6 @@ function PageGeneral({
                 {m}
               </button>
             ))}
-          </div>
-        </div>
-        <div className="setting-row">
-          <div className="l">
-            <div className="n">{t("settings.showSystemEvents")}</div>
-            <div className="h">{t("settings.showSystemEventsHint")}</div>
-          </div>
-          <div className="seg-ctrl">
-            <button
-              type="button"
-              data-on={settings.showSystemEvents !== false}
-              onClick={() => onSave({ showSystemEvents: true })}
-            >
-              {t("settings.shown")}
-            </button>
-            <button
-              type="button"
-              data-on={settings.showSystemEvents === false}
-              onClick={() => onSave({ showSystemEvents: false })}
-            >
-              {t("settings.hidden")}
-            </button>
           </div>
         </div>
         <div className="setting-row">
@@ -706,34 +570,6 @@ function PageGeneral({
               onSave({ budgetUsd: v === "" ? null : Number(v) });
             }}
           />
-        </div>
-        <div className="setting-row">
-          <div className="l">
-            <div className="n">{t("settings.webSearchEngine")}</div>
-            <div className="h">{t("settings.webSearchEngineNote")}</div>
-          </div>
-          <select
-            className="field"
-            value={settings.webSearchEngine ?? "bing"}
-            onChange={(e) =>
-              onSave({
-                webSearchEngine: e.target.value as
-                  | "bing"
-                  | "searxng"
-                  | "metaso"
-                  | "tavily"
-                  | "perplexity"
-                  | "exa",
-              })
-            }
-          >
-            <option value="bing">{t("settings.webSearchEngineBing")}</option>
-            <option value="searxng">{t("settings.webSearchEngineSearxng")}</option>
-            <option value="metaso">{t("settings.webSearchEngineMetaso")}</option>
-            <option value="tavily">{t("settings.webSearchEngineTavily")}</option>
-            <option value="perplexity">{t("settings.webSearchEnginePerplexity")}</option>
-            <option value="exa">{t("settings.webSearchEngineExa")}</option>
-          </select>
         </div>
       </section>
     </>
@@ -803,11 +639,6 @@ function ApiKeySection({
   );
 }
 
-const KNOWN_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro"] as const;
-
-const EFFORT_VALUES = ["low", "medium", "high", "max"] as const;
-type EffortValue = (typeof EFFORT_VALUES)[number];
-
 function PageModels({
   settings,
   onSave,
@@ -815,75 +646,62 @@ function PageModels({
   settings: SettingsType;
   onSave: (patch: SettingsPatch) => void;
 }) {
-  const [draft, setDraft] = useState(settings.model);
-  useEffect(() => setDraft(settings.model), [settings.model]);
-  const isKnown = (KNOWN_MODELS as readonly string[]).includes(settings.model);
+  const presets = [
+    {
+      id: "auto" as const,
+      name: "auto (flash → pro)",
+      badge: "AUTO",
+      desc: t("settings.modelAutoDesc"),
+      ctx: "—",
+      out: "—",
+    },
+    {
+      id: "flash" as const,
+      name: "deepseek-v4-flash",
+      badge: "FLASH",
+      desc: t("settings.modelFlashDesc"),
+      ctx: "1M",
+      out: "8K",
+    },
+    {
+      id: "pro" as const,
+      name: "deepseek-v4-pro",
+      badge: "PRO",
+      desc: t("settings.modelProDesc"),
+      ctx: "1M",
+      out: "32K",
+    },
+  ];
   return (
-    <>
-      <section className="section">
-        <div className="stitle">{t("settings.defaultModelCurrent", { model: settings.model })}</div>
-        <div className="model-grid">
-          {KNOWN_MODELS.map((id) => (
-            <div
-              key={id}
-              className="mcard"
-              data-on={settings.model === id}
-              onClick={() => onSave({ model: id })}
-            >
-              <div className="nm">{id}</div>
+    <section className="section">
+      <div className="stitle">{t("settings.defaultModelCurrent", { model: settings.model })}</div>
+      <div className="model-grid">
+        {presets.map((m) => (
+          <div
+            key={m.id}
+            className="mcard"
+            data-on={settings.preset === m.id}
+            onClick={() => onSave({ preset: m.id })}
+          >
+            <div className="nm">
+              {m.name}
+              <span className="badge">{m.badge}</span>
             </div>
-          ))}
-        </div>
-        <div className="setting-row" style={{ marginTop: 12 }}>
-          <div className="l">
-            <div className="n">{t("settings.modelCustom")}</div>
-            <div className="h">{t("settings.modelCustomHint")}</div>
+            <div className="desc">{m.desc}</div>
+            <div className="spec">
+              <div>
+                <span className="k">{t("settings.ctxWindow")} </span>
+                <span className="v">{m.ctx}</span>
+              </div>
+              <div>
+                <span className="k">{t("settings.maxOutput")} </span>
+                <span className="v">{m.out}</span>
+              </div>
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input
-              className="field mono"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="deepseek-v4-flash"
-            />
-            <button
-              type="button"
-              className="btn primary"
-              disabled={!draft.trim() || draft.trim() === settings.model}
-              onClick={() => onSave({ model: draft.trim() })}
-            >
-              {t("settings.apiKeySave")}
-            </button>
-          </div>
-        </div>
-        {!isKnown ? (
-          <div className="h" style={{ marginTop: 6 }}>
-            {t("settings.modelCustomActive", { model: settings.model })}
-          </div>
-        ) : null}
-      </section>
-      <section className="section">
-        <div className="stitle">{t("settings.effortSection")}</div>
-        <div className="setting-row">
-          <div className="l">
-            <div className="n">{t("settings.reasoningEffort")}</div>
-            <div className="h">{t("settings.reasoningEffortHint")}</div>
-          </div>
-          <div className="seg-ctrl">
-            {EFFORT_VALUES.map((e) => (
-              <button
-                type="button"
-                key={e}
-                data-on={settings.reasoningEffort === e}
-                onClick={() => onSave({ reasoningEffort: e as EffortValue })}
-              >
-                {e}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-    </>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -990,18 +808,7 @@ function PageMCP({
   );
 }
 
-function PageSkills({
-  skills,
-  subagentModels,
-  onSave,
-}: {
-  skills: SkillInfo[];
-  subagentModels: Record<string, "flash" | "pro">;
-  onSave: (patch: SettingsPatch) => void;
-}) {
-  const setSubagentModel = (name: string, value: "flash" | "pro") => {
-    onSave({ subagentModels: { ...subagentModels, [name]: value } });
-  };
+function PageSkills({ skills }: { skills: SkillInfo[] }) {
   return (
     <section className="section">
       <div className="stitle">{t("settings.skillsLoaded", { count: skills.length })}</div>
@@ -1041,20 +848,6 @@ function PageSkills({
                   {s.model ? ` · ${s.model}` : ""}
                 </div>
               </div>
-              {s.runAs === "subagent" ? (
-                <select
-                  className="field"
-                  style={{ marginLeft: "auto", minWidth: 96 }}
-                  value={subagentModels[s.name] ?? "flash"}
-                  onChange={(e) =>
-                    setSubagentModel(s.name, e.target.value as "flash" | "pro")
-                  }
-                  title={t("settings.subagentModelHint")}
-                >
-                  <option value="flash">{t("settings.subagentModelFlash")}</option>
-                  <option value="pro">{t("settings.subagentModelPro")}</option>
-                </select>
-              ) : null}
             </div>
             <div className="desc">{s.description}</div>
             <div
@@ -1111,7 +904,7 @@ function PageRules({
             <div className="h">{t("settings.editModeHint")}</div>
           </div>
           <div className="seg-ctrl">
-            {(["plan", "review", "auto", "yolo"] as const).map((m) => (
+            {(["review", "auto", "yolo"] as const).map((m) => (
               <button
                 type="button"
                 key={m}
@@ -1153,7 +946,6 @@ function PageBilling({
   currency: "CNY" | "USD";
 }) {
   const symbol = currency === "CNY" ? "¥" : "$";
-  const sessionCost = currency === "CNY" ? usage.totalCostUsd * 7.2 : usage.totalCostUsd;
   const totalTokens = usage.cacheHitTokens + usage.cacheMissTokens;
   const hitPct = totalTokens > 0 ? Math.round((usage.cacheHitTokens / totalTokens) * 100) : 0;
   return (
@@ -1175,7 +967,7 @@ function PageBilling({
         <div className="bill-card">
           <div className="l">{t("settings.sessionCost")}</div>
           <div className="v">
-            {symbol} {sessionCost.toFixed(4)}
+            {symbol} {usage.totalCostUsd.toFixed(4)}
           </div>
           <div className="sub">prompt {usage.totalPromptTokens.toLocaleString()} t</div>
         </div>

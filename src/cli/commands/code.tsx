@@ -1,21 +1,33 @@
-/** `reasonix code [dir]` — native filesystem tools + code system prompt, wraps `chat`. */
+/**
+ * `reasonix code [dir]` — opinionated wrapper around `reasonix chat` for
+ * code-editing workflows.
+ *
+ * What it does differently from plain chat:
+ *   - Registers native filesystem tools rooted at the given directory
+ *     (CWD by default). No subprocess, no `npx install` step, R1-
+ *     friendly schemas. Replaced the old `@modelcontextprotocol/server-filesystem`
+ *     subprocess in 0.4.9 because its `edit_file` argv shape was the
+ *     biggest driver of R1 DSML hallucinations.
+ *   - Uses a coding-focused system prompt (src/code/prompt.ts) that
+ *     teaches the model to propose edits as SEARCH/REPLACE blocks.
+ *   - Defaults to the `smart` preset (reasoner + harvest) because
+ *     coding tasks pay back R1 thinking.
+ *   - Scopes its session to the directory so projects don't share
+ *     conversation history.
+ *   - Hooks `codeMode` into the TUI so assistant replies get parsed
+ *     for SEARCH/REPLACE blocks and applied on disk after each turn.
+ */
 
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { buildCodeToolset } from "../../code/setup.js";
-import {
-  DEFAULT_MODEL,
-  bridgeEndpointEnv,
-  loadModel,
-  normalizeMcpConfig,
-  readConfig,
-} from "../../config.js";
+import { loadApiKey, loadPreset, readConfig } from "../../config.js";
 import { loadDotenv } from "../../env.js";
 import { t } from "../../i18n/index.js";
-import { specToRaw } from "../../mcp/spec.js";
 import { detectForeignAgentPlatform } from "../../memory/project.js";
 import { sanitizeName } from "../../memory/session.js";
 import { markPhase } from "../startup-profile.js";
+import { presetNameForSettings, resolvePreset } from "../ui/presets.js";
 import { chatCommand } from "./chat.js";
 
 export interface CodeOptions {
@@ -51,20 +63,23 @@ export interface CodeOptions {
   systemAppend?: string;
   /** Path to a UTF-8 text file whose contents are appended to the code system prompt. */
   systemAppendFile?: string;
-  /** Disable SGR mouse tracking so the terminal keeps native selection and right-click behavior. */
-  noMouse?: boolean;
 }
 
 export async function codeCommand(opts: CodeOptions = {}): Promise<void> {
   markPhase("code_command_enter");
-  const resolvedModel = opts.model?.trim() || loadModel() || DEFAULT_MODEL;
+  const loadedPreset = loadPreset();
+  const presetSettings = resolvePreset(loadedPreset);
+  const resolvedModel = opts.model ?? presetSettings.model;
   // Bridge .env + ~/.reasonix/config.json into process.env so buildCodeToolset's
   // eager DeepSeekClient constructions (subagent client; semantic embedder) can
   // pick up a key the user already configured via `reasonix setup`. chatCommand
   // does the same dance — code.tsx wraps chatCommand but must also seed env
   // before buildCodeToolset runs, which is BEFORE chatCommand.
   loadDotenv();
-  bridgeEndpointEnv();
+  const cfgKey = loadApiKey();
+  if (cfgKey && !process.env.DEEPSEEK_API_KEY) {
+    process.env.DEEPSEEK_API_KEY = cfgKey;
+  }
   const { codeSystemPrompt } = await import("../../code/prompt.js");
   const rootDir = resolve(opts.dir ?? process.cwd());
   // Per-directory session so switching projects doesn't mix histories.
@@ -143,6 +158,8 @@ export async function codeCommand(opts: CodeOptions = {}): Promise<void> {
     });
   await chatCommand({
     model: resolvedModel,
+    preset: opts.model ? undefined : presetNameForSettings(presetSettings),
+    autoEscalate: opts.model ? false : presetSettings.autoEscalate,
     budgetUsd: opts.budgetUsd,
     system: codeRebuildSystem(),
     rebuildSystem: codeRebuildSystem,
@@ -165,7 +182,7 @@ export async function codeCommand(opts: CodeOptions = {}): Promise<void> {
       runTriadMindInternal: (args: string[]) => triadmind.runInternalText(args),
       runTriadMindAdvisory: (cause: string) => triadmind.runAdvisory(cause),
     },
-    mcp: normalizeMcpConfig(readConfig()).map(specToRaw),
+    mcp: readConfig().mcp,
     forceResume: opts.forceResume,
     forceNew: opts.forceNew,
     noDashboard: opts.noDashboard,
@@ -173,6 +190,5 @@ export async function codeCommand(opts: CodeOptions = {}): Promise<void> {
     dashboardPort: opts.dashboardPort,
     dashboardHost: opts.dashboardHost,
     dashboardToken: opts.dashboardToken,
-    noMouse: opts.noMouse,
   });
 }

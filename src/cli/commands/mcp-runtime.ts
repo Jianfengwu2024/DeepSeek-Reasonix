@@ -35,7 +35,6 @@ export interface RuntimeContext {
   getTools: () => ToolRegistry | undefined;
   getMcpPrefix: () => string | undefined;
   getRequestedCount: () => number;
-  getWorkspaceDir?: () => string | undefined;
   progressSink: { current: ((info: ProgressInfo) => void) | null };
 }
 
@@ -184,9 +183,8 @@ export function createMcpRuntime(ctx: RuntimeContext): McpRuntime {
           ? (ctx.getMcpPrefix() as string)
           : "";
       if (spec.transport === "stdio") preflightStdioSpec(spec);
-      const workspaceDir = ctx.getWorkspaceDir?.();
-      const transport = buildTransportFromSpec(spec, { cwd: workspaceDir });
-      mcp = new McpClient({ transport, workspaceDir });
+      const transport = buildTransportFromSpec(spec);
+      mcp = new McpClient({ transport });
       await mcp.initialize({ signal });
       const host: McpClientHost = { client: mcp };
       const bridge = await bridgeMcpTools(mcp, {

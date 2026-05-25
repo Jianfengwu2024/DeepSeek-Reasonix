@@ -13,8 +13,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { type FileEncoding, decodeFileBuffer, encodeFile } from "./file-encoding.js";
+import { dirname, resolve } from "node:path";
 
 export interface EditBlock {
   /** Path as written by the model — relative to rootDir, or absolute. */
@@ -68,35 +67,12 @@ export function parseEditBlocks(text: string): EditBlock[] {
   return out;
 }
 
-function resolveEditPath(rootDir: string, rawPath: string): string {
-  const absRoot = resolve(rootDir);
-  if (/^[A-Za-z]:[\\/]/.test(rawPath) || looksLikeAbsoluteSystemPath(rawPath)) {
-    return resolve(rawPath);
-  }
-  let rooted = rawPath;
-  while (rooted.startsWith("/") || rooted.startsWith("\\")) {
-    rooted = rooted.slice(1);
-  }
-  return resolve(absRoot, rooted || ".");
-}
-
-function looksLikeAbsoluteSystemPath(rawPath: string): boolean {
-  return /^\/(?:home|Users|etc|var|opt|tmp|usr|mnt|Library|Volumes|proc|sys|dev|run|srv|media|Applications|System|root|boot|private)(?:[/\\]|$)/.test(
-    rawPath,
-  );
-}
-
-function pathIsUnder(child: string, parent: string): boolean {
-  const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
 export function applyEditBlock(block: EditBlock, rootDir: string): ApplyResult {
   const absRoot = resolve(rootDir);
-  const absTarget = resolveEditPath(rootDir, block.path);
+  const absTarget = resolve(absRoot, block.path);
   // Refuse paths that escape rootDir. `resolve` normalizes `..`, so
-  // relative-path containment avoids prefix false positives.
-  if (!pathIsUnder(absTarget, absRoot)) {
+  // startsWith on the normalized pair is enough.
+  if (absTarget !== absRoot && !absTarget.startsWith(`${absRoot}${sep()}`)) {
     return {
       path: block.path,
       status: "path-escape",
@@ -158,7 +134,7 @@ export function applyEditBlock(block: EditBlock, rootDir: string): ApplyResult {
         if (n <= 0) break;
         readBytes += n;
       }
-      const { text: content, encoding } = decodeFileBuffer(inBuf.subarray(0, readBytes));
+      const content = inBuf.toString("utf8", 0, readBytes);
       const le = lineEndingOf(content);
       const adaptedSearch = block.search.replace(/\r?\n/g, le);
       const adaptedReplace = block.replace.replace(/\r?\n/g, le);
@@ -170,22 +146,16 @@ export function applyEditBlock(block: EditBlock, rootDir: string): ApplyResult {
           message: "SEARCH text does not match the current file content exactly",
         };
       }
-      const nextIdx = content.indexOf(adaptedSearch, idx + 1);
-      if (nextIdx !== -1) {
-        return {
-          path: block.path,
-          status: "not-found",
-          message: "SEARCH text appears multiple times; include more context to disambiguate",
-        };
-      }
-      // Apply one unambiguous occurrence. Auto-expanding to replace-all is
-      // a footgun when the same string legitimately appears in several
+      // Replace only the first occurrence — if the model needs multiple
+      // identical edits it should emit multiple blocks (each anchored by
+      // more surrounding context). Auto-expanding to replace-all is a
+      // footgun when the same string legitimately appears in several
       // unrelated places.
       const replaced = `${content.slice(0, idx)}${adaptedReplace}${content.slice(idx + adaptedSearch.length)}`;
       // Truncate first so a shorter result doesn't leave stale tail
       // bytes; ftruncate also pads with NUL when the new length is
       // longer, which we then overwrite below.
-      const outBuf = encodeFile(replaced, encoding);
+      const outBuf = Buffer.from(replaced, "utf8");
       ftruncateSync(fd, outBuf.length);
       let written = 0;
       while (written < outBuf.length) {
@@ -207,11 +177,11 @@ export function applyEditBlocks(blocks: EditBlock[], rootDir: string): ApplyResu
 }
 
 export function toWholeFileEditBlock(path: string, content: string, rootDir: string): EditBlock {
-  const abs = resolveEditPath(rootDir, path);
+  const abs = resolve(rootDir, path);
   let search = "";
   if (existsSync(abs)) {
     try {
-      search = decodeFileBuffer(readFileSync(abs)).text;
+      search = readFileSync(abs, "utf8");
     } catch {
       search = "";
     }
@@ -224,8 +194,6 @@ export interface EditSnapshot {
   path: string;
   /** `null` = file didn't exist; restore means delete. */
   prevContent: string | null;
-  /** Encoding the file used before the edit. Required to round-trip GB18030 / UTF-8-BOM on restore. */
-  prevEncoding?: FileEncoding;
 }
 
 /** De-duped by path — one "before" snapshot per file even with multiple blocks. */
@@ -234,17 +202,15 @@ export function snapshotBeforeEdits(blocks: EditBlock[], rootDir: string): EditS
   const seen = new Set<string>();
   const snapshots: EditSnapshot[] = [];
   for (const b of blocks) {
-    const abs = resolveEditPath(rootDir, b.path);
-    if (!pathIsUnder(abs, absRoot)) continue;
-    if (seen.has(abs)) continue;
-    seen.add(abs);
+    if (seen.has(b.path)) continue;
+    seen.add(b.path);
+    const abs = resolve(absRoot, b.path);
     if (!existsSync(abs)) {
       snapshots.push({ path: b.path, prevContent: null });
       continue;
     }
     try {
-      const { text, encoding } = decodeFileBuffer(readFileSync(abs));
-      snapshots.push({ path: b.path, prevContent: text, prevEncoding: encoding });
+      snapshots.push({ path: b.path, prevContent: readFileSync(abs, "utf8") });
     } catch {
       // Unreadable (permission / binary) — record null so we at least
       // don't pretend the snapshot is authoritative. The restore path
@@ -259,8 +225,8 @@ export function snapshotBeforeEdits(blocks: EditBlock[], rootDir: string): EditS
 export function restoreSnapshots(snapshots: EditSnapshot[], rootDir: string): ApplyResult[] {
   const absRoot = resolve(rootDir);
   return snapshots.map((snap) => {
-    const abs = resolveEditPath(rootDir, snap.path);
-    if (!pathIsUnder(abs, absRoot)) {
+    const abs = resolve(absRoot, snap.path);
+    if (abs !== absRoot && !abs.startsWith(`${absRoot}${sep()}`)) {
       return {
         path: snap.path,
         status: "path-escape",
@@ -276,7 +242,7 @@ export function restoreSnapshots(snapshots: EditSnapshot[], rootDir: string): Ap
           message: "removed (the edit had created it)",
         };
       }
-      writeFileSync(abs, encodeFile(snap.prevContent, snap.prevEncoding ?? "utf8"));
+      writeFileSync(abs, snap.prevContent, "utf8");
       return {
         path: snap.path,
         status: "applied",
@@ -286,6 +252,11 @@ export function restoreSnapshots(snapshots: EditSnapshot[], rootDir: string): Ap
       return { path: snap.path, status: "error", message: (err as Error).message };
     }
   });
+}
+
+/** Platform separator — `\` on Windows, `/` elsewhere. */
+function sep(): string {
+  return process.platform === "win32" ? "\\" : "/";
 }
 
 function lineEndingOf(text: string): string {
