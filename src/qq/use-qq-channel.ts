@@ -779,7 +779,12 @@ export function useQQChannel({
       "pro",
       ...((models && models.length > 0
         ? models
-        : ["deepseek-v4-flash", "deepseek-v4-pro"]) as string[]),
+        : [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-chat",
+            "deepseek-reasoner",
+          ]) as string[]),
     ],
     [],
   );
@@ -863,6 +868,10 @@ export function useQQChannel({
       }
       if (result.openThemePicker) {
         beginThemePicker(buildThemeChoices());
+        return true;
+      }
+      if (result.openCopyMode) {
+        notifyTerminalOnly("`/copy` follow-up interaction is currently terminal-only.");
         return true;
       }
       if (result.openArgPickerFor) {

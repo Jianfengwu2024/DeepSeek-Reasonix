@@ -39,7 +39,7 @@ export function registerMemoryTools(
   registry.register({
     name: "remember",
     description:
-      "Save a memory for future sessions — preferences, corrections, non-obvious project facts. Not for transient task state. Loads into the system prompt on next `/new` or launch.",
+      "Save a memory for future sessions. Use when the user states a preference, corrects your approach, shares a non-obvious fact about this project, or explicitly asks you to remember something. Don't remember transient task state — only things worth recalling next session. The memory is written now but won't re-load into the system prompt until the next `/new` or launch.",
     parameters: {
       type: "object",
       properties: {
@@ -51,31 +51,33 @@ export function registerMemoryTools(
           type: "string",
           enum: ["global", "project"],
           description:
-            "global = across all projects; project = current sandbox only (needs `reasonix code`).",
+            "'global' = applies across every project (preferences, tooling); 'project' = scoped to the current sandbox (decisions, local facts). Only available in `reasonix code`.",
         },
         name: {
           type: "string",
           description:
-            "Filename-safe id, 3-40 chars, alnum + _ - . (no separators, no leading dot).",
+            "filename-safe identifier, 3-40 chars, alnum + _ - . (no path separators, no leading dot).",
         },
         description: {
           type: "string",
-          description: "≤150 char one-liner shown in MEMORY.md.",
+          description: "One-line summary shown in MEMORY.md (under ~150 chars).",
         },
         content: {
           type: "string",
           description:
-            "Markdown body. For feedback/project, structure as rule + **Why:** + **How to apply:**.",
+            "Full memory body in markdown. For feedback/project types, structure as: rule/fact, then **Why:** line, then **How to apply:** line.",
         },
         priority: {
           type: "string",
           enum: ["low", "medium", "high"],
-          description: "`high` injects entry into HIGH PRIORITY block — use sparingly.",
+          description:
+            "Optional per-memory priority. `high` injects the entry into a `# HIGH PRIORITY constraints` block at the top of the system prompt — use sparingly, only for hard rules the model must never violate.",
         },
         expires: {
           type: "string",
           enum: ["project_end"],
-          description: "`project_end` lets /memory clear project remove this even at global scope.",
+          description:
+            "Optional lifecycle hint. `project_end` causes `/memory clear project` to also remove this entry even when it's stored at global scope.",
         },
       },
       required: ["type", "scope", "name", "description", "content"],

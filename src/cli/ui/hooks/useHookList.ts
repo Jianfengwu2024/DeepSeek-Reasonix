@@ -3,7 +3,7 @@ import { type ResolvedHook, loadHooks } from "../../../hooks.js";
 
 export interface HookList {
   hookList: ResolvedHook[];
-  /** Reload hooks from disk and return the active count for the slash handler. */
+  /** `loadHooks(projectRoot)` + state replacement — returns the fresh count for the slash handler's reply. */
   reloadHooks: (projectRoot: string | undefined) => number;
 }
 

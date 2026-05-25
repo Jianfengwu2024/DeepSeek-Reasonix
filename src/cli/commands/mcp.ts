@@ -1,5 +1,4 @@
 import { defaultConfigPath, readConfig, writeConfig } from "../../config.js";
-import { t } from "../../i18n/index.js";
 import { MCP_CATALOG, mcpCommandFor } from "../../mcp/catalog.js";
 import {
   type FetchProgress,
@@ -96,7 +95,7 @@ export async function mcpListCommand(opts: McpListOptions = {}): Promise<void> {
       console.log(JSON.stringify(MCP_CATALOG, null, 2));
       return;
     }
-    console.log(t("mcpCli.bundledCatalog"));
+    console.log("Bundled MCP servers (offline catalog):");
     console.log("");
     for (const entry of MCP_CATALOG) {
       console.log(`  ${pad(entry.name, 12)} ${entry.summary}`);
@@ -142,9 +141,9 @@ export async function mcpListCommand(opts: McpListOptions = {}): Promise<void> {
   }
 
   const ageStr = result.fromCache
-    ? t("mcpCli.cachedAge", { age: fmtAge(Date.now() - result.fetchedAt) })
-    : t("mcpCli.justFetched");
-  const moreStr = result.hasMore ? t("mcpCli.moreAvailable") : t("mcpCli.allLoaded");
+    ? `cached, ${fmtAge(Date.now() - result.fetchedAt)}`
+    : "just fetched";
+  const moreStr = result.hasMore ? "more available" : "all loaded";
   console.log(
     `MCP servers from ${result.source} registry (${result.entries.length} loaded, ${moreStr}, ${ageStr}):`,
   );
@@ -154,13 +153,15 @@ export async function mcpListCommand(opts: McpListOptions = {}): Promise<void> {
   console.log("");
   for (const e of shown) printEntry(e);
   if (ranked.length > limit) {
-    console.log(t("mcpCli.moreLoaded", { count: ranked.length - limit }));
+    console.log(
+      `  … ${ranked.length - limit} more loaded — use \`reasonix mcp search <query>\` to filter`,
+    );
   }
   if (result.hasMore) {
-    console.log(t("mcpCli.morePagesAvailable"));
+    console.log("  ▸ more pages available — `reasonix mcp list --pages <n>` or --all");
   }
   console.log("");
-  console.log(t("mcpCli.installHint"));
+  console.log("Install:  reasonix mcp install <name>");
 }
 
 function matchFilter(query: string): (e: RegistryEntry) => boolean {
@@ -171,7 +172,7 @@ function matchFilter(query: string): (e: RegistryEntry) => boolean {
 export async function mcpSearchCommand(query: string, opts: McpSearchOptions = {}): Promise<void> {
   const q = query.trim();
   if (!q) {
-    console.error(t("mcpCli.usageSearch"));
+    console.error("usage: reasonix mcp search <query>");
     process.exit(1);
   }
   const handle = await openRegistry({ noCache: opts.refresh, onProgress: progressToStderr });
@@ -211,22 +212,18 @@ export async function mcpSearchCommand(query: string, opts: McpSearchOptions = {
 
   if (shown.length === 0) {
     console.log(
-      t("mcpCli.noMatchesFor", { q, count: result.entries.length, source: result.source }),
+      `No matches for "${q}" across ${result.entries.length} loaded entries (${result.source}${
+        result.hasMore ? ", more pages exist — try --refresh or `mcp list --all`" : ""
+      }).`,
     );
     return;
   }
   console.log(
-    t("mcpCli.matchCount", {
-      count: matches.length,
-      q,
-      source: result.source,
-      loaded: result.entries.length,
-    }),
+    `${matches.length} match(es) for "${q}" in ${result.source} registry (${result.entries.length} entries scanned):`,
   );
   console.log("");
   for (const e of shown) printEntry(e);
-  if (matches.length > limit)
-    console.log(t("mcpCli.moreMatches", { count: matches.length - limit }));
+  if (matches.length > limit) console.log(`  … ${matches.length - limit} more matches`);
 }
 
 function findEntry(entries: RegistryEntry[], name: string): RegistryEntry | null {
@@ -243,7 +240,7 @@ function findEntry(entries: RegistryEntry[], name: string): RegistryEntry | null
 export async function mcpInstallCommand(name: string, opts: McpInstallOptions = {}): Promise<void> {
   const target = name.trim();
   if (!target) {
-    console.error(t("mcpCli.usageInstall"));
+    console.error("usage: reasonix mcp install <name>");
     process.exit(1);
   }
 
@@ -266,14 +263,10 @@ export async function mcpInstallCommand(name: string, opts: McpInstallOptions = 
   const entry = findEntry(handle.cache.entries, target);
   if (!entry) {
     console.error(
-      t("mcpCli.noServerFound", {
-        target,
-        pages: handle.cache.pagination.pagesLoaded,
-        source: handle.source,
-      }),
+      `No MCP server named "${target}" found after walking ${handle.cache.pagination.pagesLoaded} page(s) of the ${handle.source} registry.`,
     );
     if (handle.cache.pagination.nextCursor !== null) {
-      console.error(t("mcpCli.noServerTryMore", { target }));
+      console.error(`Try: reasonix mcp install ${target} --max-pages 100`);
     }
     process.exit(1);
   }
@@ -285,7 +278,9 @@ export async function mcpInstallCommand(name: string, opts: McpInstallOptions = 
   }
 
   if (!entry.install) {
-    console.error(t("mcpCli.noInstallMeta", { name: entry.name }));
+    console.error(
+      `Could not derive install metadata for "${entry.name}" — try \`npx -y @smithery/cli install ${entry.name}\` directly.`,
+    );
     process.exit(1);
   }
 
@@ -293,22 +288,20 @@ export async function mcpInstallCommand(name: string, opts: McpInstallOptions = 
   try {
     spec = specStringFor(entry.name, entry.install);
   } catch (err) {
-    console.error(
-      t("mcpCli.buildSpecFailed", { name: entry.name, message: (err as Error).message }),
-    );
+    console.error(`Cannot build install spec for ${entry.name}: ${(err as Error).message}`);
     process.exit(1);
   }
 
   const cfg = readConfig();
   const existing = cfg.mcp ?? [];
   if (existing.includes(spec)) {
-    console.log(t("mcpCli.alreadyInstalled", { spec }));
+    console.log(`Already installed: ${spec}`);
     return;
   }
   const next = { ...cfg, mcp: [...existing, spec] };
   writeConfig(next);
 
-  console.log(t("mcpCli.installed", { spec: entry.name }));
+  console.log(`Installed: ${entry.name}`);
   console.log(`  spec:    ${spec}`);
   const installedName = parseInstalledName(spec);
   if (entry.install.requiredEnv?.length) {

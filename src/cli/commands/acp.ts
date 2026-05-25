@@ -24,16 +24,14 @@ import { AcpServer } from "../../acp/server.js";
 import { codeSystemPrompt } from "../../code/prompt.js";
 import { buildCodeToolset } from "../../code/setup.js";
 import {
-  DEFAULT_MODEL,
-  bridgeEndpointEnv,
   loadApiKey,
-  loadEditMode,
-  loadEndpoint,
-  loadModel,
+  loadBaseUrl,
+  loadPreset,
   loadReasoningEffort,
   normalizeMcpConfig,
   readConfig,
 } from "../../config.js";
+import { loadEditMode } from "../../config.js";
 import { Eventizer } from "../../core/eventize.js";
 import { pauseGate } from "../../core/pause-gate.js";
 import { autoResolveVerdict } from "../../core/pause-policy.js";
@@ -49,6 +47,7 @@ import { openTranscriptFile, recordFromLoopEvent, writeRecord } from "../../tran
 import { VERSION } from "../../version.js";
 import { formatMcpLifecycleEvent } from "../ui/mcp-lifecycle.js";
 import { formatMcpSlowToast } from "../ui/mcp-toast.js";
+import { canonicalPresetName, resolvePreset } from "../ui/presets.js";
 
 export interface AcpOptions {
   model?: string;
@@ -70,11 +69,7 @@ interface Session {
   mcpClients: McpClient[];
   loop: CacheFirstLoop;
   eventizer: Eventizer;
-  ctx: {
-    model: string;
-    prefixHash: string;
-    reasoningEffort: import("../../config.js").ReasoningEffort;
-  };
+  ctx: { model: string; prefixHash: string; reasoningEffort: "high" | "max" };
   aborter: AbortController | null;
 }
 
@@ -93,7 +88,6 @@ export async function loadMcpServers(
   tools: import("../../tools.js").ToolRegistry,
   specs: string[],
   globalPrefix: string | undefined,
-  workspaceDir: string = process.cwd(),
 ): Promise<McpClient[]> {
   const clients: McpClient[] = [];
   if (specs.length === 0) return clients;
@@ -112,8 +106,8 @@ export async function loadMcpServers(
       const t0 = Date.now();
       const prefix = resolveMcpPrefix(spec.name, normalizedSpecs.length, globalPrefix);
       if (spec.transport === "stdio") preflightStdioSpec(spec);
-      const transport = buildTransportFromSpec(spec, { cwd: workspaceDir });
-      mcp = new McpClient({ transport, workspaceDir });
+      const transport = buildTransportFromSpec(spec);
+      mcp = new McpClient({ transport });
       await mcp.initialize();
       const bridge = await bridgeMcpTools(mcp, {
         registry: tools,
@@ -159,21 +153,17 @@ async function buildSession(opts: {
   mcpSpecs?: string[];
   mcpPrefix?: string;
 }): Promise<Session> {
-  const model = opts.modelOverride || loadModel() || DEFAULT_MODEL;
+  const preset = canonicalPresetName(loadPreset());
+  const resolved = resolvePreset(preset);
+  const model = opts.modelOverride || resolved.model;
   const toolset = await buildCodeToolset({ rootDir: opts.rootDir });
   // Bridge MCP tools BEFORE building the prefix so their specs make it into the cache key.
-  const mcpClients = await loadMcpServers(
-    toolset.tools,
-    opts.mcpSpecs ?? [],
-    opts.mcpPrefix,
-    opts.rootDir,
-  );
+  const mcpClients = await loadMcpServers(toolset.tools, opts.mcpSpecs ?? [], opts.mcpPrefix);
   const system = codeSystemPrompt(opts.rootDir, {
     hasSemanticSearch: toolset.semantic.enabled,
     modelId: model,
   });
-  const ep = loadEndpoint();
-  const client = new DeepSeekClient({ apiKey: ep.apiKey, baseUrl: ep.baseUrl });
+  const client = new DeepSeekClient({ baseUrl: loadBaseUrl() });
   const prefix = new ImmutablePrefix({ system, toolSpecs: toolset.tools.specs() });
   const loop = new CacheFirstLoop({
     client,
@@ -202,7 +192,9 @@ async function buildSession(opts: {
 
 export async function acpCommand(opts: AcpOptions): Promise<void> {
   loadDotenv();
-  bridgeEndpointEnv();
+  if (loadApiKey()) {
+    process.env.DEEPSEEK_API_KEY = loadApiKey();
+  }
 
   const defaultDir = resolveDir(opts.dir, process.cwd());
   const sessions = new Map<string, Session>();
@@ -211,7 +203,7 @@ export async function acpCommand(opts: AcpOptions): Promise<void> {
 
   let transcriptStream: WriteStream | null = null;
   if (opts.transcript) {
-    const defaultModel = opts.model || loadModel() || DEFAULT_MODEL;
+    const defaultModel = opts.model || resolvePreset(canonicalPresetName(loadPreset())).model;
     transcriptStream = openTranscriptFile(opts.transcript, {
       version: 1,
       source: "reasonix acp",

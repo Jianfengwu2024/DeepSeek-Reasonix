@@ -20,16 +20,6 @@ describe("composer hint bar — issue #564", () => {
       expect(t("composer.hintClear")).toBe("清空");
     });
 
-    it("exposes composer.stashNothing in EN", () => {
-      setLanguageRuntime("EN");
-      expect(t("composer.stashNothing")).toBe("Nothing to stash");
-    });
-
-    it("exposes composer.stashNothing in zh-CN", () => {
-      setLanguageRuntime("zh-CN");
-      expect(t("composer.stashNothing")).toBe("没有可暂存的内容");
-    });
-
     it("never leaks the literal key 'composer.hint' (was rendered raw before fix)", () => {
       setLanguageRuntime("EN");
       // t() falls through to returning the path when a key is missing —
@@ -40,7 +30,6 @@ describe("composer hint bar — issue #564", () => {
       expect(t("composer.hintHistory")).not.toBe("composer.hintHistory");
       expect(t("composer.hintAbort")).not.toBe("composer.hintAbort");
       expect(t("composer.hintQuit")).not.toBe("composer.hintQuit");
-      expect(t("composer.stashNothing")).not.toBe("composer.stashNothing");
     });
   });
 
@@ -59,10 +48,11 @@ describe("composer hint bar — issue #564", () => {
       const { lastFrame, unmount } = render(<HintRow />);
       const out = lastFrame() ?? "";
       unmount();
+      // ⏎ send · ⇧⏎ newline · ^U clear · ^P/^N history · esc abort · ^C quit
       expect(out).toContain("send");
       expect(out).toContain("newline");
       expect(out).toContain("clear");
-      expect(out).toContain("\u2191\u2193");
+      expect(out).toContain("^P/^N");
       expect(out).toContain("history");
       expect(out).toContain("esc");
       expect(out).toContain("abort");

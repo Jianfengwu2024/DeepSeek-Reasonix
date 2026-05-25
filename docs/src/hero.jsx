@@ -2,9 +2,9 @@
 
 // Based on the actual reasonix code TUI: cache-first loop, SEARCH/REPLACE edits,
 // tool calls sandboxed to launch dir.
-const buildTermScript = (version) => [
+const TERM_SCRIPT = [
   { t: 'cmd', text: 'npx reasonix code' },
-  { t: 'out', text: `⏺ reasonix ${version} · model: deepseek-v4-flash · workspace: ~/app`, cls: 'term-info', delay: 280 },
+  { t: 'out', text: `⏺ reasonix ${window.REASONIX_VERSION} · model: deepseek-v4-flash · workspace: ~/app`, cls: 'term-info', delay: 280 },
   { t: 'out', text: '⏺ cache: 94.2% hit · session: 18m23s · cost: $0.043', cls: 'term-dim', delay: 220 },
   { t: 'blank' },
   { t: 'cmd', text: 'fix the case-sensitivity bug in findByEmail' },
@@ -26,14 +26,6 @@ const buildTermScript = (version) => [
 ];
 
 function Terminal() {
-  const { version: rxVersion, status: rxStatus } = useVersion();
-  const versionLabel = rxStatus === "ok" && rxVersion ? rxVersion : "…";
-  const TERM_SCRIPT = React.useMemo(() => buildTermScript(versionLabel), [versionLabel]);
-  // Animation closure reads through this ref so a late version arrival
-  // updates the next loop without restarting mid-typewriter.
-  const scriptRef = React.useRef(TERM_SCRIPT);
-  scriptRef.current = TERM_SCRIPT;
-
   const [lines, setLines] = React.useState([]);
   const [typing, setTyping] = React.useState('');
   const stepRef = React.useRef(0);
@@ -45,9 +37,8 @@ function Terminal() {
 
     const run = () => {
       if (cancelled) return;
-      const script = scriptRef.current;
       const i = stepRef.current;
-      if (i >= script.length) {
+      if (i >= TERM_SCRIPT.length) {
         timer = setTimeout(() => {
           if (cancelled) return;
           stepRef.current = 0;
@@ -57,7 +48,7 @@ function Terminal() {
         }, 3600);
         return;
       }
-      const step = script[i];
+      const step = TERM_SCRIPT[i];
       if (step.t === 'cmd') {
         const text = step.text;
         if (charRef.current < text.length) {
@@ -130,17 +121,12 @@ function Terminal() {
 
 function Hero() {
   const { lang } = useLang();
-  const { version: rxVersion, status: rxStatus } = useVersion();
-  const rxBadge =
-    rxStatus === "ok" && rxVersion
-      ? `v${rxVersion} · open source`
-      : t({ zh: "正在获取版本…", en: "fetching version…" }, lang);
   return (
     <section className="hero" id="top">
       <div className="hero-head">
         <span>§00 · Reasonix</span>
         <span className="rule"></span>
-        <span className="v">{rxBadge}</span>
+        <span className="v">v{window.REASONIX_VERSION} · open source</span>
       </div>
       <div className="hero-grid">
         <div>

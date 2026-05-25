@@ -1,14 +1,14 @@
 import { Box, Text, useStdout } from "ink";
 import React, { useState } from "react";
-import { REASONING_EFFORT_VALUES, type ReasoningEffort } from "../../config.js";
 import { t } from "../../i18n/index.js";
 import { useKeystroke } from "./keystroke-context.js";
+import { PRESETS, PRESET_DESCRIPTIONS } from "./presets.js";
 import { PILL_MODEL, Pill, modelBadgeFor } from "./primitives/Pill.js";
 import { FG, TONE } from "./theme/tokens.js";
 
 export type ModelPickerOutcome =
   | { kind: "select"; id: string }
-  | { kind: "effort"; effort: ReasoningEffort }
+  | { kind: "preset"; name: "auto" | "flash" | "pro" }
   | { kind: "quit" };
 
 export interface ModelPickerProps {
@@ -16,34 +16,38 @@ export interface ModelPickerProps {
   models: ReadonlyArray<string> | null;
   /** Model id currently active in the loop — marked with the cursor on open. */
   current: string;
-  currentEffort: ReasoningEffort;
+  /** Used to detect which preset (if any) the loop currently matches. */
+  currentEffort: "high" | "max";
+  currentAutoEscalate: boolean;
   onChoose: (outcome: ModelPickerOutcome) => void;
   /** Triggers a refetch when the catalog is null/empty and the user presses [r]. */
   onRefresh?: () => void;
 }
 
 const PAGE_MARGIN = 8;
+const PRESET_NAMES = ["auto", "flash", "pro"] as const;
+type PresetName = (typeof PRESET_NAMES)[number];
 
-type Row = { kind: "effort"; effort: ReasoningEffort } | { kind: "model"; id: string };
+type Row = { kind: "preset"; name: PresetName } | { kind: "model"; id: string };
 
 export function ModelPicker({
   models,
   current,
   currentEffort,
+  currentAutoEscalate,
   onChoose,
   onRefresh,
 }: ModelPickerProps): React.ReactElement {
   const modelList = (models && models.length > 0 ? models : FALLBACK_MODELS).slice();
   if (!modelList.includes(current)) modelList.unshift(current);
-
-  const effortRows: Row[] = REASONING_EFFORT_VALUES.map((effort) => ({
-    kind: "effort",
-    effort,
-  }));
+  const presetRows: Row[] = PRESET_NAMES.map((name) => ({ kind: "preset", name }));
   const modelRows: Row[] = modelList.map((id) => ({ kind: "model", id }));
-  const rows: Row[] = [...effortRows, ...modelRows];
+  const rows: Row[] = [...presetRows, ...modelRows];
 
-  const initialIndex = effortRows.length + Math.max(0, modelList.indexOf(current));
+  const activePreset = detectActivePreset(current, currentEffort, currentAutoEscalate);
+  const initialIndex = activePreset
+    ? PRESET_NAMES.indexOf(activePreset)
+    : presetRows.length + Math.max(0, modelList.indexOf(current));
   const [focus, setFocus] = useState(initialIndex);
   const { stdout } = useStdout();
   const termRows = stdout?.rows ?? 40;
@@ -56,7 +60,7 @@ export function ModelPicker({
     if (ev.return) {
       const target = rows[focus];
       if (!target) return;
-      if (target.kind === "effort") return onChoose({ kind: "effort", effort: target.effort });
+      if (target.kind === "preset") return onChoose({ kind: "preset", name: target.name });
       return onChoose({ kind: "select", id: target.id });
     }
     if (!ev.input) return;
@@ -75,7 +79,7 @@ export function ModelPicker({
   const loading = models === null;
   const empty = models !== null && models.length === 0;
 
-  let lastSection: Row["kind"] | null = null;
+  let lastSection: "preset" | "model" | null = null;
 
   return (
     <Box flexDirection="column" marginY={1}>
@@ -105,26 +109,26 @@ export function ModelPicker({
         const header = showHeader ? (
           <Box key={`hdr-${row.kind}`} marginTop={idx === 0 ? 0 : 1}>
             <Text color={FG.meta}>
-              {row.kind === "effort"
-                ? t("modelPicker.effortHeader")
+              {row.kind === "preset"
+                ? t("modelPicker.presetsHeader")
                 : t("modelPicker.modelsHeader")}
             </Text>
           </Box>
         ) : null;
         const body =
-          row.kind === "effort" ? (
-            <EffortRow
-              key={`e-${row.effort}`}
-              effort={row.effort}
+          row.kind === "preset" ? (
+            <PresetRow
+              key={`p-${row.name}`}
+              name={row.name}
               focused={focused}
-              active={row.effort === currentEffort}
+              active={activePreset === row.name}
             />
           ) : (
             <ModelRow
               key={`m-${row.id}`}
               id={row.id}
               focused={focused}
-              active={row.id === current}
+              active={!activePreset && row.id === current}
             />
           );
         return (
@@ -146,22 +150,24 @@ export function ModelPicker({
   );
 }
 
-function EffortRow({
-  effort,
+function PresetRow({
+  name,
   focused,
   active,
 }: {
-  effort: ReasoningEffort;
+  name: PresetName;
   focused: boolean;
   active: boolean;
 }): React.ReactElement {
+  const desc = PRESET_DESCRIPTIONS[name];
   return (
     <Box>
       <Text color={focused ? TONE.brand : FG.faint}>{focused ? "  ▸ " : "    "}</Text>
       <Text bold={focused} color={focused ? FG.strong : FG.sub}>
-        {effort.padEnd(8)}
+        {name.padEnd(8)}
       </Text>
-      <Text color={FG.meta}>{t(`modelPicker.effortDesc.${effort}` as const)}</Text>
+      <Text color={focused ? FG.body : FG.meta}>{desc.headline.padEnd(28)}</Text>
+      <Text color={FG.meta}>{`  ${desc.cost}`}</Text>
       {active ? <Text color={TONE.brand}>{t("modelPicker.currentLabel")}</Text> : null}
     </Box>
   );
@@ -190,4 +196,24 @@ function ModelRow({
   );
 }
 
-const FALLBACK_MODELS: ReadonlyArray<string> = ["deepseek-v4-flash", "deepseek-v4-pro"];
+function detectActivePreset(
+  model: string,
+  effort: "high" | "max",
+  autoEscalate: boolean,
+): PresetName | null {
+  for (const name of PRESET_NAMES) {
+    const p = PRESETS[name];
+    if (p.model === model && p.reasoningEffort === effort && p.autoEscalate === autoEscalate) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/** Hard-coded known DeepSeek ids — used when the API catalog hasn't loaded yet so the picker isn't empty on first open. */
+const FALLBACK_MODELS: ReadonlyArray<string> = [
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "deepseek-chat",
+  "deepseek-reasoner",
+];

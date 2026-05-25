@@ -3,7 +3,6 @@ import {
   type KeyboardEvent,
   type RefObject,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,22 +11,22 @@ import type React from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { t, type TKey } from "../i18n";
 import { I } from "../icons";
-import {
-  DEFAULT_COMPOSER_ROWS,
-  applyComposerTextareaAutosize,
-} from "./composer-sizing";
 import { fmtElapsed } from "./live";
 import { Shortcut } from "./shortcut";
 
-export type ReasoningEffort = "low" | "medium" | "high" | "max";
-export type EditMode = "review" | "auto" | "yolo" | "plan";
+export type PresetName = "auto" | "flash" | "pro";
+export type EditMode = "review" | "auto" | "yolo";
 
+type PresetEntry = { label: string; badge: string; desc: TKey };
 type ModeEntry = { k: EditMode; label: TKey; icon: React.ReactNode; hint: TKey };
 
-const EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "max"];
+const PRESET_INFO: Record<PresetName, PresetEntry> = {
+  auto: { label: "auto", badge: "AUTO", desc: "preset.autoDesc" },
+  flash: { label: "v4-flash", badge: "FLASH", desc: "preset.flashDesc" },
+  pro: { label: "v4-pro", badge: "PRO", desc: "preset.proDesc" },
+};
 
 const MODE_INFO: ModeEntry[] = [
-  { k: "plan", label: "editMode.plan", icon: <I.list size={11} />, hint: "editMode.planHint" },
   { k: "review", label: "editMode.review", icon: <I.shield size={11} />, hint: "editMode.reviewHint" },
   { k: "auto", label: "editMode.auto", icon: <I.zap size={11} />, hint: "editMode.autoHint" },
   { k: "yolo", label: "editMode.yolo", icon: <I.warn size={11} />, hint: "editMode.yoloHint" },
@@ -126,10 +125,9 @@ export function Composer({
   busy,
   busyLabel,
   busyElapsedMs,
+  preset,
   modelLabel,
-  reasoningEffort,
-  onModelChange,
-  onEffortChange,
+  onPresetChange,
   editMode,
   onEditModeChange,
   textareaRef,
@@ -152,10 +150,9 @@ export function Composer({
   /** Replaces the hint-row left side while the agent is running — typically "Reasoning" or "Skill · <name>". */
   busyLabel?: string;
   busyElapsedMs?: number;
+  preset: PresetName;
   modelLabel: string;
-  reasoningEffort: ReasoningEffort;
-  onModelChange: (model: string) => void;
-  onEffortChange: (effort: ReasoningEffort) => void;
+  onPresetChange: (preset: PresetName) => void;
   editMode: EditMode;
   onEditModeChange: (mode: EditMode) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -177,18 +174,6 @@ export function Composer({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const nonceRef = useRef(0);
   const modelWrapRef = useRef<HTMLDivElement>(null);
-  // macOS Chinese IME fires compositionend BEFORE the confirm keydown.
-  const composingRef = useRef(false);
-  const compositionEndedAtRef = useRef(0);
-  const historyRef = useRef<string[]>([]);
-  const [browseIdx, setBrowseIdx] = useState(-1);
-  const savedDraftRef = useRef("");
-
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    applyComposerTextareaAutosize(textarea);
-  });
 
   // Programmatic draft transitions to "/" (e.g. /help suggestion in EmptyState, #929) must open the slash popup, since handleChange only fires on actual user input.
   const prevDraftRef = useRef(draft);
@@ -339,35 +324,6 @@ export function Composer({
     textareaRef.current?.focus();
   };
 
-  const recordSendAndReset = () => {
-    const trimmed = draft.trim();
-    historyRef.current.push(trimmed);
-    if (historyRef.current.length > 100) historyRef.current.shift();
-    setBrowseIdx(-1);
-  };
-
-  const navigateHistory = (dir: -1 | 1) => {
-    const hist = historyRef.current;
-    if (hist.length === 0) return;
-    if (dir === -1) {
-      const nextIdx = browseIdx + 1;
-      if (nextIdx < hist.length) {
-        if (browseIdx === -1) savedDraftRef.current = draft;
-        setBrowseIdx(nextIdx);
-        setDraft(hist[hist.length - 1 - nextIdx]);
-      }
-    } else {
-      if (browseIdx > 0) {
-        const nextIdx = browseIdx - 1;
-        setBrowseIdx(nextIdx);
-        setDraft(hist[hist.length - 1 - nextIdx]);
-      } else if (browseIdx === 0) {
-        setBrowseIdx(-1);
-        setDraft(savedDraftRef.current);
-      }
-    }
-  };
-
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (popup) {
       if (e.key === "ArrowDown") {
@@ -421,20 +377,6 @@ export function Composer({
         dismiss();
       }
     }
-    if (!popup) {
-      const ta = textareaRef.current;
-      if (e.key === "ArrowUp" && ta && ta.selectionStart === 0) {
-        e.preventDefault();
-        navigateHistory(-1);
-        return;
-      }
-      if (e.key === "ArrowDown" && ta && ta.selectionStart === draft.length) {
-        e.preventDefault();
-        navigateHistory(1);
-        return;
-      }
-    }
-    if (composingRef.current || Date.now() - compositionEndedAtRef.current < 50) return;
     if (e.key === "Enter" && !e.shiftKey && !popup) {
       e.preventDefault();
       if (busy) {
@@ -444,7 +386,6 @@ export function Composer({
           setChips([]);
         }
       } else if (!disabled && draft.trim()) {
-        recordSendAndReset();
         onSend();
         setChips([]);
       }
@@ -538,12 +479,7 @@ export function Composer({
             placeholder={t("composer.placeholder")}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            onCompositionStart={() => { composingRef.current = true; }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-              compositionEndedAtRef.current = Date.now();
-            }}
-            rows={DEFAULT_COMPOSER_ROWS}
+            rows={2}
             disabled={disabled}
           />
 
@@ -599,23 +535,18 @@ export function Composer({
                 type="button"
                 className="model-pill"
                 onClick={() => setModelMenuOpen((v) => !v)}
-                title={t("composer.switchModel")}
+                title={t("composer.switchPreset")}
               >
                 <I.brain size={12} />
                 <span>{modelLabel}</span>
-                <span className="badge">{reasoningEffort}</span>
+                <span className="badge">{PRESET_INFO[preset].badge}</span>
                 <I.chev size={10} />
               </button>
               {modelMenuOpen ? (
-                <ModelEffortMenu
-                  modelLabel={modelLabel}
-                  currentEffort={reasoningEffort}
-                  onPickModel={(m) => {
-                    onModelChange(m);
-                    setModelMenuOpen(false);
-                  }}
-                  onPickEffort={(e) => {
-                    onEffortChange(e);
+                <ModelMenu
+                  current={preset}
+                  onPick={(p) => {
+                    onPresetChange(p);
                     setModelMenuOpen(false);
                   }}
                 />
@@ -638,7 +569,6 @@ export function Composer({
                 disabled={disabled || !draft.trim()}
                 onClick={() => {
                   if (!disabled && draft.trim()) {
-                    recordSendAndReset();
                     onSend();
                     setChips([]);
                   }
@@ -771,20 +701,14 @@ function Popup({
   );
 }
 
-const KNOWN_MODELS: readonly string[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
-
-function ModelEffortMenu({
-  modelLabel,
-  currentEffort,
-  onPickModel,
-  onPickEffort,
+function ModelMenu({
+  current,
+  onPick,
 }: {
-  modelLabel: string;
-  currentEffort: ReasoningEffort;
-  onPickModel: (model: string) => void;
-  onPickEffort: (effort: ReasoningEffort) => void;
+  current: PresetName;
+  onPick: (p: PresetName) => void;
 }) {
-  const [draft, setDraft] = useState(modelLabel);
+  const order: PresetName[] = ["auto", "flash", "pro"];
   return (
     <div
       className="popup"
@@ -792,67 +716,30 @@ function ModelEffortMenu({
         bottom: "calc(100% + 6px)",
         left: "auto",
         right: 0,
-        width: 280,
+        width: 260,
         position: "absolute",
       }}
     >
       <div className="ph">
         <span className="tok">M</span>
-        <span>{t("composer.switchModel")}</span>
+        <span>{t("composer.switchPreset")}</span>
       </div>
       <div className="popup-list">
-        {KNOWN_MODELS.map((m) => (
+        {order.map((p) => (
           <div
-            key={m}
+            key={p}
             className="popup-item"
-            data-active={m === modelLabel}
-            onClick={() => onPickModel(m)}
+            data-active={p === current}
+            onClick={() => onPick(p)}
           >
             <span className="ico">
               <I.brain size={12} />
             </span>
             <div className="nm">
-              <span className="cmd">{m}</span>
+              <span className="cmd">{PRESET_INFO[p].label}</span>
+              <div className="desc">{t(PRESET_INFO[p].desc)}</div>
             </div>
-          </div>
-        ))}
-        <div style={{ padding: "6px 8px", display: "flex", gap: 6 }}>
-          <input
-            className="field mono"
-            style={{ flex: 1 }}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="custom model id"
-          />
-          <button
-            type="button"
-            className="btn"
-            disabled={!draft.trim() || draft.trim() === modelLabel}
-            onClick={() => onPickModel(draft.trim())}
-          >
-            {t("composer.confirm")}
-          </button>
-        </div>
-      </div>
-      <div className="ph" style={{ marginTop: 4 }}>
-        <span className="tok">E</span>
-        <span>{t("composer.switchEffort")}</span>
-      </div>
-      <div className="popup-list">
-        {EFFORTS.map((e) => (
-          <div
-            key={e}
-            className="popup-item"
-            data-active={e === currentEffort}
-            onClick={() => onPickEffort(e)}
-          >
-            <span className="ico">
-              <I.cpu size={12} />
-            </span>
-            <div className="nm">
-              <span className="cmd">{e}</span>
-              <div className="desc">{t(`effort.${e}Desc` as TKey)}</div>
-            </div>
+            <span className="kb">{PRESET_INFO[p].badge}</span>
           </div>
         ))}
       </div>

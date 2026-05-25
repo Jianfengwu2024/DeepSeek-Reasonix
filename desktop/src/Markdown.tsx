@@ -7,6 +7,7 @@ import {
   createContext,
   isValidElement,
   memo,
+  type ReactElement,
   type ReactNode,
   useContext,
   useState,
@@ -45,69 +46,14 @@ function resolveAgainstWorkspace(rel: string, ws: string | undefined): string {
 
 const KNOWN_EXTS =
   "ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|rs|go|json|jsonc|md|mdx|css|scss|less|html|htm|xml|svg|yaml|yml|toml|sh|bash|zsh|fish|sql|rb|java|kt|swift|c|cpp|cc|cxx|h|hpp|hxx|cs|php|lua|dart|ex|exs|erl|hs|clj|cljs|zig|vue|svelte|graphql|gql|proto";
-const PATH_SEG = "[\\w.@()+~%#=-]+";
-const FILE_NAME_SOURCE = `${PATH_SEG}\\.(?:${KNOWN_EXTS})`;
-const FILE_REF_SOURCE = [
-  `[A-Za-z]:[\\\\/](?:${PATH_SEG}[\\\\/])*${FILE_NAME_SOURCE}`,
-  `/(?:${PATH_SEG}[\\\\/])*${FILE_NAME_SOURCE}`,
-  `(?:\\.{1,2}[\\\\/])?(?:${PATH_SEG}[\\\\/])+${FILE_NAME_SOURCE}`,
-  FILE_NAME_SOURCE,
-].join("|");
-const LINE_REF_SOURCE = "(?::(\\d+(?::\\d+)?(?:-\\d+)?))?";
 // No lookbehind here — Tauri's WKWebView on macOS Monterey (Safari < 16.4)
 // can't parse `(?<=...)` and the whole bundle fails to load with an
 // "invalid group specifier name" error. Capture the leading char as
 // group 1 instead and let splitFilePaths skip past it. Issue #1209.
 const FILE_PATH_RE = new RegExp(
-  `(^|[\\s\`'"(\\[])(${FILE_REF_SOURCE})${LINE_REF_SOURCE}(?=[\\s.,;!?\\]\\)'"\`]|$)`,
+  `(^|[\\s\`'"(\\[])((?:[\\w.-]+\\/)+[\\w.-]+\\.(?:${KNOWN_EXTS}))(?::(\\d+(?:-\\d+)?))?(?=[\\s.,;!?\\]\\)'"\`]|$)`,
   "g",
 );
-const EXACT_FILE_REF_RE = new RegExp(`^(${FILE_REF_SOURCE})${LINE_REF_SOURCE}$`);
-
-type ParsedFileRef = { path: string; line?: string };
-
-function firstLine(line?: string): number | undefined {
-  if (!line) return undefined;
-  const parsed = Number.parseInt(line.split(/[:-]/)[0] ?? line, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function parseFileRef(value: string): ParsedFileRef | null {
-  const trimmed = value.trim();
-  const m = EXACT_FILE_REF_RE.exec(trimmed);
-  if (!m) return null;
-  return { path: m[1]!, line: m[2] };
-}
-
-function decodeMaybeUri(value: string): string {
-  try {
-    return decodeURI(value);
-  } catch {
-    return value;
-  }
-}
-
-function stripFileScheme(value: string): string {
-  if (!/^file:\/\//i.test(value)) return value;
-  let raw = decodeMaybeUri(value.replace(/^file:\/\//i, ""));
-  if (/^\/[a-zA-Z]:[\\/]/.test(raw)) raw = raw.slice(1);
-  return raw;
-}
-
-function protocolScheme(value: string): string | null {
-  if (/^[a-zA-Z]:[\\/]/.test(value)) return null;
-  return /^([a-z][\w+.-]*):/i.exec(value)?.[1]?.toLowerCase() ?? null;
-}
-
-function parseFileHref(value: string): ParsedFileRef | null {
-  const stripped = stripFileScheme(value);
-  const decoded = decodeMaybeUri(stripped);
-  const hashLine = /#L?(\d+)/i.exec(decoded)?.[1];
-  const clean = decoded.split("#")[0]!.split("?")[0]!;
-  const parsed = parseFileRef(clean);
-  if (!parsed) return null;
-  return { ...parsed, line: parsed.line ?? hashLine };
-}
 
 function FilePill({ path, line }: { path: string; line?: string }) {
   useLang();
@@ -117,7 +63,8 @@ function FilePill({ path, line }: { path: string; line?: string }) {
   const openInEditor = async () => {
     try {
       const abs = resolveAgainstWorkspace(path, ctx.dir);
-      await openWithEditor(ctx.editor, abs, firstLine(line));
+      const lineNum = line ? Number.parseInt(line.split("-")[0] ?? line, 10) : undefined;
+      await openWithEditor(ctx.editor, abs, Number.isFinite(lineNum) ? lineNum : undefined);
       setDone("open");
       setTimeout(() => setDone(null), 1200);
     } catch {
@@ -192,9 +139,6 @@ function withFilePills(children: ReactNode): ReactNode {
   return Children.map(children, (child) => {
     if (typeof child === "string") return splitFilePaths(child);
     if (isValidElement(child)) {
-      if (typeof child.type === "string" && ["a", "code", "pre"].includes(child.type)) {
-        return child;
-      }
       const props = child.props as AnyProps;
       if (props.children !== undefined) {
         return cloneElement(child, undefined, withFilePills(props.children));
@@ -212,24 +156,19 @@ export const Markdown = memo(function Markdown({ source }: { source: string }) {
         rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
         components={{
           pre: ({ children }) => {
-            // react-markdown v9 nests children unpredictably — flatten all text.
-            const rawText = flattenChildText(children).trimEnd();
-            return <CodeBlock lang={extractFencedLang(children)} text={rawText} />;
+            const codeEl = Children.toArray(children).find(
+              (c): c is ReactElement<{ className?: string; children?: ReactNode }> =>
+                isValidElement(c) && c.type === "code",
+            );
+            if (!codeEl) return <pre>{children}</pre>;
+            const text = String(codeEl.props.children ?? "").replace(/\n$/, "");
+            const lang = /language-([\w-]+)/.exec(codeEl.props.className ?? "")?.[1] ?? "text";
+            return <CodeBlock lang={lang} text={text} />;
           },
-          code: ({ className, children }) => {
-            const text = String(children ?? "");
-            const parsed = !className ? parseFileRef(text.trim()) : null;
-            if (parsed) return <FilePill path={parsed.path} line={parsed.line} />;
-            return <code className={className}>{children}</code>;
-          },
+          code: ({ className, children }) => <code className={className}>{children}</code>,
           a: ({ href, children }) => <SafeLink href={href}>{children}</SafeLink>,
           p: ({ children }) => <p>{withFilePills(children)}</p>,
           li: ({ children }) => <li>{withFilePills(children)}</li>,
-          table: ({ children }) => (
-            <div className="markdown-table-wrap">
-              <table>{children}</table>
-            </div>
-          ),
           td: ({ children }) => <td>{withFilePills(children)}</td>,
         }}
       >
@@ -243,8 +182,7 @@ function SafeLink({ href, children }: { href?: string; children: ReactNode }) {
   useLang();
   const ctx = useContext(WorkspaceContext);
   const [done, setDone] = useState(false);
-  const scheme = href ? protocolScheme(href) : null;
-  const isExternal = !!scheme && scheme !== "file";
+  const isExternal = !!href && /^https?:\/\//i.test(href);
   const onClick = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (!href) return;
@@ -257,10 +195,9 @@ function SafeLink({ href, children }: { href?: string; children: ReactNode }) {
       return;
     }
     try {
-      const parsed = parseFileHref(href);
-      const target = parsed ?? { path: decodeMaybeUri(stripFileScheme(href)) };
-      const abs = resolveAgainstWorkspace(target.path, ctx.dir);
-      await openWithEditor(ctx.editor, abs, firstLine(target.line));
+      const stripped = href.replace(/^file:\/\//, "");
+      const abs = resolveAgainstWorkspace(stripped, ctx.dir);
+      await openWithEditor(ctx.editor, abs);
     } catch {
       try {
         await navigator.clipboard.writeText(href);
@@ -292,26 +229,6 @@ function SafeLink({ href, children }: { href?: string; children: ReactNode }) {
   );
 }
 
-export function extractFencedLang(children: ReactNode): string {
-  for (const kid of Children.toArray(children)) {
-    if (isValidElement(kid)) {
-      const cls = (kid.props as Record<string, unknown>).className;
-      if (typeof cls === "string") {
-        const m = cls.match(/language-([\w-]+)/);
-        if (m) return m[1]!;
-      }
-    }
-  }
-  return "text";
-}
-
-function flattenChildText(node: ReactNode): string {
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(flattenChildText).join("");
-  if (isValidElement(node)) return flattenChildText((node.props as { children?: ReactNode }).children);
-  return "";
-}
-
 function CodeBlock({ lang, text }: { lang: string; text: string }): ReactNode {
   useLang();
   const [copied, setCopied] = useState(false);
@@ -328,11 +245,10 @@ function CodeBlock({ lang, text }: { lang: string; text: string }): ReactNode {
     <div className="codeblock">
       <div className="codeblock-head">
         <span className="codeblock-lang">{lang}</span>
-        <span className="codeblock-copy-wrap">
-          <button type="button" className={`copy-btn ${copied ? "done" : ""}`} onClick={onCopy}>
-            {copied ? <Check size={11} /> : <Copy size={11} />}
-          </button>
-        </span>
+        <button type="button" className={`copy-btn ${copied ? "done" : ""}`} onClick={onCopy}>
+          {copied ? <Check size={11} /> : <Copy size={11} />}
+          {copied ? t("markdown.copied") : t("markdown.copy")}
+        </button>
       </div>
       <CodeView text={text} lang={lang} />
     </div>

@@ -1,12 +1,11 @@
 import { render } from "ink";
 import React, { useMemo, useState } from "react";
 import {
-  type ReasoningEffort,
-  bridgeEndpointEnv,
   loadApiKey,
-  loadToolRateLimit,
   readConfig,
   searchEnabled,
+  webSearchEndpoint,
+  webSearchEngine,
 } from "../../config.js";
 import { loadDotenv } from "../../env.js";
 import { t } from "../../i18n/index.js";
@@ -29,8 +28,6 @@ import { SessionPicker } from "../ui/SessionPicker.js";
 import { Setup } from "../ui/Setup.js";
 import { drainTtyResponses } from "../ui/drain-tty.js";
 import { KeystrokeProvider } from "../ui/keystroke-context.js";
-import { disableMouseMode, enableMouseMode } from "../ui/mouse-mode.js";
-import { installResizeBroadcaster } from "../ui/resize-broadcaster.js";
 import type { McpServerSummary } from "../ui/slash.js";
 import {
   type McpLifecycleNotice,
@@ -44,7 +41,10 @@ export type { McpLifecycleNotice, McpLifecycleSink, McpRuntime, ProgressInfo };
 
 export interface ChatOptions {
   model: string;
-  reasoningEffort?: ReasoningEffort;
+  /** Preset resolved at launch; keeps flash distinct from auto when both use the same model. */
+  preset?: "auto" | "flash" | "pro";
+  /** Whether flash may auto-upgrade hard turns to pro. */
+  autoEscalate?: boolean;
   system: string;
   /** Re-runs the prompt builder on /new so REASONIX.md edits don't need a restart. Should produce the same string `system` was built from. */
   rebuildSystem?: () => string;
@@ -111,8 +111,6 @@ export interface ChatOptions {
   dashboardHost?: string;
   /** Stable dashboard URL token (#968). `undefined` mints a fresh per-boot token. */
   dashboardToken?: string;
-  /** Disable SGR mouse tracking so the terminal keeps native selection and right-click behavior. */
-  noMouse?: boolean;
 }
 
 interface RootProps extends ChatOptions {
@@ -173,14 +171,14 @@ function Root({
       <KeystrokeProvider>
         <Setup
           onReady={(k) => {
-            bridgeEndpointEnv();
+            process.env.DEEPSEEK_API_KEY = k;
             setKey(k);
           }}
         />
       </KeystrokeProvider>
     );
   }
-  bridgeEndpointEnv();
+  process.env.DEEPSEEK_API_KEY = key;
 
   if (pickerOpen) {
     return (
@@ -226,7 +224,8 @@ function Root({
       <App
         key={activeSession ?? "__new__"}
         model={appProps.model}
-        reasoningEffort={appProps.reasoningEffort}
+        preset={appProps.preset}
+        autoEscalate={appProps.autoEscalate}
         system={appProps.system}
         rebuildSystem={appProps.rebuildSystem}
         transcript={appProps.transcript}
@@ -270,26 +269,12 @@ export async function chatCommand(opts: ChatOptions): Promise<void> {
   // replacing. When no seed AND no MCP, tools stays undefined and
   // the loop runs as a bare chat.
   let tools: ToolRegistry | undefined = opts.seedTools;
-  if (requestedSpecs.length > 0 && !tools) {
-    tools = new ToolRegistry({ rateLimit: loadToolRateLimit() });
-  }
-  const launchWorkspace = opts.codeMode?.rootDir ?? process.cwd();
-  let activeWorkspace = launchWorkspace;
-  const codeMode = opts.codeMode
-    ? {
-        ...opts.codeMode,
-        onRootChange: (newRoot: string) => {
-          activeWorkspace = newRoot;
-          opts.codeMode?.onRootChange?.(newRoot);
-        },
-      }
-    : undefined;
+  if (requestedSpecs.length > 0 && !tools) tools = new ToolRegistry();
 
   const runtime = createMcpRuntime({
     getTools: () => tools,
     getMcpPrefix: () => opts.mcpPrefix,
     getRequestedCount: () => requestedSpecs.length,
-    getWorkspaceDir: () => activeWorkspace,
     progressSink,
   });
 
@@ -302,13 +287,19 @@ export async function chatCommand(opts: ChatOptions): Promise<void> {
   if (cfg.setupCompleted === true && (cfg.mcp?.length ?? 0) === 0 && mcpSpecs.length === 0) {
     startupInfoHints.push(t("mcpHealth.emptyHint"));
   }
+  startupInfoHints.push(
+    "/copy  →  vim-style copy mode (j/k navigate, v select, y yank to clipboard)",
+  );
 
   // Register web search/fetch tools unless explicitly disabled. DDG
   // backs them with no key required; the model invokes them whenever
   // a question needs info fresher than its training data.
   if (searchEnabled()) {
-    if (!tools) tools = new ToolRegistry({ rateLimit: loadToolRateLimit() });
-    registerWebTools(tools);
+    if (!tools) tools = new ToolRegistry();
+    registerWebTools(tools, {
+      webSearchEngine: webSearchEngine(),
+      webSearchEndpoint: webSearchEndpoint(),
+    });
   }
 
   // Memory tools — available in every session, not just code mode.
@@ -319,7 +310,7 @@ export async function chatCommand(opts: ChatOptions): Promise<void> {
   // exists) so it can wire the subagent runner for runAs:subagent
   // skills.
   if (!opts.seedTools) {
-    if (!tools) tools = new ToolRegistry({ rateLimit: loadToolRateLimit() });
+    if (!tools) tools = new ToolRegistry();
     registerMemoryTools(tools, {});
     // `ask_choice` — branching primitive, useful in chat too (stylistic
     // preferences, doc language, library picks). Independent of plan
@@ -335,6 +326,7 @@ export async function chatCommand(opts: ChatOptions): Promise<void> {
     opts.forceNew,
     opts.forceResume,
   );
+  const launchWorkspace = opts.codeMode?.rootDir ?? process.cwd();
   const showPicker =
     !opts.session && !opts.forceResume && listSessionsForWorkspace(launchWorkspace).length > 0;
 
@@ -362,26 +354,10 @@ export async function chatCommand(opts: ChatOptions): Promise<void> {
     }
   }
 
-  // Before render() — shims Ink's per-card useBoxMetrics resize subscribe
-  // path so N cards don't accumulate N native stdout listeners.
-  installResizeBroadcaster();
-
-  // Wheel scrolling. Opt-out via `mouseTracking: false` for users who
-  // prefer native drag-select copy (Shift+drag still selects with mouse
-  // mode on in most terminals). exit hooks cover hard kills so the
-  // sequence doesn't leak into the parent shell.
-  if (!opts.noMouse && cfg.mouseTracking !== false) {
-    enableMouseMode();
-    process.once("exit", disableMouseMode);
-    process.once("SIGINT", () => {
-      disableMouseMode();
-      process.exit(130);
-    });
-    process.once("SIGTERM", () => {
-      disableMouseMode();
-      process.exit(143);
-    });
-  }
+  // One stdout `resize` listener per card (Ink's useBoxMetrics); long
+  // chats legitimately hold dozens, so Node's default cap of 10 fires
+  // a spurious MaxListenersExceededWarning. Raise the ceiling.
+  process.stdout.setMaxListeners(200);
 
   const { waitUntilExit } = render(
     <Root
@@ -394,7 +370,6 @@ export async function chatCommand(opts: ChatOptions): Promise<void> {
       startupInfoHints={startupInfoHints}
       showPicker={showPicker}
       {...opts}
-      codeMode={codeMode}
       session={resolvedSession}
       qqChannel={qqChannel}
       qqSubmitRef={qqSubmitRef}
@@ -405,7 +380,6 @@ export async function chatCommand(opts: ChatOptions): Promise<void> {
   try {
     await waitUntilExit();
   } finally {
-    disableMouseMode();
     await runtime.closeAll();
     qqChannel?.stop();
     await drainTtyResponses();

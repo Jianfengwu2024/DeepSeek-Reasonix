@@ -17,7 +17,7 @@ export const EN: TranslationSchema = {
   cli: {
     description: "DeepSeek-native agent framework — built for cache hits and cheap tokens.",
     continue: "Resume the most recently used chat session without showing the picker.",
-    setup: "Interactive wizard — API key, MCP servers. Re-run any time to reconfigure.",
+    setup: "Interactive wizard — API key, preset, MCP servers. Re-run any time to reconfigure.",
     code: "Code-editing chat — filesystem tools rooted at <dir> (default: cwd), coding system prompt, v4-flash baseline.",
     chat: "Interactive Ink TUI with live cache/cost panel.",
     run: "Run a single task non-interactively, streaming output.",
@@ -46,16 +46,6 @@ export const EN: TranslationSchema = {
   sessions: {
     emptyHint:
       "no saved sessions yet — run `reasonix chat` (sessions are auto-saved unless --no-session).",
-    listHeader: "Saved sessions (~/.reasonix/sessions/):",
-    inspectHint: "Inspect:  reasonix sessions <name>",
-    resumeHint: "Resume:   reasonix chat --session <name>",
-    noSession: 'no session named "{name}" (or it\u2019s empty).',
-    lookedAt: "looked at: {path}",
-    noIdleSessions: "no sessions idle \u2265{days} days. Nothing pruned.",
-    wouldPrune: "would prune {count} session(s) idle \u2265{days} days:",
-    dryRunHint: "re-run without --dry-run to actually delete.",
-    prunedCount: "pruned {count} session(s) idle \u2265{days} days:",
-    daysInvalid: "--days must be a positive integer (got {days}).",
   },
   ui: {
     welcome: "Run `reasonix` any time to start chatting — your settings are remembered.",
@@ -119,9 +109,8 @@ export const EN: TranslationSchema = {
             { key: "wheel", text: "scrolls chat history (works on web/cloud/SSH terminals too)" },
             {
               key: "↑ / ↓",
-              text: "prompt history (or per-line cursor in a multi-line draft) — Ctrl+P / Ctrl+N alias",
+              text: "scroll chat · use Ctrl+P / Ctrl+N for prompt history + multi-line cursor",
             },
-            { key: "PgUp / PgDn", text: "scroll chat history (mouse wheel routes here too)" },
           ],
         },
       ],
@@ -135,11 +124,11 @@ export const EN: TranslationSchema = {
           rows: [
             { key: "Enter", text: "submit the prompt" },
             { key: "Shift+Enter", text: "insert a newline in the prompt" },
+            { key: "↑ / ↓", text: "scroll chat history (mouse wheel routes here too)" },
             {
-              key: "↑ / ↓",
+              key: "Ctrl+P / Ctrl+N",
               text: "previous / next prompt history · cursor up / down in a multi-line draft",
             },
-            { key: "Ctrl+P / Ctrl+N", text: "readline alias for ↑ / ↓" },
             { key: "Ctrl+A / Ctrl+E", text: "jump to start / end of the current line" },
             { key: "Ctrl+W", text: "delete the word before the cursor" },
             { key: "Ctrl+U", text: "clear the entire prompt buffer" },
@@ -149,10 +138,6 @@ export const EN: TranslationSchema = {
             { key: "Ctrl+C", text: "abort the running model turn (NOT copy — see clipboard)" },
             { key: "PgUp / PgDn", text: "scroll chat history a page at a time" },
             { key: "End", text: "jump chat to the most recent line" },
-            {
-              key: "Ctrl+R",
-              text: "toggle verbose mode — full reasoning + tool output, no head/tail elision",
-            },
           ],
         },
         {
@@ -167,6 +152,10 @@ export const EN: TranslationSchema = {
           title: "copy / paste",
           rows: [
             { key: "select text", text: "drag to select — terminal-native (no modifier needed)" },
+            {
+              key: "/copy",
+              text: "vim/tmux-style copy mode — works in SSH/mosh/tmux where drag-select can't extend past the viewport",
+            },
             {
               key: "copy",
               text: "Ctrl+Shift+C (Win/Linux) · Cmd+C (macOS) — or auto-copy-on-select if your terminal does it",
@@ -188,26 +177,24 @@ export const EN: TranslationSchema = {
         },
       ],
       footer:
-        "Wheel scrolls chat on most terminals (web/cloud/SSH included) — SGR mouse tracking is on by default and stays out of the way of native drag-select and right-click. Pass --no-mouse to opt out.",
+        "Wheel→↑/↓ via DECSET 1007 (alternate-scroll) — wheel scrolls chat on most terminals (web/cloud/SSH included) without disturbing native selection. Drag to select stays modifier-free. Pass --no-mouse to opt out.",
     },
     tipShownOnce: "shown once",
     modelOverride: "override the default model",
     noSession: "disable session persistence for this run",
-    noMouseHint: "disable SGR mouse tracking; restores native drag-select and right-click",
-    noProxyHint: "ignore HTTPS_PROXY / HTTP_PROXY for this run; go direct",
     resumeHint: "force-resume the named session (even if idle)",
     newHint: "force a fresh session (ignore --session / --continue)",
     transcriptHint: "path to write the JSONL transcript",
     budgetHint: "session USD cap — warns at 80%, refuses next turn at 100%",
     modelIdHint: "DeepSeek model id (e.g. deepseek-v4-flash)",
     systemPromptHint: "override the default system prompt",
-    effortHint: "reasoning effort — low|medium|high|max",
+    presetHint: "model bundle — auto|flash|pro",
     sessionNameHint: "session name (default: 'default')",
     ephemeralHint: "disable session persistence for this run",
     mcpSpecHint: "MCP server spec (repeatable)",
     mcpPrefixHint: "prefix MCP tool names with this string",
     noConfigHint: "ignore ~/.reasonix/config.json for this run",
-    effortHintShort: "reasoning effort — low|medium|high|max",
+    presetHintShort: "model bundle — auto|flash|pro",
     budgetHintShort: "session USD cap",
     transcriptHintShort: "JSONL transcript path",
     mcpSpecHintShort: "MCP server spec (repeatable)",
@@ -261,23 +248,29 @@ export const EN: TranslationSchema = {
   },
   slash: {
     help: { description: "show the full command reference" },
+    copy: {
+      description: "open vim/tmux-style copy mode — j/k navigate, v select, y yank to clipboard",
+    },
     status: { description: "current model, flags, context, session" },
-    effort: {
-      description:
-        "reasoning_effort cap (low|medium|high|max); high is the safe default for vLLM/Azure",
-      argsHint: "<low|medium|high|max>",
+    preset: {
+      description: "model bundle — auto escalates flash → pro, flash/pro lock",
+      argsHint: "<auto|flash|pro>",
     },
     model: { description: "switch DeepSeek model id", argsHint: "<id>" },
     models: { description: "list available models fetched from DeepSeek /models" },
     theme: {
       description: "show or persist the terminal theme preference. Bare opens picker.",
-      argsHint: "[auto|dark|light|midnight|deep-blue|high-contrast]",
+      argsHint: "[auto|default|dark|light|tokyo-night|github-dark|github-light|high-contrast]",
     },
     language: {
       description: "switch the runtime language",
       argsHint: "<EN|zh-CN>",
       success: "Language switched to English.",
       unsupported: "Unsupported language code: {code}. Supported: {supported}.",
+    },
+    pro: {
+      description: "arm v4-pro for the NEXT turn only (one-shot · auto-disarms after turn)",
+      argsHint: "[off]",
     },
     budget: {
       description:
@@ -339,7 +332,6 @@ export const EN: TranslationSchema = {
     },
     stop: { description: "abort the current model turn (typed alternative to Esc)" },
     feedback: { description: "open a GitHub issue with diagnostic info copied to clipboard" },
-    about: { description: "project info — version, website, repo, license" },
     keys: { description: "keyboard + mouse + copy/paste reference" },
     plans: { description: "list this session's active + archived plans, newest first" },
     replay: {
@@ -428,8 +420,8 @@ export const EN: TranslationSchema = {
     },
     "search-engine": {
       description:
-        "switch web search backend — bing (default, works from CN without proxy), searxng (self-hosted), metaso (free 100/d), tavily (free 1000/mo), perplexity (AI-native), or exa (AI-native)",
-      argsHint: "<bing|searxng|metaso|tavily|perplexity|exa> [<key>]",
+        "switch web search backend — mojeek (default, no deps), searxng (self-hosted), or metaso (free quota 100/d)",
+      argsHint: "<mojeek|searxng|metaso> [<endpoint>]",
     },
   },
   wizard: {
@@ -452,13 +444,16 @@ export const EN: TranslationSchema = {
     themeSampleHeading: "Sample",
     themeFooter: "[↑↓] navigate · [Enter] confirm · [Esc] cancel",
     themeCaption: {
-      dark: "Cool dark tones (default)",
+      default: "GitHub dark (default)",
+      dark: "Cool dark tones",
       light: "Clean light mode",
-      midnight: "Tokyo Night palette",
-      "deep-blue": "Deep blue on black",
+      "tokyo-night": "Tokyo Night palette",
+      "github-dark": "GitHub dark",
+      "github-light": "GitHub light",
       "high-contrast": "Accessibility",
     },
     reviewLabelTheme: "Theme",
+    presetTitle: "Pick a preset",
     mcpTitle: "Which MCP servers should Reasonix wire up for you?",
     mcpUserArgsHint: "(you'll provide {arg})",
     mcpFooterMulti:
@@ -473,6 +468,7 @@ export const EN: TranslationSchema = {
     reviewTitle: "Ready to save",
     reviewLabelApiKey: "API key",
     reviewLabelLanguage: "Language",
+    reviewLabelPreset: "Preset",
     reviewLabelMcp: "MCP",
     reviewMcpNone: "(none)",
     reviewMcpServers: "{count} server(s)",
@@ -480,8 +476,6 @@ export const EN: TranslationSchema = {
     reviewSaveError: "Could not save config: {message}",
     reviewFooter: "[Enter] save · [Esc] cancel",
     savedTitle: "▸ Saved.",
-    savedShellHint:
-      "Shell commands the model wants to run ask each time — pick `allow always` on the prompt to whitelist that exact command for this project. No global allow-all flag by design.",
     savedFooter: "[Enter] to exit",
     selectFooter: "[↑↓] navigate · [Enter] confirm · [Esc] cancel",
     stepCounter: "Step {step}/{total} · ",
@@ -548,8 +542,6 @@ export const EN: TranslationSchema = {
       title: "Checkpoint — step done",
       continue: "Continue — run the next step",
       continueHint: "Model resumes with the next step.",
-      finish: "Finish — summarize and close",
-      finishHint: "Model records the final step and summarizes the completed plan.",
       revise: "Revise — give feedback before the next step",
       reviseHint: "Stay paused, type guidance; model adjusts the remaining plan.",
       stop: "Stop — end the plan here",
@@ -594,11 +586,7 @@ export const EN: TranslationSchema = {
     notedVerbCreated: "created",
     notedVerbAppended: "appended to",
     memoryWriteFailed: "# memory write failed",
-    verboseOn: "▸ verbose mode on — full reasoning + tool output",
-    verboseOff: "▸ verbose mode off — head/tail elision restored",
     commandFailed: "! command failed",
-    steerInjected: "▸ steering queued — will be added after the current step",
-    steerCommandRejected: "▸ commands are disabled while steering a busy turn",
     btwUsage: "▸ /btw <question> — ask a side question without polluting the conversation context.",
     btwHeader: "≫ btw",
     btwFailed: "/btw failed",
@@ -629,42 +617,6 @@ export const EN: TranslationSchema = {
     planStoppedAt: "▸ plan stopped at {label}{counter}",
     revisingAfter: "▸ revising after {label} — {feedback}",
     historyScrollHint: " ↑ reading history · End / PgDn returns to bottom · ↓ advances one line",
-    editHistoryTitle: "Edit history (oldest first):",
-    editHistoryNoCodeMode: "not in code mode",
-    editHistoryNoEdits: "no edits recorded this session yet",
-    editHistoryNoShowId:
-      "usage: /show [id] [path]   (omit id for newest; path from the per-file summary)",
-    editHistoryIdNotFound: "no edit #{id} — run /history to see valid ids",
-    editHistoryLookupFailed: "unexpected: history lookup failed",
-    editHistoryBatchNoFile: 'batch #{id} doesn\'t include "{path}" — files in this batch: {files}',
-    editHistoryNoEdits2: "no edits recorded this session — /history is empty",
-    editHistoryStatusApplied: "applied",
-    editHistoryStatusPartial: "PARTIAL",
-    editHistoryStatusUndone: "UNDONE",
-    editHistoryHelpShow:
-      "/show <id>            \u2192 per-file summary    \u00b7    /show <id> <path>  \u2192 full diff of one file",
-    editHistoryHelpUndo:
-      "/undo                 \u2192 newest non-undone   \u00b7    /undo <id> [path]  \u2192 target a specific batch or file",
-    editHistoryAlreadyReverted: "(already reverted \u2014 /history shows the batch-level status)",
-    editHistoryRevertFile: "/undo {id} {path}  \u2192 revert just this file",
-    mcpFailed: "MCP {name} failed",
-    mcpWarn: "MCP {name} warn",
-    unknownTheme: "unknown theme: {name}\navailable: {choices}",
-    themeSaved: "theme saved: {name}\nactive on next launch: {active}",
-    noPendingEdits:
-      "nothing pending \u2014 the model hasn\u2019t proposed edits since the last /apply or /discard.",
-    noMatchedApply:
-      "\u25b8 no edits matched those indices \u2014 nothing applied. Use /apply with no args to commit them all.",
-    noPendingDiscard: "nothing pending to discard.",
-    noMatchedDiscard: "\u25b8 no edits matched those indices \u2014 nothing discarded.",
-    blocksStillPending:
-      "\u25b8 {count} edit block(s) still pending \u2014 /apply or /discard to clear them.",
-    nothingWritten: ". Nothing was written to disk.",
-    discardedCount: "\u25b8 discarded {count} pending edit block(s)",
-    noEventsFor: 'no events for session "{name}"',
-    lookedAtFile: "looked at: {path}",
-    sidecarHint:
-      "(sessions auto-create the sidecar on first turn \u2014 has this session run yet?)",
   },
   hooks: {
     head: "hook {tag} `{cmd}` {decision}{truncTag}",
@@ -687,10 +639,17 @@ export const EN: TranslationSchema = {
       "session budget exhausted — spent ${spent} ≥ cap ${cap}. Bump the cap with /budget <usd>, clear it with /budget off, or end the session.",
     budget80Pct: "▲ budget 80% used — ${spent} of ${cap}. Next turn or two likely trips the cap.",
     proArmed: "⇧ /pro armed — this turn runs on deepseek-v4-pro (one-shot · disarms after turn)",
+    abortedAtIter:
+      "aborted at iter {iter} — stopped without producing a summary (press ↑ + Enter or /retry to resume)",
     toolUploadStatus: "tool result uploaded · model thinking before next response…",
-    turnStartFoldStatus: "turn start: context approaching limit, compacting history…",
-    turnStartFolded:
-      "turn start: request ~{estimate}/{ctxMax} tokens ({pct}%) — compacted {beforeMessages} messages → {afterMessages}. Sending.",
+    preflightTruncateStatus: "preflight: context near full, truncating oldest history…",
+    preflightTruncated:
+      "preflight: request ~{estimate}/{ctxMax} tokens ({pct}%) — truncated {beforeMessages} messages → {afterMessages}. Sending.",
+    preflightTruncatedStillFull:
+      "preflight: request still ~{estimate}/{ctxMax} tokens ({pct}%) after truncating {beforeMessages} messages → {afterMessages}. DeepSeek will likely 400. Run /clear or /new to start fresh.",
+    preflightNoFold:
+      "preflight: request ~{estimate}/{ctxMax} tokens ({pct}%) and nothing left to truncate — DeepSeek will likely 400. Run /clear or /new to start fresh.",
+    flashEscalation: "⇧ flash requested escalation — retrying this turn on {model}{reasonSuffix}",
     harvestStatus: "extracting plan state from reasoning…",
     repeatToolCallWarning:
       "Caught a repeated tool call — let the model see the issue and retry with a different approach.",
@@ -716,8 +675,6 @@ export const EN: TranslationSchema = {
       "Out of balance (DeepSeek 402): {inner}. Top up at https://platform.deepseek.com/top_up — the panel header shows your balance once it's non-zero.",
     badparam422: "Invalid parameter (DeepSeek 422): {inner}",
     badrequest400: "Bad request (DeepSeek 400): {inner}",
-    concurrency429:
-      "DeepSeek concurrency limit hit (429): {inner}. The account has too many in-flight requests (cap: 500 for v4-pro, 2500 for v4-flash, summed across API keys account-wide). Usually means another Reasonix process is sharing the same key, or a parallel subagent fan-out overshot. Wait a few seconds and retry, reduce parallelism, or request a higher cap at https://platform.deepseek.com.",
     deepseek5xxHead:
       "DeepSeek service unavailable ({status}) — this is a DeepSeek-side problem, not Reasonix. Already retried 4× with backoff.",
     deepseek5xxReachable:
@@ -727,7 +684,7 @@ export const EN: TranslationSchema = {
     deepseek5xxActionNetwork:
       " Try: (1) check your network, (2) wait 30s and retry, (3) status page: https://status.deepseek.com.",
     deepseek5xxActionRetry:
-      " Try: (1) wait 30s and retry, (2) /model to switch model, (3) status page: https://status.deepseek.com.",
+      " Try: (1) wait 30s and retry, (2) /preset to switch model, (3) status page: https://status.deepseek.com.",
     innerNoMessage: "(no message)",
     reasonAborted: "[aborted by user (Esc) — summarizing what I found so far]",
     reasonContextGuard:
@@ -754,13 +711,6 @@ export const EN: TranslationSchema = {
       helpShellConsent:
         "                             No allowlist gate — user-typed = explicit consent.",
       helpShellExample: "                             Example: !git status   !ls src/   !npm test",
-      helpShellGateTitle: "Model-invoked shell commands (per-call approval):",
-      helpShellGate:
-        "  ↑↓ + ⏎                   each call shows a prompt with `allow once` / `allow always`",
-      helpShellGateDetail:
-        "                             / `deny`. Pick `allow always` to whitelist that exact",
-      helpShellGatePolicy:
-        "                             command prefix for this project. No global allow-all flag.",
       helpMemoryTitle: "Quick memory:",
       helpMemoryPin:
         "  #<note>                  append <note> to <project>/REASONIX.md (committable).",
@@ -784,6 +734,13 @@ export const EN: TranslationSchema = {
         "                             Same URL twice in one session fetches once (in-mem cache).",
       helpUrlPunct:
         "                             Trailing sentence punctuation (./,/)) is stripped automatically.",
+      helpPresetsTitle: "Presets (branch + harvest are NEVER auto-enabled — opt-in only):",
+      helpPresetAuto:
+        "  auto   v4-flash → v4-pro on hard turns  ← default · cheap when easy, smart when hard",
+      helpPresetFlash:
+        "  flash  v4-flash always                  cheapest · predictable per-turn cost",
+      helpPresetPro:
+        "  pro    v4-pro   always                  ~3× flash (5/31) · hard multi-turn work",
       helpSessionsTitle: "Sessions (auto-enabled by default, named 'default'):",
       helpSessionCustom: "  reasonix chat --session <name>   use a different named session",
       helpSessionNone: "  reasonix chat --no-session       disable persistence for this run",
@@ -797,10 +754,6 @@ export const EN: TranslationSchema = {
       loopStarted:
         '▸ loop started — re-submitting "{prompt}" every {duration}. Type anything (or /loop stop) to cancel.',
       keysNeedsTui: "/keys needs a TUI context (postKeys wired).",
-      aboutHeader: "Reasonix v{version} — a cache-first DeepSeek coding agent",
-      aboutWebsiteLabel: "Website",
-      aboutRepoLabel: "GitHub ",
-      aboutLicenseLabel: "License",
       unknownCommand: "unknown command: /{cmd} — did you mean {list}?",
       unknownCommandShort: "unknown command: /{cmd}  (try /help)",
     },
@@ -952,10 +905,16 @@ export const EN: TranslationSchema = {
       modelNotInCatalog:
         "model → {id}   (⚠ not in the fetched catalog: {list}. If this is wrong the next call will 400 — run /models to refresh.)",
       modelSet: "model → {id}",
-      effortStatus: "effort → {current}   (pick: {list})",
-      effortUsage:
-        "usage: /effort <{list}>   (high is the safe default; max is a DeepSeek extension)",
-      effortSet: "effort → {effort}",
+      presetAuto: "preset → auto  (v4-flash → v4-pro on hard turns · default)",
+      presetFlash: "preset → flash  (v4-flash always · cheapest · /pro still bumps one turn)",
+      presetPro: "preset → pro  (v4-pro always · ~3× flash · for hard multi-turn work)",
+      presetUsage: "usage: /preset <auto|flash|pro>",
+      proNothingArmed: "nothing armed — /pro with no args will arm pro for your next turn",
+      proDisarmed: "▸ /pro disarmed — next turn falls back to the current preset",
+      proUsage:
+        "usage: /pro       arm pro for the next turn (one-shot, auto-disarms after)\n       /pro off  cancel armed state before the next turn",
+      proArmed:
+        "▸ /pro armed — your NEXT message runs on {model} regardless of preset. Auto-disarms after one turn. Use /preset max for a persistent switch.",
       budgetNoCap:
         "no session budget set — Reasonix will keep going until you stop it. Set one with: /budget <usd>   (e.g. /budget 5)",
       budgetStatus:
@@ -1021,9 +980,6 @@ export const EN: TranslationSchema = {
       readyHint: "127.0.0.1 only · token-gated. Type `/dashboard stop` to shut down.",
       failed: "▸ dashboard failed to start: {reason}",
       starting: "▸ starting dashboard server…",
-      copied: "▸ dashboard URL copied to clipboard: {url}",
-      tokenResetting: "▸ rotating dashboard token — restarting server…",
-      tokenReset: "▸ dashboard token rotated. New URL:",
     },
     observability: {
       contextInfo: "context: ~{total} of {max} ({pct}%) · system {sys} · tools {tools} · log {log}",
@@ -1055,13 +1011,6 @@ export const EN: TranslationSchema = {
       statusMcp: "  mcp     {servers} server(s), {tools} tool(s) in registry",
       statusEdits: "  edits   {count} pending (/apply to commit, /discard to drop)",
       statusPlan: "  plan    ON — writes gated (submit_plan + approval)",
-      statusLifecycle: "  lifecycle {mode}/{state} · {progress}{evidence}",
-      lifecycleNoPlan: "no plan",
-      lifecycleEvidencePending: "evidence pending",
-      lifecycleRejected: "lifecycle: {tool} blocked in {state} — next: {next}",
-      lifecycleEvidenceRejected: "lifecycle: step {stepId} needs evidence — next: {next}",
-      lifecycleRepeatedRejected:
-        "lifecycle: repeated {tool} rejection — do not retry identical args",
       statusModeYolo:
         "  mode    YOLO — edits + shell auto-run with no prompt (/undo still rolls back · Shift+Tab to flip)",
       statusModeAuto:
@@ -1077,10 +1026,6 @@ export const EN: TranslationSchema = {
       noArchives:
         "no archived plans yet for this session — they auto-archive when every step is done",
       archivedHeader: "Archived ({count}):",
-      evidencePending:
-        "  ! evidence pending — current step needs verification/diff/checkpoint/manual evidence",
-      evidenceLine: "  evidence {stepId}: {summary}",
-      archivedEvidenceLine: "    evidence: {summary}",
       replayNoSession:
         "no session attached — `/replay` is per-session. Run `reasonix code` in a project to get a session.",
       replayNoArchives:
@@ -1160,7 +1105,7 @@ export const EN: TranslationSchema = {
     },
     mcp: {
       noServers:
-        'no MCP servers attached. Run `reasonix setup` to pick some, or launch with --mcp "<spec>". `reasonix mcp list` shows the catalog. Note: model-invoked shell commands are gated per-call (allow once / allow always / deny) — no global allow-all flag.',
+        'no MCP servers attached. Run `reasonix setup` to pick some, or launch with --mcp "<spec>". `reasonix mcp list` shows the catalog.',
       toolsLabel: "  tools     {count}",
       resourcesHint: "`/resource` to browse+read",
       promptsHint: "`/prompt` to browse+fetch",
@@ -1194,18 +1139,13 @@ export const EN: TranslationSchema = {
       currentEngine: "Current web search engine: {engine}",
       endpoint: "SearXNG endpoint: {url}",
       usageHeader: "Usage:",
-      usageBing:
-        "  /search-engine bing              use Bing (default, works from CN without proxy)",
+      usageMojeek: "  /search-engine mojeek            use Mojeek (default, no external deps)",
       usageSearxng: "  /search-engine searxng            use SearXNG at default endpoint",
       usageSearxngUrl: "  /search-engine searxng <url>      use SearXNG at custom endpoint",
       usageMetaso:
         "  /search-engine metaso              use Metaso API (100/d free, configure your own API key for more)",
       usageTavily:
         "  /search-engine tavily              use Tavily API (LLM-friendly, free 1000/mo — set TAVILY_API_KEY or tavilyApiKey in config; get one at https://tavily.com)",
-      usagePerplexity:
-        "  /search-engine perplexity          use Perplexity AI (AI-native answer + citations — set PERPLEXITY_API_KEY or perplexityApiKey in config; get one at https://perplexity.ai/settings/api)",
-      usageExa:
-        "  /search-engine exa                 use Exa API (AI-native answer + citations, free 1000/mo — set EXA_API_KEY or exaApiKey in config; sign up at https://exa.ai)",
       alias: "Alias: /se",
       searxngInfo:
         "SearXNG is a self-hosted metasearch engine (https://github.com/searxng/searxng).",
@@ -1216,14 +1156,8 @@ export const EN: TranslationSchema = {
         " There is a daily quota of 100 (configure your own API key for higher limits).",
       switchedTavilyNote:
         " Set TAVILY_API_KEY or `tavilyApiKey` in config; free 1000/mo at https://tavily.com.",
-      switchedPerplexityNote:
-        " Set PERPLEXITY_API_KEY or `perplexityApiKey` in config; get one at https://perplexity.ai/settings/api.",
-      switchedExaNote: " Set EXA_API_KEY or `exaApiKey` in config; sign up at https://exa.ai.",
-      keyNeeded:
-        'No API key configured for "{engine}".\n\n  1. Set the {envVar} environment variable\n  2. Or provide one inline:  /search-engine {engine} <your-key>\n  3. Or add "{engine}ApiKey" to ~/.reasonix/config.json\n\nThen retry /search-engine {engine}.',
-      keySaved: " API key saved to config.",
       confirmed:
-        'Web search engine set to "{engine}"{detail}. Next assistant turn will pick up the change.',
+        '✓ Web search engine set to "{engine}"{detail}. Next assistant turn will pick up the change.',
       confirmedDetail: " ({endpoint})",
     },
     skill: {
@@ -1277,7 +1211,6 @@ export const EN: TranslationSchema = {
     editsLabel: "edits:",
     mcpLoading: "MCP",
     ctx: "ctx",
-    shortcutsHint: "Ctrl+P shortcuts",
   },
   editMode: {
     plan: "PLAN MODE",
@@ -1310,11 +1243,6 @@ export const EN: TranslationSchema = {
       "no $EDITOR / $VISUAL / $GIT_EDITOR set \u2014 export one (e.g. `export EDITOR=nano`) and retry",
     editorExited: "editor exited with code {code}",
     typeaheadStaged: "\u25b8 {count} line(s) staged \u00b7 esc recall",
-    steerPlaceholder: "type to steer the current task — commands are disabled while busy",
-    steerHint: "send — injected mid-turn",
-    stashNothing: "Nothing to stash",
-    stashSaved: "Stashed",
-    stashRecall: "Recalled",
   },
   pathConfirm: {
     title: "Outside-sandbox path",
@@ -1336,12 +1264,6 @@ export const EN: TranslationSchema = {
     pathLabel: "path",
     sandboxLabel: "sandbox",
     allowPrefixLabel: "prefix",
-    promptTitleRead: "Access path \u2014 read",
-    promptTitleWrite: "Access path \u2014 write",
-    actionAllowRead: "Allow read",
-    actionAllowWrite: "Allow write",
-    actionAlwaysAllow: "Always allow \u2014 {prefix}",
-    actionDeny: "Deny",
   },
   shellConfirm: {
     title: "Shell command",
@@ -1366,11 +1288,6 @@ export const EN: TranslationSchema = {
     waitLabel: "wait",
     previewMore: "… {n} more line hidden — press esc, ask the model to split it",
     previewMorePlural: "… {n} more lines hidden — press esc, ask the model to split it",
-    promptTitleRunCommand: "Run command",
-    promptTitleRunBackground: "Run background command",
-    actionRunOnce: "Run once",
-    actionAlwaysAllow: "Always allow \u2014 {prefix}",
-    actionDeny: "Deny",
   },
   editConfirm: {
     footer:
@@ -1388,13 +1305,6 @@ export const EN: TranslationSchema = {
     linesAbovePlural: "  \u2191 {count} lines above  (\u2191/k or PgUp)",
     linesBelow: "  \u2193 {count} line below  (\u2193/j or Space/PgDn)",
     linesBelowPlural: "  \u2193 {count} lines below  (\u2193/j or Space/PgDn)",
-  },
-  editPicker: {
-    title: "edit a previous message",
-    hint: "↑↓ pick · Enter to load into composer · Esc to cancel",
-    empty: "no user turns yet — nothing to edit",
-    dismiss: "Esc to dismiss",
-    forked: "▸ forked at turn #{turn} — buffer holds the original text",
   },
   sessionPicker: {
     header: " \u25c8 REASONIX \u00b7 pick a session ",
@@ -1435,14 +1345,8 @@ export const EN: TranslationSchema = {
     loading: "  \u00b7  loading catalog\u2026",
     catalogEmpty: "  \u00b7  catalog empty \u2014 using known fallbacks",
     modelsAvailable: "  \u00b7  {count} models available",
-    effortHeader: "    EFFORT  \u00b7  reasoning_effort cap",
-    modelsHeader: "    MODELS  \u00b7  DeepSeek-compatible ids",
-    effortDesc: {
-      low: "fastest \u2014 minimal reasoning",
-      medium: "balanced",
-      high: "default \u2014 safe for vLLM / Azure",
-      max: "DeepSeek extension; rejected by stock OpenAI / vLLM",
-    },
+    presetsHeader: "    PRESETS  \u00b7  recommended \u2014 model + effort + auto-escalate",
+    modelsHeader: "    MODELS  \u00b7  raw pick \u2014 auto-escalate stays as-is",
     pickerFooter:
       "  \u2191\u2193 pick  \u00b7  \u23ce confirm  \u00b7  [r] refresh  \u00b7  esc cancel",
     currentLabel: "  \u00b7 current",
@@ -1525,35 +1429,33 @@ export const EN: TranslationSchema = {
   },
   webErrors: {
     status:
-      "web_search {status} \u2014 try: the search backend returned an error; rephrase the query, or switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
+      "web_search {status} \u2014 try: the search backend returned an error; rephrase the query, or switch engine with /search-engine mojeek|searxng",
     rateLimit429:
       "web_search 429 \u2014 try: wait 10s before retrying, or rephrase the query; the search backend is rate-limiting this client",
     forbidden403:
-      "web_search 403 \u2014 try: the search backend is blocking this client; switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa, or wait and retry later",
+      "web_search 403 \u2014 try: the search backend is blocking this client; switch engine with /search-engine mojeek|searxng, or wait and retry later",
     serverError5xx:
       "web_search {status} \u2014 try: open the search URL in a browser; if it loads this is transient and a retry in 30s may help",
-    bingBlocked:
-      "web_search: Bing anti-bot page \u2014 rate-limited or blocked \u2014 try: wait 30s and retry, or switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
-    bingNoResults:
-      "web_search: 0 results but response doesn't look like a real empty page ({chars} chars, first 120: {preview}) \u2014 try: rephrase the query with simpler terms, or switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
+    mojeekBlocked:
+      "web_search: Mojeek anti-bot page \u2014 rate-limited or blocked \u2014 try: wait 30s and retry, or switch engine with /search-engine searxng",
+    mojeekNoResults:
+      "web_search: 0 results but response doesn't look like a real empty page ({chars} chars, first 120: {preview}) \u2014 try: rephrase the query with simpler terms, or switch engine with /search-engine searxng",
     invalidEndpoint:
       'web_search: invalid SearXNG endpoint "{endpoint}" \u2014 try: set a valid URL with /search-endpoint http://host:port',
     endpointMustBeHttp:
       "web_search: SearXNG endpoint must be http(s), got {protocol} \u2014 try: set a valid URL with /search-endpoint http://host:port",
     cannotReach:
-      "web_search: Cannot reach SearXNG server at {endpoint} \u2014 try: install and start SearXNG (https://github.com/searxng/searxng, e.g. `docker run -d -p 8080:8080 searxng/searxng`), or switch to another engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
+      "web_search: Cannot reach SearXNG server at {endpoint} \u2014 try: install and start SearXNG (https://github.com/searxng/searxng, e.g. `docker run -d -p 8080:8080 searxng/searxng`), or switch to the default engine with /search-engine mojeek",
     searxngNoResults:
-      "web_search: 0 results but SearXNG response doesn't look like an empty results page ({chars} chars) \u2014 try: rephrase the query with simpler terms, or switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
-    metasoMissingKey:
-      "web_search: Metaso requires an API key \u2014 set METASO_API_KEY or configure one with /search-engine metaso <key>. Get one at https://metaso.cn/search-api/playground",
+      "web_search: 0 results but SearXNG response doesn't look like an empty results page ({chars} chars) \u2014 try: rephrase the query with simpler terms, or switch engine with /search-engine mojeek",
     metasoDailyLimit:
-      "web_search: Metaso daily search limit reached \u2014 set METASO_API_KEY or get a key at https://metaso.cn/search-api/playground",
+      "web_search: daily search limit reached for the default API key \u2014 set your own METASO_API_KEY env var or get one at https://metaso.cn/search-api/playground",
     metasoUnauthorized:
       "web_search: Metaso API key rejected \u2014 check METASO_API_KEY or get one at https://metaso.cn/search-api/playground",
     metasoRateLimit:
       "web_search: Metaso rate-limited \u2014 wait and retry, or get your own API key at https://metaso.cn/search-api/playground",
     metasoServerError:
-      "web_search: Metaso server error ({status}) \u2014 try again later, or switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
+      "web_search: Metaso server error ({status}) \u2014 try again later, or switch engine with /search-engine mojeek",
     metasoParseError:
       "web_search: Metaso returned unparseable response (HTTP {status}) \u2014 try again later",
     metasoApiError: "web_search: Metaso API error (code {code}: {message}) \u2014 try again later",
@@ -1562,31 +1464,11 @@ export const EN: TranslationSchema = {
     tavilyUnauthorized:
       "web_search: Tavily API key rejected \u2014 check TAVILY_API_KEY or get one at https://tavily.com",
     tavilyRateLimit:
-      "web_search: Tavily rate-limited or monthly quota exceeded \u2014 wait, switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa, or upgrade your Tavily plan",
+      "web_search: Tavily rate-limited or monthly quota exceeded \u2014 wait, switch engine with /search-engine mojeek, or upgrade your Tavily plan",
     tavilyServerError:
-      "web_search: Tavily server error ({status}) \u2014 try again later, or switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
+      "web_search: Tavily server error ({status}) \u2014 try again later, or switch engine with /search-engine mojeek",
     tavilyParseError:
       "web_search: Tavily returned unparseable response (HTTP {status}) \u2014 try again later",
-    perplexityMissingKey:
-      "web_search: Perplexity backend requires an API key \u2014 set PERPLEXITY_API_KEY env var or `perplexityApiKey` in ~/.reasonix/config.json; get one at https://perplexity.ai/settings/api",
-    perplexityUnauthorized:
-      "web_search: Perplexity API key rejected \u2014 check PERPLEXITY_API_KEY or get one at https://perplexity.ai/settings/api",
-    perplexityRateLimit:
-      "web_search: Perplexity rate-limited \u2014 wait and retry, or switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
-    perplexityServerError:
-      "web_search: Perplexity server error ({status}) \u2014 try again later, or switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
-    perplexityParseError:
-      "web_search: Perplexity returned unparseable response (HTTP {status}) \u2014 try again later",
-    exaMissingKey:
-      "web_search: Exa backend requires an API key \u2014 set EXA_API_KEY env var or `exaApiKey` in ~/.reasonix/config.json; free 1000/mo signup at https://exa.ai",
-    exaUnauthorized:
-      "web_search: Exa API key rejected \u2014 check EXA_API_KEY or get one at https://exa.ai",
-    exaRateLimit:
-      "web_search: Exa API rate-limited or monthly quota exceeded \u2014 wait or upgrade at https://exa.ai/pricing",
-    exaServerError:
-      "web_search: Exa server error ({status}) \u2014 try again later, or switch engine with /search-engine bing|searxng|metaso|tavily|perplexity|exa",
-    exaParseError:
-      "web_search: Exa returned unparseable response (HTTP {status}) \u2014 try again later",
     fetchStatus:
       "web_fetch {status} for {url} \u2014 try: confirm the URL resolves in a browser; status suggests the host returned an error page",
     fetchRateLimit429:
@@ -1643,10 +1525,8 @@ export const EN: TranslationSchema = {
     hitsPlural: "{count} hits \u00b7 {files} files",
     moreHitSingular: "\u22ee +{count} more hit",
     moreHitsPlural: "\u22ee +{count} more hits",
-    earlierLine: "\u22ee {count} hidden line (Ctrl+R for full output)",
-    earlierLines: "\u22ee {count} hidden lines (Ctrl+R for full output)",
-    hiddenLine: "\u22ee {count} hidden line",
-    hiddenLines: "\u22ee {count} hidden lines",
+    earlierLine: "\u22ee {count} earlier line (use /tool to read full)",
+    earlierLines: "\u22ee {count} earlier lines (use /tool to read full)",
     earlierStackLine: "\u22ee {count} earlier stack line hidden",
     earlierStackLines: "\u22ee {count} earlier stack lines hidden",
     agent: "agent \u00b7 {name}",
@@ -1688,6 +1568,19 @@ export const EN: TranslationSchema = {
     categoryProject: "project",
     categoryReference: "reference",
   },
+  copyMode: {
+    title: "── COPY MODE ──",
+    help: "j/k or ↑/↓ move · v select · y yank · g/G top/bottom · q quit",
+    statusBar: "line {cur}/{total} · selection: {sel}",
+    statusYanked: "yanked {size} chars (osc52={osc52})",
+    statusEmpty: "nothing selected",
+    empty: "(no chat content yet — say something to the model first)",
+    labelUser: "you",
+    labelAssistant: "assistant",
+    labelReasoning: "reasoning",
+    yankedToast: "▸ copied {size} chars to clipboard (osc52)",
+    yankedToastFile: "▸ copied {size} chars · file: {path}",
+  },
   mcpHealth: {
     noData: "no inspect data",
     healthy: "healthy \u00b7 {ms}ms",
@@ -1695,7 +1588,7 @@ export const EN: TranslationSchema = {
     verySlow: "very slow \u00b7 {ms}ms",
     slowToast: "\u26a0 MCP `{name}` slow \u00b7 {seconds}s p95 over the last {sampleSize} calls",
     emptyHint:
-      "\u2139 no MCP servers configured \u2014 try: `reasonix setup` to re-pick, or `reasonix mcp install filesystem` \u00b7 shell commands gate per-call (allow once / allow always / deny), no global allow-all",
+      "\u2139 no MCP servers configured \u2014 try: `reasonix setup` to re-pick, or `reasonix mcp install filesystem`",
   },
   denyContextInput: {
     description:
@@ -1705,8 +1598,7 @@ export const EN: TranslationSchema = {
     scrollAbove: " \u2191 {scroll} / {max} row above",
     scrollAbovePlural: " \u2191 {scroll} / {max} rows above",
     scrollMore: " \u2014 {remaining} more",
-    scrollPgUp: " \u00b7 PgUp / wheel",
-    scrollCopy: " \u00b7 /copy enters copy mode",
+    scrollPgUp: " \u00b7 PgUp / wheel / \u2191",
   },
   slashArgPicker: {
     noMatch: 'no match for "{partial}"',
@@ -1756,21 +1648,6 @@ export const EN: TranslationSchema = {
     serverCount: "{count} server{s}",
     footer: "\u2191\u2193 pick \u00b7 [r] reconnect \u00b7 [d] disable \u00b7 esc quit",
   },
-  mcpBrowse: {
-    noResources:
-      "No resources on any connected MCP server (or no servers connected). `/mcp` shows the current set.",
-    readOne: "Read one: `/resource <uri>` \u2014 or use Tab in the picker.",
-    noPrompts:
-      "No prompts on any connected MCP server (or no servers connected). `/mcp` shows the current set.",
-    fetchOne:
-      "Fetch one: `/prompt <name>` \u2014 args are not supported yet; prompts with required args will surface an error from the server.",
-    noServerForResource: 'no server exposes resource "{name}"',
-    resourceHint: "`/resource` with no arg lists what's available.",
-    readFailed: "readResource failed",
-    noServerForPrompt: 'no server exposes prompt "{name}"',
-    promptHint: "`/prompt` with no arg lists what's available.",
-    fetchFailed: "getPrompt failed",
-  },
   mcpLifecycle: {
     handshake: "handshake\u2026",
     connected: "connected",
@@ -1786,8 +1663,6 @@ export const EN: TranslationSchema = {
       "→ run `reasonix setup` to remove broken entries from your saved config.",
     abortedHint:
       "MCP startup aborted — {count} server(s) skipped. Run /mcp to retry once you've fixed the underlying issue.",
-    toolsReady: "tools ready",
-    warnLabel: "warn",
   },
   checkpointPicker: {
     title: "restore a checkpoint \u2014 {workspace}",
@@ -1833,71 +1708,5 @@ export const EN: TranslationSchema = {
     noRecords: "no records",
     untracked: "(untracked)",
     churned: "(churned \u00d7{count})",
-  },
-  builtinSkills: {
-    explore:
-      "Explore the codebase in an isolated subagent \u2014 wide-net read-only investigation that returns one distilled answer. Best for: 'find all places that\u2026', 'how does X work across the project', 'survey the code for Y'.",
-    research:
-      "Research a question by combining web search + code reading in an isolated subagent. Best for: 'is X feature supported by lib Y', 'what\u2019s the canonical way to do Z', 'compare our impl against the spec'.",
-    review:
-      "Review the pending changes (current branch diff by default) in an isolated subagent \u2014 flags correctness, security, missing tests, hidden behavior changes; reports verdict + per-issue file:line. Read-only; the parent decides what to act on.",
-    securityReview:
-      "Security-focused review of the current branch diff in an isolated subagent \u2014 flags injection/authz/secrets/deserialization/path-traversal/crypto issues, severity-tagged. Read-only. Use when shipping changes that touch auth, input parsing, file IO, or external requests.",
-    test: "Run the project\u2019s test suite, diagnose failures, propose SEARCH/REPLACE fixes, re-run until green (or stop after 2 fix attempts on the same failure). Inlined \u2014 runs in the parent loop so you see the edit blocks and can /apply them. Detects npm/pnpm/yarn/pytest/go/cargo.",
-  },
-  shortcutsHelp: {
-    title: "Shortcuts",
-    groupInput: "Input",
-    groupNavigation: "Navigation",
-    groupSession: "Session",
-    groupSystem: "System",
-    descEnter: "Send message",
-    descShiftEnter: "New line",
-    descCtrlEnter: "New line",
-    descCtrlJ: "New line",
-    descCtrlU: "Clear input",
-    descCtrlW: "Delete word",
-    descCtrlP: "Show/hide shortcuts",
-    descCtrlX: "Open in editor",
-    descArrows: "Input history",
-    descPgUpDown: "Scroll page",
-    descCtrlL: "Clear screen",
-    descCtrlB: "Toggle sidebar",
-    descNewSession: "New session",
-    descListSessions: "List sessions",
-    descSwitchModel: "Switch model",
-    descSwitchEffort: "Switch reasoning effort",
-    descSwitchTheme: "Switch theme",
-    descCtrlC: "Quit",
-    descEsc: "Stop / Cancel",
-    descCtrlR: "Toggle verbose",
-    descCtrlO: "Expand reply (streaming only)",
-    descHelp: "Show all commands",
-    descShiftTab: "Switch edit mode",
-    descAltS: "Stash / recall input",
-  },
-  mcpCli: {
-    bundledCatalog: "Bundled MCP servers (offline catalog):",
-    justFetched: "just fetched",
-    cachedAge: "cached, {age}",
-    moreAvailable: "more available",
-    allLoaded: "all loaded",
-    morePagesAvailable:
-      "\u25b8 more pages available \u2014 `reasonix mcp list --pages <n>` or --all",
-    installHint: "Install:  reasonix mcp install <name>",
-    usageSearch: "usage: reasonix mcp search <query>",
-    usageInstall: "usage: reasonix mcp install <name>",
-    noMatchesFor: 'No matches for "{q}" across {count} loaded entries ({source})',
-    matchCount: '{count} match(es) for "{q}" in {source} registry ({loaded} entries scanned):',
-    moreLoaded: "\u2026 {count} more loaded \u2014 use `reasonix mcp search <query>` to filter",
-    moreMatches: "\u2026 {count} more matches",
-    installed: "Installed: {spec}",
-    noServerFound:
-      'No MCP server named "{target}" found after walking {pages} page(s) of the {source} registry.',
-    noServerTryMore: "Try: reasonix mcp install {target} --max-pages 100",
-    noInstallMeta:
-      'Could not derive install metadata for "{name}" \u2014 try `npx -y @smithery/cli install {name}` directly.',
-    buildSpecFailed: "Cannot build install spec for {name}: {message}",
-    alreadyInstalled: "Already installed: {spec}",
   },
 };

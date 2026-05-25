@@ -6,8 +6,7 @@ export interface QQDesktopSettingsState {
   sandbox: boolean;
   enabled: boolean;
   configured: boolean;
-  runtimeState: "disconnected" | "connecting" | "connected" | "failed";
-  lastError?: string;
+  connected: boolean;
   appIdPreview?: string;
   access: string;
 }
@@ -22,16 +21,7 @@ export function getQQConnectIntent(qq: QQDesktopSettingsState): "configure" | "c
 }
 
 export function getQQStatusLabel(qq: QQDesktopSettingsState): string {
-  switch (qq.runtimeState) {
-    case "connected":
-      return t("settings.qqConnected");
-    case "connecting":
-      return t("settings.qqConnecting");
-    case "failed":
-      return t("settings.qqFailed");
-    default:
-      return t("settings.qqDisconnected");
-  }
+  return qq.connected ? t("settings.qqConnected") : t("settings.qqDisconnected");
 }
 
 export function describeQQAccessLabel(access: string): string {

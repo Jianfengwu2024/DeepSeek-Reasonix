@@ -13,7 +13,6 @@ import { accessSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
-import { t } from "./i18n/index.js";
 import { NEGATIVE_CLAIM_RULE, TUI_FORMATTING_RULES } from "./prompt-fragments.js";
 
 export const SKILLS_DIRNAME = "skills";
@@ -63,8 +62,6 @@ export interface SkillStoreOptions {
   customSkillPaths?: readonly string[];
   /** Suppress bundled built-ins — for tests asserting exact list contents. */
   disableBuiltins?: boolean;
-  /** Per-skill model override applied to `runAs: subagent` skills (overrides frontmatter `model:`). */
-  subagentModels?: Record<string, "flash" | "pro">;
 }
 
 /** Reject skill files that would silently disappear from the prefix index — `description:` is what `applySkillsIndex` keys on. */
@@ -93,17 +90,11 @@ function parseAllowedTools(raw: string | undefined): readonly string[] | undefin
   return names.length > 0 ? Object.freeze(names) : undefined;
 }
 
-/** flash/pro preset → concrete deepseek model id. Kept local so this file doesn't import the CLI preset bundle. */
-function subagentModelForPreset(preset: "flash" | "pro"): string {
-  return preset === "pro" ? "deepseek-v4-pro" : "deepseek-v4-flash";
-}
-
 export class SkillStore {
   private readonly homeDir: string;
   private readonly projectRoot: string | undefined;
   private readonly customSkillPaths: readonly string[];
   private readonly disableBuiltins: boolean;
-  private readonly subagentModels: Record<string, "flash" | "pro">;
 
   constructor(opts: SkillStoreOptions = {}) {
     this.homeDir = opts.homeDir ?? homedir();
@@ -113,7 +104,6 @@ export class SkillStore {
       opts.customSkillPaths?.map((p) => resolveCustomSkillPath(p, baseDir, this.homeDir)) ?? [],
     );
     this.disableBuiltins = opts.disableBuiltins === true;
-    this.subagentModels = opts.subagentModels ?? {};
   }
 
   /** True iff this store was configured with a project root. */
@@ -175,17 +165,7 @@ export class SkillStore {
         if (!byName.has(skill.name)) byName.set(skill.name, skill);
       }
     }
-    return [...byName.values()]
-      .map((s) => this.applyModelOverride(s))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  /** Apply `subagentModels` config override on top of frontmatter `model:`. Inline skills are unaffected. */
-  private applyModelOverride(skill: Skill): Skill {
-    if (skill.runAs !== "subagent") return skill;
-    const override = this.subagentModels[skill.name];
-    if (!override) return skill;
-    return { ...skill, model: subagentModelForPreset(override) };
+    return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /** Scaffold a new skill stub at the chosen scope. Refuses to overwrite. */
@@ -360,15 +340,9 @@ Tips:
 `;
 }
 
-function skillDescription(s: Pick<Skill, "name" | "description" | "scope">): string {
-  if (s.scope !== "builtin") return s.description;
-  const key = s.name === "security-review" ? "securityReview" : s.name;
-  return t(`builtinSkills.${key}`);
-}
-
 /** Subagent tag goes AFTER the name in brackets — leading-marker tags get copied into `name` arg verbatim. */
-function skillIndexLine(s: Pick<Skill, "name" | "description" | "runAs" | "scope">): string {
-  const safeDesc = skillDescription(s).replace(/\n/g, " ").trim();
+function skillIndexLine(s: Pick<Skill, "name" | "description" | "runAs">): string {
+  const safeDesc = s.description.replace(/\n/g, " ").trim();
   const tag = s.runAs === "subagent" ? " [🧬 subagent]" : "";
   const max = 130 - s.name.length - tag.length;
   const clipped = safeDesc.length > max ? `${safeDesc.slice(0, Math.max(1, max - 1))}…` : safeDesc;

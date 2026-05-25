@@ -1,5 +1,4 @@
 import { resolveThemePreference, saveTheme } from "@/config.js";
-import { t } from "../../../../i18n/index.js";
 import { type ThemeName, isThemeName, listThemeNames } from "../../theme/tokens.js";
 import type { SlashHandler } from "../dispatch.js";
 
@@ -14,12 +13,12 @@ const theme: SlashHandler = (args) => {
   if (!next) return { openThemePicker: true };
 
   if (!isThemeChoice(next)) {
-    return { info: t("app.unknownTheme", { name: next, choices: themeChoices.join(", ") }) };
+    return { info: `unknown theme: ${next}\navailable: ${themeChoices.join(", ")}` };
   }
 
   saveTheme(next);
   const active = resolveThemePreference(next, process.env.REASONIX_THEME);
-  return { info: t("app.themeSaved", { name: next, active }) };
+  return { info: `theme saved: ${next}\nactive on next launch: ${active}` };
 };
 
 export const handlers: Record<string, SlashHandler> = {

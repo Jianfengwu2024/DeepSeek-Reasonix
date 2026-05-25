@@ -1,16 +1,10 @@
 /** apiKey is write-only on the wire; GET always returns a redacted form so dashboard screenshots don't leak credentials. */
 
 import {
-  type EditMode,
-  REASONING_EFFORT_VALUES,
-  type ReasoningEffort,
   isPlausibleKey,
-  isReasoningEffort,
-  loadModel,
   normalizeSkillPathEntries,
   normalizeSkillPaths,
   readConfig,
-  webSearchEngine as readWebSearchEngine,
   redactKey,
   saveEditMode,
   writeConfig,
@@ -24,14 +18,13 @@ interface SettingsBody {
   apiKey?: unknown;
   baseUrl?: unknown;
   lang?: unknown;
-  editMode?: unknown;
+  preset?: unknown;
   reasoningEffort?: unknown;
   search?: unknown;
-  webSearchEngine?: unknown;
   model?: unknown;
+  proNext?: unknown;
   budgetUsd?: unknown;
   skillPaths?: unknown;
-  subagentModels?: unknown;
 }
 
 function parseBody(raw: string): SettingsBody {
@@ -44,18 +37,11 @@ function parseBody(raw: string): SettingsBody {
   }
 }
 
-const VALID_WEB_SEARCH_ENGINES = new Set([
-  "bing",
-  "searxng",
-  "metaso",
-  "tavily",
-  "perplexity",
-  "exa",
-]);
-
-const VALID_EDIT_MODES = new Set(["review", "auto", "yolo", "plan"]);
-
-void saveEditMode;
+// Accept new (auto/flash/pro) and legacy (fast/smart/max) — server
+// stores whatever the user picked; resolvePreset() canonicalizes at
+// read time. Web sends new names in 0.12.x onward.
+const VALID_PRESETS = new Set(["auto", "flash", "pro", "fast", "smart", "max"]);
+const VALID_EFFORTS = new Set(["high", "max"]);
 
 export async function handleSettings(
   method: string,
@@ -77,12 +63,13 @@ export async function handleSettings(
         apiKeySet: Boolean(cfg.apiKey),
         baseUrl: cfg.baseUrl ?? null,
         lang: getLanguage(),
-        reasoningEffort: isReasoningEffort(cfg.reasoningEffort) ? cfg.reasoningEffort : "high",
+        preset: cfg.preset ?? "auto",
+        reasoningEffort: cfg.reasoningEffort ?? "max",
         search: cfg.search !== false,
-        webSearchEngine: readWebSearchEngine(ctx.configPath),
-        editMode: ctx.getEditMode?.() ?? cfg.editMode ?? "review",
+        editMode: cfg.editMode ?? "review",
         session: cfg.session ?? null,
-        model: live?.model ?? loadModel(ctx.configPath),
+        model: live?.model ?? null,
+        proNext: live?.proArmed ?? false,
         budgetUsd: live?.budgetUsd ?? null,
         sessionSpendUsd: ctx.getStats?.()?.totalCostUsd ?? null,
         skillPaths: normalizeSkillPaths(
@@ -93,17 +80,17 @@ export async function handleSettings(
           cfg.skills?.paths ?? [],
           ctx.getCurrentCwd?.() ?? process.cwd(),
         ),
-        subagentModels: cfg.subagentModels ?? {},
+        // Hint to the SPA which fields require restart.
         appliesAt: {
           apiKey: "next-session",
           baseUrl: "next-session",
+          preset: "next-session",
           reasoningEffort: "next-turn",
           search: "next-session",
-          webSearchEngine: "next-turn",
           model: "next-turn",
+          proNext: "next-turn",
           budgetUsd: "live",
           skillPaths: "next-session",
-          subagentModels: "next-skill-run",
         },
       },
     };
@@ -111,10 +98,13 @@ export async function handleSettings(
 
   if (method === "POST") {
     const fields = parseBody(body);
+    // Single read up top, all field updates accumulate, single writeConfig at the end —
+    // a per-field write would clobber earlier per-field writes from the same POST.
     const cfg = readConfig(ctx.configPath);
     const changed: string[] = [];
     let langPending: LanguageCode | null = null;
-    let effortPendingLive: ReasoningEffort | null = null;
+    let presetPendingLive: string | null = null;
+    let effortPendingLive: "high" | "max" | null = null;
 
     if (fields.lang !== undefined) {
       const raw = String(fields.lang);
@@ -137,31 +127,29 @@ export async function handleSettings(
       changed.push("apiKey");
     }
     if (fields.baseUrl !== undefined) {
-      if (typeof fields.baseUrl !== "string") {
-        return { status: 400, body: { error: "baseUrl must be a string" } };
+      if (typeof fields.baseUrl !== "string" || !fields.baseUrl.trim()) {
+        return { status: 400, body: { error: "baseUrl must be a non-empty string" } };
       }
-      const trimmed = fields.baseUrl.trim();
-      cfg.baseUrl = trimmed.length > 0 ? trimmed : undefined;
+      cfg.baseUrl = fields.baseUrl.trim();
       changed.push("baseUrl");
     }
-    if (fields.editMode !== undefined) {
-      if (typeof fields.editMode !== "string" || !VALID_EDIT_MODES.has(fields.editMode)) {
-        return { status: 400, body: { error: "editMode must be review | auto | yolo | plan" } };
+    if (fields.preset !== undefined) {
+      if (typeof fields.preset !== "string" || !VALID_PRESETS.has(fields.preset)) {
+        return { status: 400, body: { error: "preset must be auto | flash | pro" } };
       }
-      cfg.editMode = fields.editMode as EditMode;
-      changed.push("editMode");
+      cfg.preset = fields.preset as "auto" | "flash" | "pro" | "fast" | "smart" | "max";
+      presetPendingLive = fields.preset;
+      changed.push("preset");
     }
     if (fields.reasoningEffort !== undefined) {
-      const raw =
-        typeof fields.reasoningEffort === "string" ? fields.reasoningEffort.toLowerCase() : "";
-      if (!isReasoningEffort(raw)) {
-        return {
-          status: 400,
-          body: { error: `reasoningEffort must be one of: ${REASONING_EFFORT_VALUES.join(" | ")}` },
-        };
+      if (
+        typeof fields.reasoningEffort !== "string" ||
+        !VALID_EFFORTS.has(fields.reasoningEffort)
+      ) {
+        return { status: 400, body: { error: "reasoningEffort must be high | max" } };
       }
-      cfg.reasoningEffort = raw;
-      effortPendingLive = raw;
+      cfg.reasoningEffort = fields.reasoningEffort as "high" | "max";
+      effortPendingLive = fields.reasoningEffort as "high" | "max";
       changed.push("reasoningEffort");
     }
     if (fields.search !== undefined) {
@@ -171,37 +159,25 @@ export async function handleSettings(
       cfg.search = fields.search;
       changed.push("search");
     }
-    if (fields.webSearchEngine !== undefined) {
-      if (
-        typeof fields.webSearchEngine !== "string" ||
-        !VALID_WEB_SEARCH_ENGINES.has(fields.webSearchEngine)
-      ) {
-        return {
-          status: 400,
-          body: {
-            error: "webSearchEngine must be bing | searxng | metaso | tavily | perplexity | exa",
-          },
-        };
-      }
-      cfg.webSearchEngine = fields.webSearchEngine as
-        | "bing"
-        | "searxng"
-        | "metaso"
-        | "tavily"
-        | "perplexity"
-        | "exa";
-      changed.push("webSearchEngine");
-    }
     let modelPendingLive: string | null = null;
+    let proNextPending: boolean | null = null;
     let budgetPending: number | null | undefined;
     if (fields.model !== undefined) {
       if (typeof fields.model !== "string" || !fields.model.trim()) {
         return { status: 400, body: { error: "model must be a non-empty string" } };
       }
-      const trimmed = fields.model.trim();
-      cfg.model = trimmed;
-      modelPendingLive = trimmed;
+      // Model is live-only (not in ReasonixConfig). Same as /model <id> slash — disk
+      // pickup goes through preset / startup flag, not direct cfg.model.
+      modelPendingLive = fields.model.trim();
       changed.push("model");
+    }
+    if (fields.proNext !== undefined) {
+      if (typeof fields.proNext !== "boolean") {
+        return { status: 400, body: { error: "proNext must be a boolean" } };
+      }
+      // Not persisted: arming is per-turn ephemeral. Live-only side effect.
+      proNextPending = fields.proNext;
+      changed.push("proNext");
     }
     if (fields.budgetUsd !== undefined) {
       if (fields.budgetUsd === null) {
@@ -237,37 +213,17 @@ export async function handleSettings(
       changed.push("skillPaths");
     }
 
-    if (fields.subagentModels !== undefined) {
-      if (
-        typeof fields.subagentModels !== "object" ||
-        fields.subagentModels === null ||
-        Array.isArray(fields.subagentModels)
-      ) {
-        return {
-          status: 400,
-          body: { error: "subagentModels must be an object mapping skill name → 'flash' | 'pro'" },
-        };
-      }
-      const sanitized = new Map<string, "flash" | "pro">();
-      for (const [name, value] of Object.entries(fields.subagentModels)) {
-        if (typeof name !== "string" || !name) continue;
-        if (name === "__proto__" || name === "constructor" || name === "prototype") continue;
-        if (value === "flash" || value === "pro") sanitized.set(name, value);
-      }
-      cfg.subagentModels = sanitized.size > 0 ? Object.fromEntries(sanitized) : undefined;
-      changed.push("subagentModels");
-    }
-
     if (changed.length > 0) {
       writeConfig(cfg, ctx.configPath);
+      // Runtime side-effects fire after the disk write succeeds —
+      // prevents an i18n change from being visible while the on-disk
+      // value still reflects the old setting (and vice-versa for
+      // preset / reasoningEffort).
       if (langPending) setLanguage(langPending);
-      if (fields.editMode !== undefined) {
-        const mode = fields.editMode as EditMode;
-        if (ctx.setEditMode) ctx.setEditMode(mode);
-        else saveEditMode(mode, ctx.configPath);
-      }
+      if (presetPendingLive) ctx.applyPresetLive?.(presetPendingLive);
       if (effortPendingLive) ctx.applyEffortLive?.(effortPendingLive);
       if (modelPendingLive) ctx.applyModelLive?.(modelPendingLive);
+      if (proNextPending !== null) ctx.setProNextLive?.(proNextPending);
       if (budgetPending !== undefined) ctx.setBudgetUsdLive?.(budgetPending);
       ctx.audit?.({ ts: Date.now(), action: "set-settings", payload: { fields: changed } });
     }
@@ -276,3 +232,8 @@ export async function handleSettings(
 
   return { status: 405, body: { error: "GET or POST only" } };
 }
+
+// Keep saveEditMode imported so future GET responses can include the
+// canonical default — used by the SPA when /api/overview hasn't yet
+// resolved. (Currently surfaced via /api/overview directly.)
+void saveEditMode;

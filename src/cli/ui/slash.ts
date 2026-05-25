@@ -17,7 +17,6 @@ export { handleSlash } from "./slash/dispatch.js";
 export type { SlashHandler } from "./slash/dispatch.js";
 export type {
   McpServerSummary,
-  PlanModeToggleSource,
   SlashArgContext,
   SlashCommandSpec,
   SlashContext,

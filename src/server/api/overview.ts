@@ -1,6 +1,6 @@
 /** Bundled GET — avoids 6 round-trips per 2s poll; runtime fields null in standalone mode. */
 
-import { isReasoningEffort, readConfig } from "../../config.js";
+import { readConfig } from "../../config.js";
 import { indexExists } from "../../index/semantic/builder.js";
 import { VERSION } from "../../version.js";
 import type { DashboardContext, DashboardStats } from "../context.js";
@@ -24,7 +24,8 @@ export interface OverviewResponse {
   mcpServerCount: number | null;
   /** Total registered tools (builtin + MCP-bridged + skill tools). */
   toolCount: number | null;
-  /** Persisted reasoning_effort (low | medium | high | max). */
+  preset: string;
+  /** Persisted reasoning_effort (high / max). Same rationale as preset. */
   reasoningEffort: string;
   /** Session USD spend cap; null when off. Drives the chat side-rail's Tool budget card. */
   budgetUsd: number | null;
@@ -58,7 +59,8 @@ export async function handleOverview(
     pendingEdits: ctx.getPendingEditCount?.() ?? null,
     mcpServerCount: ctx.getMcpServers?.().length ?? null,
     toolCount: ctx.tools ? ctx.tools.size : null,
-    reasoningEffort: isReasoningEffort(cfg.reasoningEffort) ? cfg.reasoningEffort : "high",
+    preset: cfg.preset ?? "auto",
+    reasoningEffort: cfg.reasoningEffort ?? "max",
     budgetUsd: ctx.loop?.budgetUsd ?? null,
     stats: ctx.getStats?.() ?? null,
     semanticIndexExists,

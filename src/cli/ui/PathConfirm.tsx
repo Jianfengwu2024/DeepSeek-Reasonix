@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { Box, Text } from "ink";
 // biome-ignore lint/style/useImportType: tsconfig jsx=react needs React in value scope for JSX compilation
 import React, { useState } from "react";
@@ -5,16 +6,41 @@ import { t } from "../../i18n/index.js";
 import { DenyContextInput } from "./DenyContextInput.js";
 import { SingleSelect } from "./Select.js";
 import { ApprovalCard } from "./cards/ApprovalCard.js";
+import { useReserveRows } from "./layout/viewport-budget.js";
 import { FG } from "./theme/tokens.js";
 
 export type PathConfirmChoice = "run_once" | "always_allow" | "deny";
 
 export interface PathConfirmProps {
-  prompt: import("@reasonix/core-utils").ApprovalPrompt;
+  path: string;
+  intent: "read" | "write";
+  toolName: string;
+  sandboxRoot: string;
+  /** Directory prefix that would be persisted if the user picks "always allow". */
+  allowPrefix: string;
   onChoose: (choice: PathConfirmChoice, denyContext?: string) => void;
 }
 
-export function PathConfirm({ prompt, onChoose }: PathConfirmProps) {
+function tildeify(p: string): string {
+  const home = homedir();
+  if (!home) return p;
+  const normalized = home.replace(/[\\/]+$/, "");
+  if (p === normalized) return "~";
+  if (p.startsWith(`${normalized}/`)) return `~/${p.slice(normalized.length + 1)}`;
+  if (p.startsWith(`${normalized}\\`)) return `~\\${p.slice(normalized.length + 1)}`;
+  return p;
+}
+
+export function PathConfirm({
+  path,
+  intent,
+  toolName,
+  sandboxRoot,
+  allowPrefix,
+  onChoose,
+}: PathConfirmProps) {
+  useReserveRows("modal", { min: 8, max: 14 });
+
   const [phase, setPhase] = useState<"pick" | "deny">("pick");
 
   if (phase === "deny") {
@@ -34,51 +60,51 @@ export function PathConfirm({ prompt, onChoose }: PathConfirmProps) {
     );
   }
 
-  const path = prompt.subtitle ?? "";
-  const allowPrefix = String(prompt.data?.prefix ?? "");
-  // prompt.kind collapses read/write into "path"; recover from data.intent.
-  const intent = prompt.data?.intent === "write" ? "write" : "read";
-  const localTitle =
-    intent === "write" ? t("pathConfirm.promptTitleWrite") : t("pathConfirm.promptTitleRead");
-  const localActionLabel = (id: string, fallback: string): string => {
-    if (id === "run_once") {
-      return intent === "write"
-        ? t("pathConfirm.actionAllowWrite")
-        : t("pathConfirm.actionAllowRead");
-    }
-    if (id === "always_allow") return t("pathConfirm.actionAlwaysAllow", { prefix: allowPrefix });
-    if (id === "deny") return t("pathConfirm.actionDeny");
-    return fallback;
-  };
-
   return (
     <ApprovalCard
-      tone={prompt.tone}
+      tone="warn"
       glyph="!"
-      title={localTitle}
+      title={t("pathConfirm.title")}
       metaRight={t("pathConfirm.awaiting")}
       footerHint={t("pathConfirm.pickFooter")}
     >
       <Box marginBottom={1}>
-        <Text color={FG.faint}>{prompt.preview ?? ""}</Text>
+        <Text color={FG.faint}>
+          {t(intent === "write" ? "pathConfirm.subtitleWrite" : "pathConfirm.subtitleRead", {
+            tool: toolName,
+          })}
+        </Text>
       </Box>
-      <InfoRows path={path} sandboxRoot={prompt.meta?.sandboxRoot} allowPrefix={allowPrefix} />
+      <InfoRows
+        path={tildeify(path)}
+        sandboxRoot={tildeify(sandboxRoot)}
+        allowPrefix={tildeify(allowPrefix)}
+      />
       <SingleSelect
-        initialValue={prompt.actions[0]?.id ?? "run_once"}
-        items={prompt.actions.map((a) => ({ value: a.id, label: localActionLabel(a.id, a.label) }))}
+        initialValue="run_once"
+        items={[
+          {
+            value: "run_once",
+            label: t("pathConfirm.allowOnce"),
+            hint: t("pathConfirm.allowOnceDesc"),
+          },
+          {
+            value: "always_allow",
+            label: t("pathConfirm.allowAlways"),
+            hint: t("pathConfirm.allowAlwaysDesc", { prefix: tildeify(allowPrefix) }),
+          },
+          {
+            value: "deny",
+            label: t("pathConfirm.deny"),
+            hint: t("pathConfirm.denyDesc"),
+          },
+        ]}
         onSubmit={(v) => {
-          const action = prompt.actions.find((a) => a.id === v);
-          if (action?.secondaryInput) {
-            setPhase("deny");
-          } else {
-            onChoose(v as PathConfirmChoice);
-          }
+          if (v === "deny") setPhase("deny");
+          else onChoose(v as PathConfirmChoice);
         }}
         onTab={(v) => {
-          const action = prompt.actions.find((a) => a.id === v);
-          if (action?.secondaryInput) {
-            setPhase("deny");
-          }
+          if (v === "deny") setPhase("deny");
         }}
         onCancel={() => onChoose("deny")}
       />
@@ -92,15 +118,13 @@ function InfoRows({
   allowPrefix,
 }: {
   path: string;
-  sandboxRoot?: string;
+  sandboxRoot: string;
   allowPrefix: string;
 }): React.ReactElement {
   const rows: Array<{ label: string; value: string }> = [
     { label: t("pathConfirm.pathLabel"), value: path },
+    { label: t("pathConfirm.sandboxLabel"), value: sandboxRoot },
   ];
-  if (sandboxRoot) {
-    rows.push({ label: t("pathConfirm.sandboxLabel"), value: sandboxRoot });
-  }
   if (allowPrefix !== path) {
     rows.push({ label: t("pathConfirm.allowPrefixLabel"), value: allowPrefix });
   }

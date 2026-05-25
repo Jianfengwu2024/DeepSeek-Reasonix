@@ -1,4 +1,11 @@
-/** First-run / re-configure wizard — saves to `~/.reasonix/config.json`. */
+/**
+ * First-run / re-configure wizard.
+ *
+ * Walks a new user through: language → theme → API key → preset pick → MCP
+ * server pick → per-server args → save. Saved output lives in
+ * `~/.reasonix/config.json` so the next `reasonix chat` starts with
+ * everything already wired.
+ */
 
 import { mkdirSync, statSync } from "node:fs";
 import { Box, Text, useApp, useInput } from "ink";
@@ -6,6 +13,7 @@ import TextInput from "ink-text-input";
 // biome-ignore lint/style/useImportType: JSX (jsx: "react") needs React as a value at runtime
 import React, { useEffect, useState } from "react";
 import {
+  type PresetName,
   type ReasonixConfig,
   defaultConfigPath,
   isPlausibleKey,
@@ -28,6 +36,7 @@ import {
 import type { LanguageCode } from "../../i18n/types.js";
 import { type CatalogEntry, MCP_CATALOG } from "../../mcp/catalog.js";
 import { MultiSelect, type SelectItem, SingleSelect } from "./Select.js";
+import { PRESET_DESCRIPTIONS } from "./presets.js";
 import { ThemeProvider, useTheme } from "./theme/context.js";
 import { type ThemeName, listThemeNames } from "./theme/tokens.js";
 
@@ -44,6 +53,7 @@ export interface WizardProps {
   validateApiKey?: (apiKey: string) => Promise<ApiKeyValidationResult>;
   /** Pre-fill selections when re-running (reconfigure flow). */
   initial?: {
+    preset?: PresetName;
     mcp?: string[];
     theme?: ThemeName | "auto";
   };
@@ -53,12 +63,13 @@ export type ApiKeyValidationResult =
   | { ok: true }
   | { ok: false; reason: "rejected" | "failed"; message?: string };
 
-type Step = "language" | "theme" | "apiKey" | "mcp" | "mcpArgs" | "review" | "saved";
+type Step = "language" | "theme" | "apiKey" | "preset" | "mcp" | "mcpArgs" | "review" | "saved";
 
 interface WizardData {
   language: LanguageCode;
   theme: ThemeName;
   apiKey: string;
+  preset: PresetName;
   selectedCatalog: string[];
   catalogArgs: Record<string, string>;
 }
@@ -91,6 +102,7 @@ export function Wizard({
     language: getLanguage(),
     theme: resolveThemePreference(initial?.theme ?? loadTheme(), process.env.REASONIX_THEME),
     apiKey: existingApiKey ?? "",
+    preset: initial?.preset ?? "auto",
     selectedCatalog: deriveInitialCatalog(initial?.mcp ?? []),
     catalogArgs: {},
   }));
@@ -122,7 +134,7 @@ export function Wizard({
           onPreview={setPreviewTheme}
           onSubmit={(theme) => {
             setData((d) => ({ ...d, theme }));
-            setStep(existingApiKey && !forceApiKeyStep ? "mcp" : "apiKey");
+            setStep(existingApiKey && !forceApiKeyStep ? "preset" : "apiKey");
           }}
         />
       );
@@ -136,7 +148,7 @@ export function Wizard({
           onSubmit={(key) => {
             setData((d) => ({ ...d, apiKey: key }));
             setError(null);
-            setStep("mcp");
+            setStep("preset");
           }}
           error={error}
           onError={setError}
@@ -144,9 +156,27 @@ export function Wizard({
       );
     }
 
+    if (step === "preset") {
+      return (
+        <StepFrame title={t("wizard.presetTitle")} step={1} total={3}>
+          <SingleSelect<PresetName>
+            items={presetItems()}
+            initialValue={data.preset}
+            onSubmit={(preset) => {
+              setData((d) => ({ ...d, preset }));
+              setStep("mcp");
+            }}
+          />
+          <Box marginTop={1}>
+            <Text dimColor>{t("wizard.selectFooter")}</Text>
+          </Box>
+        </StepFrame>
+      );
+    }
+
     if (step === "mcp") {
       return (
-        <StepFrame title={t("wizard.mcpTitle")} step={1} total={2}>
+        <StepFrame title={t("wizard.mcpTitle")} step={2} total={3}>
           <MultiSelect
             items={mcpItems()}
             initialSelected={data.selectedCatalog}
@@ -191,7 +221,7 @@ export function Wizard({
     if (step === "review") {
       const specs = data.selectedCatalog.map((name) => buildSpec(name, data.catalogArgs));
       return (
-        <StepFrame title={t("wizard.reviewTitle")} step={2} total={2}>
+        <StepFrame title={t("wizard.reviewTitle")} step={3} total={3}>
           <Box flexDirection="column">
             <SummaryLine
               label={t("wizard.reviewLabelLanguage")}
@@ -199,6 +229,7 @@ export function Wizard({
             />
             <SummaryLine label={t("wizard.reviewLabelApiKey")} value={redactKey(data.apiKey)} />
             <SummaryLine label={t("wizard.reviewLabelTheme")} value={data.theme} />
+            <SummaryLine label={t("wizard.reviewLabelPreset")} value={data.preset} />
             <SummaryLine
               label={t("wizard.reviewLabelMcp")}
               value={
@@ -235,6 +266,7 @@ export function Wizard({
                 const next: ReasonixConfig = {
                   ...prev,
                   apiKey: data.apiKey,
+                  preset: data.preset,
                   theme: data.theme,
                   mcp: specsNow,
                   setupCompleted: true,
@@ -258,9 +290,6 @@ export function Wizard({
         </Text>
         <Box marginTop={1}>
           <Text>{t("ui.welcome")}</Text>
-        </Box>
-        <Box marginTop={1}>
-          <Text dimColor>{t("wizard.savedShellHint")}</Text>
         </Box>
         <Box marginTop={1}>
           <Text dimColor>{t("wizard.savedFooter")}</Text>
@@ -674,6 +703,14 @@ function SummaryLine({ label, value }: { label: string; value: string }) {
       <Text bold>{value}</Text>
     </Box>
   );
+}
+
+function presetItems(): SelectItem<PresetName>[] {
+  return (["auto", "flash", "pro"] as const).map((name) => ({
+    value: name as PresetName,
+    label: `${name} — ${PRESET_DESCRIPTIONS[name].headline}`,
+    hint: PRESET_DESCRIPTIONS[name].cost,
+  }));
 }
 
 function mcpItems(): SelectItem<string>[] {

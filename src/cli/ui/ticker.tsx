@@ -1,6 +1,5 @@
 import { useAnimation } from "ink";
 import React, { type ReactNode, createContext, useContext, useState } from "react";
-import { isLegacyWindowsConsole } from "./terminal-host.js";
 
 /**
  * Two-tier global heartbeat backed by Ink 7's `useAnimation`. The
@@ -8,8 +7,8 @@ import { isLegacyWindowsConsole } from "./terminal-host.js";
  * lives inside Ink and consolidates with every other useAnimation
  * caller into a single shared interval.
  *
- *   - FAST_TICK_MS (120ms / 250ms on legacy conhost) — spinners,
- *     glyph pulses, anything that visibly animates frame-by-frame.
+ *   - FAST_TICK_MS (120ms) — spinners, glyph pulses, anything that
+ *     visibly animates frame-by-frame.
  *   - SLOW_TICK_MS (1000ms) — elapsed-seconds counters, expiry
  *     countdowns, polling pollers. Don't need 8Hz re-renders.
  *
@@ -18,8 +17,7 @@ import { isLegacyWindowsConsole } from "./terminal-host.js";
  * flips back, at which point Ink resets the frame counter to 0 (so
  * spinners restart from frame 0 — visually identical to a fresh mount).
  */
-// Legacy conhost paints each Ink frame visibly; 8Hz spinner triggers perceptible flicker on maximized windows (#1300).
-export const FAST_TICK_MS = isLegacyWindowsConsole() ? 250 : 120;
+export const FAST_TICK_MS = 120;
 export const SLOW_TICK_MS = 1000;
 /** @deprecated kept for callers that import the old name. */
 export const TICK_MS = FAST_TICK_MS;

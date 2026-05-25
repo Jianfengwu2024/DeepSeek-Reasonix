@@ -43,16 +43,6 @@ export interface TranslationSchema {
   };
   sessions: {
     emptyHint: string;
-    listHeader: string;
-    inspectHint: string;
-    resumeHint: string;
-    noSession: string;
-    lookedAt: string;
-    noIdleSessions: string;
-    wouldPrune: string;
-    dryRunHint: string;
-    prunedCount: string;
-    daysInvalid: string;
   };
   ui: {
     welcome: string;
@@ -106,21 +96,19 @@ export interface TranslationSchema {
     tipShownOnce: string;
     modelOverride: string;
     noSession: string;
-    noMouseHint: string;
-    noProxyHint: string;
     resumeHint: string;
     newHint: string;
     transcriptHint: string;
     budgetHint: string;
     modelIdHint: string;
     systemPromptHint: string;
-    effortHint: string;
+    presetHint: string;
     sessionNameHint: string;
     ephemeralHint: string;
     mcpSpecHint: string;
     mcpPrefixHint: string;
     noConfigHint: string;
-    effortHintShort: string;
+    presetHintShort: string;
     budgetHintShort: string;
     transcriptHintShort: string;
     mcpSpecHintShort: string;
@@ -194,11 +182,7 @@ export interface TranslationSchema {
     notedVerbCreated: string;
     notedVerbAppended: string;
     memoryWriteFailed: string;
-    verboseOn: string;
-    verboseOff: string;
     commandFailed: string;
-    steerInjected: string;
-    steerCommandRejected: string;
     btwUsage: string;
     btwHeader: string;
     btwFailed: string;
@@ -228,47 +212,6 @@ export interface TranslationSchema {
     planStoppedAt: string;
     revisingAfter: string;
     historyScrollHint: string;
-    editHistoryTitle: string;
-    editHistoryNoCodeMode: string;
-    editHistoryNoEdits: string;
-    editHistoryNoShowId: string;
-    editHistoryIdNotFound: string;
-    editHistoryLookupFailed: string;
-    editHistoryBatchNoFile: string;
-    editHistoryNoEdits2: string;
-    editHistoryStatusApplied: string;
-    editHistoryStatusPartial: string;
-    editHistoryStatusUndone: string;
-    editHistoryHelpShow: string;
-    editHistoryHelpUndo: string;
-    editHistoryAlreadyReverted: string;
-    editHistoryRevertFile: string;
-    mcpFailed: string;
-    mcpWarn: string;
-    unknownTheme: string;
-    themeSaved: string;
-    noPendingEdits: string;
-    noMatchedApply: string;
-    noPendingDiscard: string;
-    noMatchedDiscard: string;
-    blocksStillPending: string;
-    nothingWritten: string;
-    discardedCount: string;
-    noEventsFor: string;
-    lookedAtFile: string;
-    sidecarHint: string;
-  };
-  mcpBrowse: {
-    noResources: string;
-    readOne: string;
-    noPrompts: string;
-    fetchOne: string;
-    noServerForResource: string;
-    resourceHint: string;
-    readFailed: string;
-    noServerForPrompt: string;
-    promptHint: string;
-    fetchFailed: string;
   };
   hooks: {
     head: string;
@@ -288,9 +231,13 @@ export interface TranslationSchema {
     budgetExhausted: string;
     budget80Pct: string;
     proArmed: string;
+    abortedAtIter: string;
     toolUploadStatus: string;
-    turnStartFoldStatus: string;
-    turnStartFolded: string;
+    preflightTruncateStatus: string;
+    preflightTruncated: string;
+    preflightTruncatedStillFull: string;
+    preflightNoFold: string;
+    flashEscalation: string;
     harvestStatus: string;
     repeatToolCallWarning: string;
     stormStuck: string;
@@ -308,7 +255,6 @@ export interface TranslationSchema {
     balance402: string;
     badparam422: string;
     badrequest400: string;
-    concurrency429: string;
     deepseek5xxHead: string;
     deepseek5xxReachable: string;
     deepseek5xxUnreachable: string;
@@ -340,6 +286,7 @@ export interface TranslationSchema {
     apiKeyRejected: string;
     apiKeyCheckFailed: string;
     apiKeyPreview: string;
+    presetTitle: string;
     mcpTitle: string;
     mcpUserArgsHint: string;
     mcpFooterMulti: string;
@@ -358,6 +305,7 @@ export interface TranslationSchema {
     reviewTitle: string;
     reviewLabelApiKey: string;
     reviewLabelLanguage: string;
+    reviewLabelPreset: string;
     reviewLabelTheme: string;
     reviewLabelMcp: string;
     reviewMcpNone: string;
@@ -366,7 +314,6 @@ export interface TranslationSchema {
     reviewSaveError: string;
     reviewFooter: string;
     savedTitle: string;
-    savedShellHint: string;
     savedFooter: string;
     selectFooter: string;
     stepCounter: string;
@@ -417,8 +364,6 @@ export interface TranslationSchema {
       title: string;
       continue: string;
       continueHint: string;
-      finish: string;
-      finishHint: string;
       revise: string;
       reviseHint: string;
       stop: string;
@@ -450,13 +395,12 @@ export interface TranslationSchema {
     recordingGlyph: string;
     mb: string;
     evt: string;
+    /** Prefix for the edit-gate mode pill — disambiguates from the preset (`/preset auto` is a different "auto"). */
     editsLabel: string;
     /** Label for the MCP-handshake progress pill (rendered as `⌁ MCP n/m`). */
     mcpLoading: string;
     /** Word used in the context-usage pill (rendered as `ctx 72% · 144K/200K`). */
     ctx: string;
-    /** Hint shown next to the ⚑ icon — triggers the shortcut help modal. */
-    shortcutsHint: string;
   };
   editMode: {
     plan: string;
@@ -488,16 +432,6 @@ export interface TranslationSchema {
     editorExited: string;
     /** Typeahead queue indicator, e.g. "▸ 3 lines staged · esc recall" */
     typeaheadStaged: string;
-    /** Placeholder shown when steerBusy is active. */
-    steerPlaceholder: string;
-    /** Status-line hint shown when steerBusy is active. */
-    steerHint: string;
-    /** Info shown when Alt+S pressed on empty input with no stash. */
-    stashNothing: string;
-    /** Info shown when input was stashed (non-empty input → saved). */
-    stashSaved: string;
-    /** Info shown when stash was recalled into input. */
-    stashRecall: string;
   };
   pathConfirm: {
     title: string;
@@ -517,12 +451,6 @@ export interface TranslationSchema {
     pathLabel: string;
     sandboxLabel: string;
     allowPrefixLabel: string;
-    promptTitleRead: string;
-    promptTitleWrite: string;
-    actionAllowRead: string;
-    actionAllowWrite: string;
-    actionAlwaysAllow: string;
-    actionDeny: string;
   };
   shellConfirm: {
     title: string;
@@ -545,11 +473,6 @@ export interface TranslationSchema {
     waitLabel: string;
     previewMore: string;
     previewMorePlural: string;
-    promptTitleRunCommand: string;
-    promptTitleRunBackground: string;
-    actionRunOnce: string;
-    actionAlwaysAllow: string;
-    actionDeny: string;
   };
   editConfirm: {
     footer: string;
@@ -565,13 +488,6 @@ export interface TranslationSchema {
     linesAbovePlural: string;
     linesBelow: string;
     linesBelowPlural: string;
-  };
-  editPicker: {
-    title: string;
-    hint: string;
-    empty: string;
-    dismiss: string;
-    forked: string;
   };
   sessionPicker: {
     header: string;
@@ -611,9 +527,8 @@ export interface TranslationSchema {
     loading: string;
     catalogEmpty: string;
     modelsAvailable: string;
-    effortHeader: string;
+    presetsHeader: string;
     modelsHeader: string;
-    effortDesc: Record<string, string>;
     pickerFooter: string;
     currentLabel: string;
   };
@@ -695,13 +610,12 @@ export interface TranslationSchema {
     rateLimit429: string;
     forbidden403: string;
     serverError5xx: string;
-    bingBlocked: string;
-    bingNoResults: string;
+    mojeekBlocked: string;
+    mojeekNoResults: string;
     invalidEndpoint: string;
     endpointMustBeHttp: string;
     cannotReach: string;
     searxngNoResults: string;
-    metasoMissingKey: string;
     metasoDailyLimit: string;
     metasoUnauthorized: string;
     metasoRateLimit: string;
@@ -713,16 +627,6 @@ export interface TranslationSchema {
     tavilyRateLimit: string;
     tavilyServerError: string;
     tavilyParseError: string;
-    perplexityMissingKey: string;
-    perplexityUnauthorized: string;
-    perplexityRateLimit: string;
-    perplexityServerError: string;
-    perplexityParseError: string;
-    exaMissingKey: string;
-    exaUnauthorized: string;
-    exaRateLimit: string;
-    exaServerError: string;
-    exaParseError: string;
     fetchStatus: string;
     fetchRateLimit429: string;
     fetchForbidden403: string;
@@ -772,8 +676,6 @@ export interface TranslationSchema {
     moreHitsPlural: string;
     earlierLine: string;
     earlierLines: string;
-    hiddenLine: string;
-    hiddenLines: string;
     earlierStackLine: string;
     earlierStackLines: string;
     agent: string;
@@ -815,6 +717,19 @@ export interface TranslationSchema {
     categoryProject: string;
     categoryReference: string;
   };
+  copyMode: {
+    title: string;
+    help: string;
+    statusBar: string;
+    statusYanked: string;
+    statusEmpty: string;
+    empty: string;
+    labelUser: string;
+    labelAssistant: string;
+    labelReasoning: string;
+    yankedToast: string;
+    yankedToastFile: string;
+  };
   mcpHealth: {
     noData: string;
     healthy: string;
@@ -831,7 +746,6 @@ export interface TranslationSchema {
     scrollAbovePlural: string;
     scrollMore: string;
     scrollPgUp: string;
-    scrollCopy: string;
   };
   slashArgPicker: {
     noMatch: string;
@@ -891,8 +805,6 @@ export interface TranslationSchema {
     failedSetupHint: string;
     failedSetupConfigHint: string;
     abortedHint: string;
-    toolsReady: string;
-    warnLabel: string;
   };
   checkpointPicker: {
     title: string;
@@ -938,64 +850,5 @@ export interface TranslationSchema {
     noRecords: string;
     untracked: string;
     churned: string;
-  };
-  builtinSkills: {
-    explore: string;
-    research: string;
-    review: string;
-    securityReview: string;
-    test: string;
-  };
-  shortcutsHelp: {
-    title: string;
-    groupInput: string;
-    groupNavigation: string;
-    groupSession: string;
-    groupSystem: string;
-    descEnter: string;
-    descShiftEnter: string;
-    descCtrlEnter: string;
-    descCtrlJ: string;
-    descCtrlU: string;
-    descCtrlW: string;
-    descCtrlP: string;
-    descCtrlX: string;
-    descArrows: string;
-    descPgUpDown: string;
-    descCtrlL: string;
-    descCtrlB: string;
-    descNewSession: string;
-    descListSessions: string;
-    descSwitchModel: string;
-    descSwitchEffort: string;
-    descSwitchTheme: string;
-    descCtrlC: string;
-    descEsc: string;
-    descCtrlR: string;
-    descCtrlO: string;
-    descHelp: string;
-    descShiftTab: string;
-    descAltS: string;
-  };
-  mcpCli: {
-    bundledCatalog: string;
-    justFetched: string;
-    cachedAge: string;
-    moreAvailable: string;
-    allLoaded: string;
-    morePagesAvailable: string;
-    installHint: string;
-    usageSearch: string;
-    usageInstall: string;
-    noMatchesFor: string;
-    matchCount: string;
-    moreLoaded: string;
-    moreMatches: string;
-    installed: string;
-    noServerFound: string;
-    noServerTryMore: string;
-    noInstallMeta: string;
-    buildSpecFailed: string;
-    alreadyInstalled: string;
   };
 }

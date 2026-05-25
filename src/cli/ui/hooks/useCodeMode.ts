@@ -7,7 +7,6 @@ import {
   snapshotBeforeEdits,
 } from "../../../code/edit-blocks.js";
 import { clearPendingEdits, savePendingEdits } from "../../../code/pending-edits.js";
-import { t } from "../../../i18n/index.js";
 import { formatEditResults, partitionEdits } from "../edit-history.js";
 
 export interface UseCodeModeResult {
@@ -46,17 +45,17 @@ export function useCodeMode(opts: UseCodeModeOptions): UseCodeModeResult {
 
   const codeApply = useCallback(
     (indices?: readonly number[]): string => {
-      if (!codeMode) return t("app.editHistoryNoCodeMode");
+      if (!codeMode) return "not in code mode";
       const blocks = pendingEdits.current;
       if (blocks.length === 0) {
-        return t("app.noPendingEdits");
+        return "nothing pending — the model hasn't proposed edits since the last /apply or /discard.";
       }
       const useSubset = indices !== undefined && indices.length > 0;
       const { selected, remaining } = useSubset
         ? partitionEdits(blocks, indices)
         : { selected: blocks, remaining: [] as EditBlock[] };
       if (selected.length === 0) {
-        return t("app.noMatchedApply");
+        return "▸ no edits matched those indices — nothing applied. Use /apply with no args to commit them all.";
       }
       const snaps = snapshotBeforeEdits(selected, currentRootDir);
       const results = applyEditBlocks(selected, currentRootDir);
@@ -70,7 +69,9 @@ export function useCodeMode(opts: UseCodeModeOptions): UseCodeModeResult {
       else savePendingEdits(session ?? null, remaining);
       syncPendingCount();
       const tail =
-        remaining.length > 0 ? `\n${t("app.blocksStillPending", { count: remaining.length })}` : "";
+        remaining.length > 0
+          ? `\n▸ ${remaining.length} edit block(s) still pending — /apply or /discard to clear them.`
+          : "";
       return formatEditResults(results) + tail;
     },
     [
@@ -87,13 +88,13 @@ export function useCodeMode(opts: UseCodeModeOptions): UseCodeModeResult {
   const codeDiscard = useCallback(
     (indices?: readonly number[]): string => {
       const blocks = pendingEdits.current;
-      if (blocks.length === 0) return t("app.noPendingDiscard");
+      if (blocks.length === 0) return "nothing pending to discard.";
       const useSubset = indices !== undefined && indices.length > 0;
       const { selected, remaining } = useSubset
         ? partitionEdits(blocks, indices)
         : { selected: blocks, remaining: [] as EditBlock[] };
       if (selected.length === 0) {
-        return t("app.noMatchedDiscard");
+        return "▸ no edits matched those indices — nothing discarded.";
       }
       pendingEdits.current = remaining;
       if (remaining.length === 0) clearPendingEdits(session ?? null);
@@ -101,9 +102,9 @@ export function useCodeMode(opts: UseCodeModeOptions): UseCodeModeResult {
       syncPendingCount();
       const tail =
         remaining.length > 0
-          ? `  (${t("app.blocksStillPending", { count: remaining.length })})`
-          : t("app.nothingWritten");
-      return t("app.discardedCount", { count: selected.length }) + tail;
+          ? `  (${remaining.length} block(s) still pending)`
+          : ". Nothing was written to disk.";
+      return `▸ discarded ${selected.length} pending edit block(s)${tail}`;
     },
     [session, syncPendingCount, pendingEdits],
   );

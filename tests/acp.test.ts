@@ -1,10 +1,9 @@
 /** ACP (Agent Client Protocol) server — NDJSON framing + JSON-RPC method dispatch. */
 
 import { PassThrough } from "node:stream";
-import { resolveApprovalPrompt, toApprovalPrompt, toolKindFor } from "@reasonix/core-utils";
 import { describe, expect, it } from "vitest";
-import { dispatchKernelEvent } from "../src/acp/dispatch.js";
-import { requestPermissionForGate } from "../src/acp/gates.js";
+import { dispatchKernelEvent, toolKindFor } from "../src/acp/dispatch.js";
+import { permissionOptionsFor, requestPermissionForGate, verdictFor } from "../src/acp/gates.js";
 import {
   ACP_PROTOCOL_VERSION,
   type ContentBlock,
@@ -386,25 +385,48 @@ describe("ACP outbound requests + gate bridge", () => {
     await expect(promise).rejects.toThrow(/closed/);
   });
 
-  describe("toApprovalPrompt + resolveApprovalPrompt integration", () => {
-    it("shell → run_once / always_allow / deny with correct option kinds", () => {
+  describe("permissionOptionsFor", () => {
+    it("offers allow_once / allow_always / reject for shell commands", () => {
       const req: PauseRequest = {
         id: 1,
         kind: "run_command",
         payload: { command: "rm -rf /" },
       };
-      const prompt = toApprovalPrompt(req);
-      expect(prompt.actions.map((a) => a.kind)).toEqual(["allow_once", "allow_always", "reject"]);
+      const opts = permissionOptionsFor(req);
+      expect(opts.map((o) => o.kind)).toEqual(["allow_once", "allow_always", "reject_once"]);
     });
 
+    it("offers approve / refine / cancel for plan_proposed", () => {
+      const req: PauseRequest = {
+        id: 2,
+        kind: "plan_proposed",
+        payload: { plan: "do the thing" },
+      };
+      const ids = permissionOptionsFor(req).map((o) => o.optionId);
+      expect(ids).toEqual(["allow_once", "refine", "cancel"]);
+    });
+
+    it("offers continue / revise / stop for plan_checkpoint", () => {
+      const req: PauseRequest = {
+        id: 3,
+        kind: "plan_checkpoint",
+        payload: { stepId: "s1", result: "done" },
+      };
+      const ids = permissionOptionsFor(req).map((o) => o.optionId);
+      expect(ids).toEqual(["allow_once", "revise", "stop"]);
+    });
+  });
+
+  describe("verdictFor", () => {
     it("shell allow_once → run_once", () => {
       const req: PauseRequest = {
         id: 1,
         kind: "run_command",
         payload: { command: "ls -la /tmp" },
       };
-      const prompt = toApprovalPrompt(req);
-      expect(resolveApprovalPrompt(prompt, "run_once")).toEqual({ type: "run_once" });
+      expect(verdictFor(req, { outcome: { outcome: "selected", optionId: "allow_once" } })).toEqual(
+        { type: "run_once" },
+      );
     });
 
     it("shell allow_always → always_allow with command-prefix glob", () => {
@@ -413,48 +435,36 @@ describe("ACP outbound requests + gate bridge", () => {
         kind: "run_command",
         payload: { command: "git status -sb" },
       };
-      const prompt = toApprovalPrompt(req);
-      expect(resolveApprovalPrompt(prompt, "always_allow")).toEqual({
-        type: "always_allow",
-        prefix: "git status",
-      });
+      expect(
+        verdictFor(req, { outcome: { outcome: "selected", optionId: "allow_always" } }),
+      ).toEqual({ type: "always_allow", prefix: "git *" });
     });
 
-    it("shell deny / cancelled → deny", () => {
+    it("shell cancelled / reject → deny", () => {
       const req: PauseRequest = {
         id: 1,
         kind: "run_command",
         payload: { command: "rm -rf /" },
       };
-      const prompt = toApprovalPrompt(req);
-      expect(resolveApprovalPrompt(prompt, "deny")).toEqual({ type: "deny" });
-      expect(resolveApprovalPrompt(prompt, "")).toEqual({ type: "deny" });
+      expect(verdictFor(req, { outcome: { outcome: "cancelled" } })).toEqual({ type: "deny" });
+      expect(verdictFor(req, { outcome: { outcome: "selected", optionId: "reject" } })).toEqual({
+        type: "deny",
+      });
     });
 
-    it("plan_proposed → approve / refine / cancel", () => {
+    it("plan checkpoint continue / revise / stop map cleanly", () => {
       const req: PauseRequest = {
-        id: 2,
-        kind: "plan_proposed",
-        payload: { plan: "do the thing" },
-      };
-      const prompt = toApprovalPrompt(req);
-      expect(prompt.actions.map((a) => a.id)).toEqual(["approve", "refine", "cancel"]);
-      expect(resolveApprovalPrompt(prompt, "approve")).toEqual({ type: "approve" });
-      expect(resolveApprovalPrompt(prompt, "refine")).toEqual({ type: "refine" });
-      expect(resolveApprovalPrompt(prompt, "cancel")).toEqual({ type: "cancel" });
-    });
-
-    it("plan_checkpoint → continue / revise / stop", () => {
-      const req: PauseRequest = {
-        id: 3,
+        id: 1,
         kind: "plan_checkpoint",
-        payload: { stepId: "s1", result: "done" },
+        payload: { stepId: "s1", result: "" },
       };
-      const prompt = toApprovalPrompt(req);
-      expect(prompt.actions.map((a) => a.id)).toEqual(["continue", "revise", "stop"]);
-      expect(resolveApprovalPrompt(prompt, "continue")).toEqual({ type: "continue" });
-      expect(resolveApprovalPrompt(prompt, "revise")).toEqual({ type: "revise" });
-      expect(resolveApprovalPrompt(prompt, "")).toEqual({ type: "stop" });
+      expect(verdictFor(req, { outcome: { outcome: "selected", optionId: "allow_once" } })).toEqual(
+        { type: "continue" },
+      );
+      expect(verdictFor(req, { outcome: { outcome: "selected", optionId: "revise" } })).toEqual({
+        type: "revise",
+      });
+      expect(verdictFor(req, { outcome: { outcome: "cancelled" } })).toEqual({ type: "stop" });
     });
 
     it("plan_revision accept / reject / cancel map cleanly", () => {
@@ -463,10 +473,15 @@ describe("ACP outbound requests + gate bridge", () => {
         kind: "plan_revision",
         payload: { reason: "", remainingSteps: [] },
       };
-      const prompt = toApprovalPrompt(req);
-      expect(resolveApprovalPrompt(prompt, "accept")).toEqual({ type: "accepted" });
-      expect(resolveApprovalPrompt(prompt, "reject")).toEqual({ type: "rejected" });
-      expect(resolveApprovalPrompt(prompt, "")).toEqual({ type: "rejected" });
+      expect(verdictFor(req, { outcome: { outcome: "selected", optionId: "accept" } })).toEqual({
+        type: "accepted",
+      });
+      expect(verdictFor(req, { outcome: { outcome: "selected", optionId: "reject" } })).toEqual({
+        type: "rejected",
+      });
+      expect(verdictFor(req, { outcome: { outcome: "cancelled" } })).toEqual({
+        type: "cancelled",
+      });
     });
   });
 
@@ -496,10 +511,10 @@ describe("ACP outbound requests + gate bridge", () => {
       `${JSON.stringify({
         jsonrpc: "2.0",
         id: sent.id,
-        result: { outcome: { outcome: "selected", optionId: "always_allow" } },
+        result: { outcome: { outcome: "selected", optionId: "allow_always" } },
       })}\n`,
     );
-    expect(await verdictPromise).toEqual({ type: "always_allow", prefix: "pnpm test" });
+    expect(await verdictPromise).toEqual({ type: "always_allow", prefix: "pnpm *" });
     server.close();
   });
 });

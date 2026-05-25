@@ -80,15 +80,31 @@ npx reasonix code   # 首次运行粘贴 DeepSeek API Key，之后会记住
 
 ### QQ 通道
 
-Reasonix 可以把现有的 `chat`、`code` 或桌面端会话延伸到 QQ 上，作为远程通道使用；它扩展的是当前会话，不是独立的新运行模式。
+Reasonix 可以把 QQ 挂到现有的 `chat` / `code` 会话上，作为远程通信通道使用。它不是一个独立的新模式。
 
-- CLI：先启动会话，再执行 `/qq connect`
-- 桌面端：打开 `设置 -> 通用 -> QQ通道`
+先启动一个会话：
 
-连接成功后，QQ 消息可以进入当前会话，助手回复会回到 QQ，后续确认和跟进交互也可以继续在 QQ 上完成。
+~~~bash
+reasonix code
+# 或
+reasonix chat
+~~~
 
-完整配置、桌面端快速上手与排障说明见：[QQ 连接指南](./docs/qq-connect.zh-CN.md)。
+然后在会话里连接 QQ：
 
+~~~text
+/qq connect
+~~~
+
+可用命令：
+
+- `/qq connect`
+- `/qq status`
+- `/qq disconnect`
+
+启用后，后续的 `chat` / `code` 会话会自动启动 QQ 通道。斜杠命令、确认提示，以及后续助手回复都可以通过 QQ 继续完成，不需要回到终端交互。
+
+详细说明见 [QQ 连接指南](./docs/qq-connect.zh-CN.md)。
 <details>
 <summary><strong>切换工作区 · chat vs. code · 写第一个 Skill</strong></summary>
 
@@ -181,7 +197,7 @@ npx reasonix code --dir /path/to/project
 
 - [**架构**](./docs/ARCHITECTURE.md) —— 四大支柱、缓存优先循环、思维提取、脚手架
 - [**CLI 参考**](./docs/CLI-REFERENCE.md) —— 每个 shell 子命令、每个 slash 命令、每个快捷键
-- [**QQ 连接指南**](./docs/qq-connect.zh-CN.md) —— CLI 首次连接流程、桌面端入口和 QQ 开放平台凭据
+- [**QQ 连接指南**](./docs/qq-connect.zh-CN.md) —— 通道定位、命令、配置流程和 QQ 开放平台凭据
 - [**基准测试**](./benchmarks/) —— τ-bench-lite harness、transcript、成本方法论
 - [**官方网站**](https://esengine.github.io/DeepSeek-Reasonix/) —— 入门、Dashboard 设计稿、TUI 设计稿
 - [**贡献指南**](./CONTRIBUTING.md) —— 注释规则、错误处理、用现成库不手写

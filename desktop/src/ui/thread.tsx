@@ -1,31 +1,9 @@
-import type { ApprovalPrompt } from "@reasonix/core-utils";
-import { isCompactionSummary, stripCompactionMarker } from "@reasonix/core-utils/compaction";
-import { derivePrefix } from "@reasonix/core-utils/derive-prefix";
+import { memo, useState, type ReactNode } from "react";
 import { Copy } from "lucide-react";
-import { type ReactNode, memo, useState } from "react";
-import type {
-  ActivePlan,
-  AssistantSegment,
-  PendingCheckpoint,
-  PendingChoice,
-  PendingConfirm,
-  PendingPlan,
-  PendingRevision,
-  SkillOrigin,
-} from "../App";
-import { t, useLang } from "../i18n";
 import { I } from "../icons";
-import {
-  AssistantText,
-  CompactionCard,
-  DiffCard,
-  PlanCardView,
-  type PlanItem,
-  ReasoningCard,
-  ShellCard,
-  ToolCard,
-  parseEditResult,
-} from "./cards";
+import { t, useLang } from "../i18n";
+import type { AssistantSegment, ActivePlan, PendingPlan, PendingCheckpoint, PendingRevision, PendingConfirm, PendingChoice, SkillOrigin } from "../App";
+import { AssistantText, PlanCardView, ReasoningCard, ShellCard, ToolCard, type PlanItem } from "./cards";
 import { ApprovalCard, TaskCard, type TaskStepView } from "./extra-cards";
 
 export function TurnDivider({ label }: { label: string }) {
@@ -41,12 +19,10 @@ export const UserMsg = memo(function UserMsg({
   text,
   time,
   skill,
-  onEdit,
 }: {
   text: string;
   time?: string;
   skill?: SkillOrigin;
-  onEdit?: (text: string) => void;
 }) {
   useLang();
   const [copied, setCopied] = useState(false);
@@ -68,25 +44,13 @@ export const UserMsg = memo(function UserMsg({
           {skill ? (
             <span className="skill-chip" title={`skill · ${skill.runAs}`}>
               <I.zap size={10} /> /{skill.name}
-              {skill.runAs === "subagent" ? (
-                <span className="sub">{t("thread.subagent")}</span>
-              ) : null}
+              {skill.runAs === "subagent" ? <span className="sub">{t("thread.subagent")}</span> : null}
             </span>
           ) : null}
           {time ? <span className="time">{time}</span> : null}
         </div>
         <div className="msg-text">{text}</div>
         <div className="msg-actions">
-          {onEdit ? (
-            <button
-              type="button"
-              className="edit-btn"
-              onClick={() => onEdit(text)}
-              title={t("thread.editMessage")}
-            >
-              <I.pencil size={11} />
-            </button>
-          ) : null}
           <button
             type="button"
             className={`copy-btn ${copied ? "done" : ""}`}
@@ -147,9 +111,6 @@ export const AssistantMsg = memo(function AssistantMsg({
         {segments.map((s, i) => {
           if (s.kind === "text") {
             if (!s.text.trim()) return null;
-            if (isCompactionSummary(s.text)) {
-              return <CompactionCard key={i} summary={stripCompactionMarker(s.text)} />;
-            }
             return <AssistantText key={i} text={s.text} />;
           }
           if (s.kind === "reasoning") {
@@ -188,34 +149,11 @@ export const AssistantMsg = memo(function AssistantMsg({
                 onAlwaysAllow={
                   pendingConfirm
                     ? () => {
-                        onAlwaysAllowConfirm(pendingConfirm.id, derivePrefix(cmd));
+                        const prefix = cmd.split(/\s+/)[0] ?? cmd;
+                        onAlwaysAllowConfirm(pendingConfirm.id, `${prefix} *`);
                       }
                     : undefined
                 }
-              />
-            );
-          }
-          if (s.result && (s.name === "edit_file" || s.name === "multi_edit")) {
-            const files = parseEditResult(s.result);
-            return files.length > 0 ? (
-              <>
-                {files.map((f, fi) => (
-                  <DiffCard
-                    key={`${i}-${fi}`}
-                    filename={f.filename}
-                    lines={f.lines}
-                    applied={s.ok !== false}
-                  />
-                ))}
-              </>
-            ) : (
-              <ToolCard
-                key={i}
-                name={s.name}
-                args={s.args}
-                result={s.result}
-                ok={s.ok}
-                durationMs={s.durationMs}
               />
             );
           }
@@ -412,9 +350,7 @@ export function RevisionApprovalCard({
         <>
           <div style={{ marginBottom: 8 }}>{r.reason}</div>
           {r.summary ? (
-            <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>
-              {r.summary}
-            </div>
+            <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>{r.summary}</div>
           ) : null}
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {r.remainingSteps.map((s) => (
@@ -450,100 +386,83 @@ export function RevisionApprovalCard({
   );
 }
 
-function mapTone(tone: ApprovalPrompt["tone"]): import("./extra-cards").ApprovalTone {
-  switch (tone) {
-    case "error":
-      return "danger";
-    case "accent":
-      return "brand";
-    default:
-      return tone;
-  }
-}
-
 export function ConfirmApprovalCard({
-  prompt,
+  c,
   onAllow,
   onAlwaysAllow,
   onDeny,
 }: {
-  prompt: ApprovalPrompt;
+  c: PendingConfirm;
   onAllow: () => void;
   onAlwaysAllow: (prefix: string) => void;
   onDeny: () => void;
 }) {
   useLang();
-  const prefix = String(prompt.data?.prefix ?? "");
-  const allowAction = prompt.actions.find((a) => a.kind === "allow_once");
-  const alwaysAllowAction = prompt.actions.find((a) => a.kind === "allow_always");
-  const rejectAction = prompt.actions.find((a) => a.kind === "reject");
+  const isBackground = c.kind === "run_background";
+  const firstWord = c.command.split(/\s+/)[0] ?? c.command;
   return (
     <ApprovalCard
       kind={t("thread.shellConfirmationKind")}
-      tone={mapTone(prompt.tone)}
-      title={prompt.title}
-      sub={prompt.subtitle}
+      tone="warn"
+      title={isBackground ? t("thread.runBackgroundCommand") : t("thread.runCommand")}
+      sub={c.command.length > 80 ? `${c.command.slice(0, 80)}…` : c.command}
       preview={
         <>
-          <span style={{ color: "var(--accent)" }}>$</span> {prompt.preview ?? prompt.subtitle}
+          <span style={{ color: "var(--accent)" }}>$</span> {c.command}
         </>
       }
-      meta={t("thread.riskMedium", {
-        kind: prompt.kind === "shell" ? "run_command" : "run_background",
-      })}
-      primaryLabel={allowAction?.label ?? t("thread.execute")}
-      secondaryLabel={rejectAction?.label ?? t("thread.reject")}
-      tertiaryLabel={alwaysAllowAction?.label ?? t("thread.alwaysAllow", { prefix })}
+      meta={t("thread.riskMedium", { kind: c.kind })}
+      primaryLabel={t("thread.execute")}
+      secondaryLabel={t("thread.reject")}
+      tertiaryLabel={t("thread.alwaysAllow", { prefix: `${firstWord} *` })}
       onPrimary={onAllow}
       onSecondary={onDeny}
-      onTertiary={() => onAlwaysAllow(prefix)}
+      onTertiary={() => onAlwaysAllow(`${firstWord} *`)}
     />
   );
 }
 
 export function PathAccessApprovalCard({
-  prompt,
+  p,
   onAllow,
   onAlwaysAllow,
   onDeny,
 }: {
-  prompt: ApprovalPrompt;
+  p: {
+    id: number;
+    path: string;
+    intent: "read" | "write";
+    toolName: string;
+    sandboxRoot: string;
+    allowPrefix: string;
+  };
   onAllow: () => void;
   onAlwaysAllow: (prefix: string) => void;
   onDeny: () => void;
 }) {
   useLang();
-  const prefix = String(prompt.data?.prefix ?? "");
-  const intent = String(prompt.data?.intent ?? "read");
-  const isWrite = intent === "write";
-  const allowAction = prompt.actions.find((a) => a.kind === "allow_once");
-  const alwaysAllowAction = prompt.actions.find((a) => a.kind === "allow_always");
-  const rejectAction = prompt.actions.find((a) => a.kind === "reject");
+  const isWrite = p.intent === "write";
   return (
     <ApprovalCard
       kind={t("thread.pathAccessKind")}
-      tone={mapTone(prompt.tone)}
-      title={prompt.title}
-      sub={prompt.subtitle}
+      tone="warn"
+      title={isWrite ? t("thread.writePathOutsideSandbox") : t("thread.readPathOutsideSandbox")}
+      sub={p.path}
       preview={
         <>
-          <div>{prompt.preview ?? prompt.subtitle}</div>
-          {prompt.meta?.sandboxRoot ? (
-            <div style={{ color: "var(--muted)", marginTop: 4 }}>
-              workspace: {prompt.meta.sandboxRoot}
-            </div>
-          ) : null}
+          <div>{p.toolName} → {p.path}</div>
+          <div style={{ color: "var(--muted)", marginTop: 4 }}>
+            workspace: {p.sandboxRoot}
+          </div>
         </>
       }
-      meta={t("thread.riskMedium", { kind: intent })}
-      primaryLabel={
-        allowAction?.label ?? (isWrite ? t("thread.allowWrite") : t("thread.allowRead"))
-      }
-      secondaryLabel={rejectAction?.label ?? t("thread.reject")}
-      tertiaryLabel={alwaysAllowAction?.label ?? t("thread.alwaysAllowPrefix", { prefix })}
+      meta={t("thread.riskMedium", { kind: p.intent })}
+      primaryLabel={isWrite ? t("thread.allowWrite") : t("thread.allowRead")}
+      secondaryLabel={t("thread.reject")}
+      tertiaryLabel={t("thread.alwaysAllowPrefix", { prefix: p.allowPrefix })}
       onPrimary={onAllow}
       onSecondary={onDeny}
-      onTertiary={() => onAlwaysAllow(prefix)}
+      onTertiary={() => onAlwaysAllow(p.allowPrefix)}
     />
   );
 }
