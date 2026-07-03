@@ -2,10 +2,17 @@
   <img src="docs/logo.svg" alt="Reasonix" width="640"/>
 </p>
 
+> [!WARNING]
+> **这是 legacy TypeScript 线(Reasonix 0.x),仅维护。**
+> 开发已转移到 **Go 重写版** —— 见 [`main-v2`](https://github.com/esengine/DeepSeek-Reasonix/tree/main-v2) 分支(新的默认分支)与[迁移指南](https://github.com/esengine/DeepSeek-Reasonix/blob/main-v2/docs/MIGRATING.md)。此处仅修复 bug。
+
+
 <p align="center">
   <a href="./README.md">English</a>
   &nbsp;·&nbsp;
   <strong>简体中文</strong>
+  &nbsp;·&nbsp;
+  <a href="./README.ja-JP.md">日本語</a>
   &nbsp;·&nbsp;
   <a href="https://esengine.github.io/DeepSeek-Reasonix/">官方网站</a>
   &nbsp;·&nbsp;
@@ -25,6 +32,7 @@
   <a href="https://www.npmjs.com/package/reasonix"><img src="https://img.shields.io/npm/dm/reasonix.svg?style=flat-square&color=3fb950&labelColor=161b22&label=downloads" alt="downloads"/></a>
   <a href="./package.json"><img src="https://img.shields.io/node/v/reasonix.svg?style=flat-square&color=5fa04e&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="node"/></a>
   <a href="https://github.com/esengine/reasonix/stargazers"><img src="https://img.shields.io/github/stars/esengine/reasonix.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
+  <a href="https://atomgit.com/esengine/DeepSeek-Reasonix"><img src="https://atomgit.com/esengine/DeepSeek-Reasonix/star/badge.svg" alt="AtomGit stars"/></a>
   <a href="https://github.com/esengine/reasonix/graphs/contributors"><img src="https://img.shields.io/github/contributors/esengine/reasonix.svg?style=flat-square&color=bc8cff&labelColor=161b22&logo=github&logoColor=white" alt="contributors"/></a>
   <a href="https://github.com/esengine/reasonix/discussions"><img src="https://img.shields.io/github/discussions/esengine/reasonix.svg?style=flat-square&color=58a6ff&labelColor=161b22&logo=github&logoColor=white" alt="Discussions"/></a>
   <a href="https://discord.gg/XF78rEME2D"><img src="https://img.shields.io/badge/discord-join-5865F2.svg?style=flat-square&labelColor=161b22&logo=discord&logoColor=white" alt="Discord"/></a>
@@ -135,7 +143,7 @@ npx reasonix code --dir /path/to/project
 | [Memory](https://esengine.github.io/DeepSeek-Reasonix/configuration.html?lang=zh#memory) | 用户私有的知识，钉进前缀。`user` / `feedback` / `project` / `reference` 四类。 |
 | [Hooks](https://esengine.github.io/DeepSeek-Reasonix/configuration.html?lang=zh#hooks) | 生命周期事件触发的 shell 命令。`PreToolUse`（拦截）· `PostToolUse` · `UserPromptSubmit` · `Stop`。 |
 | [权限](https://esengine.github.io/DeepSeek-Reasonix/configuration.html?lang=zh#permissions) | 按工作区的 shell 白名单，精确前缀匹配。 |
-| [Web 搜索](https://esengine.github.io/DeepSeek-Reasonix/configuration.html?lang=zh#search) | 默认 Mojeek；用 `/search-engine` 可切到自托管的 SearXNG 或 Metaso。 |
+| [Web 搜索](https://esengine.github.io/DeepSeek-Reasonix/configuration.html?lang=zh#search) | 默认 Bing；可用 `/search-engine` 切到百度 AI Search、自托管 SearXNG、Metaso、Tavily、Perplexity、Exa、Brave 或 Ollama。 |
 | [语义索引](https://esengine.github.io/DeepSeek-Reasonix/configuration.html?lang=zh#index) | `reasonix index` —— 本地 Ollama，或任何 OpenAI 兼容的 embedding 接口。 |
 
 <br/>

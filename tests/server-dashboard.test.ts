@@ -209,6 +209,30 @@ describe("dashboard server: endpoints", () => {
     expect(r.body.cockpit.currentSession).toBeNull();
   });
 
+  it("serves browser bridge @-mention search and preview compatibility endpoints", async () => {
+    const projectDir = join(dir, "project");
+    await mkdir(join(projectDir, "src"), { recursive: true });
+    await writeFile(
+      join(projectDir, "src", "app.ts"),
+      "export const app = 1;\nconsole.log(app);\n",
+    );
+    await writeFile(join(projectDir, "README.md"), "# demo\n");
+
+    const base = await boot({ getCurrentCwd: () => projectDir });
+
+    const search = await call(`${base}api/files/search?q=app`, { token: TOKEN });
+    expect(search.status).toBe(200);
+    expect(search.body.results).toContain("src/app.ts");
+
+    const preview = await call(`${base}api/file-read?path=src%2Fapp.ts&nonce=7`, { token: TOKEN });
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({
+      path: "src/app.ts",
+      head: "export const app = 1;\nconsole.log(app);",
+      totalLines: 2,
+    });
+  });
+
   it("GET /api/usage returns aggregateUsage + record count", async () => {
     const base = await boot();
     const r = await call(`${base}api/usage`, { token: TOKEN });
@@ -738,6 +762,32 @@ describe("dashboard server: chat bridge", () => {
     // Tear down. Disconnect cleanup is an integration concern not
     // worth a flaky timing-dependent assertion; the events.ts cleanup
     // logic is straightforward (unsubscribe in `req.on("close")`).
+    reader.cancel().catch(() => undefined);
+    ac.abort();
+  });
+
+  it("GET /api/events replays the active modal so mid-modal connects see the gate (#1770)", async () => {
+    const base = await boot({
+      isBusy: () => false,
+      subscribeEvents: () => () => undefined,
+      getActiveModal: () => ({
+        kind: "shell",
+        command: "npm install",
+        allowPrefix: "npm",
+        shellKind: "stdin",
+      }),
+    });
+    const ac = new AbortController();
+    const res = await fetch(`${base}api/events?token=${TOKEN}`, { signal: ac.signal });
+    expect(res.status).toBe(200);
+    const reader = res.body!.getReader();
+    let combined = "";
+    for (let i = 0; i < 3 && !combined.includes("modal-up"); i++) {
+      const { value } = await reader.read();
+      if (value) combined += new TextDecoder().decode(value);
+    }
+    expect(combined).toContain("modal-up");
+    expect(combined).toContain("npm install");
     reader.cancel().catch(() => undefined);
     ac.abort();
   });

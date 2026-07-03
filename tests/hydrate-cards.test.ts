@@ -127,6 +127,55 @@ describe("hydrateCardsFromMessages", () => {
     expect(cards[0]).toMatchObject({ kind: "tool", args: "not-json", done: false });
   });
 
+  it("skips a partial tool_call missing its function instead of crashing hydration", () => {
+    const msgs: ChatMessage[] = [
+      {
+        role: "assistant",
+        content: "recovered",
+        // biome-ignore lint/suspicious/noExplicitAny: a corrupt persisted session can carry a streaming-delta tool_call with no function, though the type marks it required
+        tool_calls: [{ id: "call-x", type: "function" } as any],
+      },
+    ];
+    const cards = hydrateCardsFromMessages(msgs);
+    expect(cards.map((c) => c.kind)).toEqual(["streaming"]);
+  });
+
+  it("starts resumed long sessions with old heavy card fields already elided", () => {
+    const huge = "large retained field\n".repeat(800);
+    const msgs: ChatMessage[] = [];
+    for (let i = 0; i < 260; i++) {
+      msgs.push({
+        role: "assistant",
+        content: `answer ${i}`,
+        reasoning_content: huge,
+        tool_calls: [
+          {
+            id: `call-${i}`,
+            type: "function",
+            function: {
+              name: "write_file",
+              arguments: JSON.stringify({ path: `file-${i}.txt`, content: huge }),
+            },
+          },
+        ],
+      });
+      msgs.push({ role: "tool", tool_call_id: `call-${i}`, content: huge });
+    }
+
+    const cards = hydrateCardsFromMessages(msgs);
+    const oldReasoning = cards.find((c) => c.kind === "reasoning");
+    const oldTool = cards.find((c) => c.kind === "tool");
+
+    expect(oldReasoning).toMatchObject({ kind: "reasoning" });
+    expect(oldTool).toMatchObject({ kind: "tool" });
+    if (oldReasoning?.kind !== "reasoning" || oldTool?.kind !== "tool") {
+      throw new Error("expected old heavy cards");
+    }
+    expect(oldReasoning.text.length).toBeLessThan(huge.length / 10);
+    expect(oldTool.output.length).toBeLessThan(huge.length / 10);
+    expect(JSON.stringify(oldTool.args).length).toBeLessThan(huge.length / 10);
+  });
+
   it("produces unique card ids across the hydrated batch", () => {
     const msgs: ChatMessage[] = [
       { role: "user", content: "one" },

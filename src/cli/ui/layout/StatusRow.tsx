@@ -1,8 +1,8 @@
-import { Box, Text, useStdout } from "ink";
+import { Box, type Color, Text, useStdout } from "ink";
 // biome-ignore lint/style/useImportType: tsconfig jsx=react needs React in value scope for JSX compilation
 import React from "react";
 import { t } from "../../../i18n/index.js";
-import { DEEPSEEK_CONTEXT_TOKENS, DEFAULT_CONTEXT_TOKENS } from "../../../telemetry/stats.js";
+import { resolveContextTokens } from "../../../telemetry/stats.js";
 import { VERSION } from "../../../version.js";
 import { formatTokens } from "../primitives.js";
 import { Countdown } from "../primitives/Countdown.js";
@@ -96,7 +96,7 @@ export function StatusRow({
                 {"▸ "}
               </Text>
               <Text bold color={FG.body}>
-                {`${formatCost(status.cost, status.balanceCurrency)} ${t("statusBar.turn")}`}
+                {`${formatCost(status.cost, status.costDisplayCurrency ?? status.balanceCurrency)} ${t("statusBar.turn")}`}
               </Text>
             </Pill>
           </>
@@ -117,11 +117,7 @@ export function StatusRow({
             <Pill>
               <CtxUsagePill
                 tokens={status.promptTokens}
-                cap={
-                  status.promptCap ??
-                  DEEPSEEK_CONTEXT_TOKENS[session.model] ??
-                  DEFAULT_CONTEXT_TOKENS
-                }
+                cap={status.promptCap ?? resolveContextTokens(session.model)}
                 cols={cols}
               />
             </Pill>
@@ -368,7 +364,7 @@ function RecordingPill({ rec }: { rec: NonNullable<StatusBar["recording"]> }): R
   );
 }
 
-function modeGlyph(mode: Mode): { glyph: string; color: string } {
+function modeGlyph(mode: Mode): { glyph: string; color: Color } {
   switch (mode) {
     case "auto":
       return { glyph: "●", color: TONE.ok };
@@ -381,7 +377,7 @@ function modeGlyph(mode: Mode): { glyph: string; color: string } {
   }
 }
 
-function networkDot(state: NetworkState): { glyph: string; color: string } {
+function networkDot(state: NetworkState): { glyph: string; color: Color } {
   switch (state) {
     case "online":
       return { glyph: "●", color: TONE.ok };

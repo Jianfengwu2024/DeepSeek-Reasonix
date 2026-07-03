@@ -1,4 +1,4 @@
-import Parser = require('tree-sitter');
+import Parser = require('triadmind-tree-sitter');
 export type TreeSitterGhostAccessMode = 'read' | 'write' | 'readwrite';
 export type TreeSitterGhostReferenceKind = 'self' | 'external';
 export interface TreeSitterGhostReference {

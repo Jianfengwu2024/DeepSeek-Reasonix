@@ -17,8 +17,13 @@ import {
   restoreAbortedDraft,
   type AbortDraftSource,
 } from "./abort-draft";
-import { getLang, setLang, t, useLang } from "./i18n";
+import { getLang, getLangLabel, getSupportedLangs, setLang, t, useLang } from "./i18n";
 import { I } from "./icons";
+import {
+  buildSlashSettingsDescriptors,
+  parseSlashSettingsCommand,
+  type SlashSettingsCommand,
+} from "./slash-settings";
 import {
   FONT_FAMILY,
   FONT_FAMILY_STACK,
@@ -40,27 +45,40 @@ import type {
   CheckpointVerdict,
   ChoiceVerdict,
   ConfirmationChoice,
+  ExternalSessionApp,
+  ExternalSessionSource,
+  ImportedMcpServer,
   IncomingEvent,
   JobInfo,
   McpSpecInfo,
+  MemoryDetail,
   MemoryEntryInfo,
   OutgoingCommand,
   PlanVerdict,
+  PromptHistoryCursor,
   RevisionVerdict,
   SettingsPatch,
   SkillInfo,
 } from "./protocol";
 import { type QQDesktopSettingsState } from "./qq-settings";
 import { Composer, type SlashCmd } from "./ui/composer";
-import { ContextPanel } from "./ui/context-panel";
+import { ContextPanel, type ContextPanelTab } from "./ui/context-panel";
 import { JobsPop } from "./ui/jobs-pop";
 import { useElapsed } from "./ui/live";
 import { AboutModal } from "./ui/about";
 import { SettingsModal, type PageId as SettingsPageId } from "./ui/settings";
+import { JumpBar } from "./ui/jump-bar";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+
 import { Sidebar } from "./ui/sidebar";
 import { Shortcut, localizeShortcutText, shortcutText } from "./ui/shortcut";
 import { Splash, shouldShowSplash } from "./ui/splash";
 import { StatusBar } from "./ui/statusbar";
+import {
+  StartupFailure,
+  coerceStartupFailure,
+  type StartupFailureState,
+} from "./ui/startup-failure";
 import {
   dispatchDesktopNotifications,
   deriveDesktopNotifications,
@@ -84,8 +102,10 @@ import { WorkdirPop } from "./ui/workdir-pop";
 import { parseEditResult } from "./ui/cards";
 import { useAutoCollapse } from "./ui/useAutoCollapse";
 import { useResizable } from "./ui/useResizable";
-import { useAutoScroll } from "./ui/useAutoScroll";
+// Auto-scroll handled by Virtuoso followOutput + scrollToIndex (useAutoScroll replaced).
 import { useDisableTextAssist } from "./ui/useDisableTextAssist";
+import { getThreadMaxWidth } from "./ui/thread-layout";
+import { elideTranscriptMessages } from "./ui/transcript-elision";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 const RIGHT_SIDEBAR_COLLAPSE_WIDTH = 1120;
@@ -209,13 +229,40 @@ export type UsageStats = {
   lastCallCacheMiss: number | null;
   /** System prompt + tool specs — constant for the session, sent on tab open. */
   reservedTokens: number;
+  /** Current conversation log tokens, refreshed by the desktop sidecar. */
+  liveLogTokens: number;
 };
+
+type CcSwitchImportResult = {
+  source: "db" | "config";
+  path: string;
+  servers: ImportedMcpServer[];
+};
+
+type WindowControls = Pick<
+  ReturnType<typeof getCurrentWindow>,
+  "isFullscreen" | "isMaximized" | "setFullscreen" | "toggleMaximize"
+>;
+
+export function readWindowExpanded(win: WindowControls, isMac: boolean): Promise<boolean> {
+  return isMac ? win.isFullscreen() : win.isMaximized();
+}
+
+export function toggleWindowExpanded(
+  win: WindowControls,
+  isMac: boolean,
+  expanded: boolean,
+): Promise<void> {
+  if (isMac) return win.setFullscreen(!expanded);
+  return win.toggleMaximize();
+}
 
 export type SessionInfo = {
   name: string;
   messageCount: number;
   mtime: string;
   summary?: string;
+  workspaceStatus?: "matched" | "legacy_missing_meta";
 };
 
 export type Settings = {
@@ -228,16 +275,47 @@ export type Settings = {
   recentWorkspaces: string[];
   model: string;
   editor?: string;
-  webSearchEngine?: "bing" | "searxng" | "metaso" | "tavily" | "perplexity" | "exa";
+  desktopCloseBehavior?: "closeToTray" | "closeToQuit";
+  webSearchEngine?:
+    | "bing"
+    | "bing-intl"
+    | "searxng"
+    | "metaso"
+    | "baidu"
+    | "tavily"
+    | "perplexity"
+    | "exa"
+    | "brave"
+    | "ollama";
+  webSearchEndpoint?: string;
+  webSearchApiKeys?: {
+    metaso?: string;
+    baidu?: string;
+    tavily?: string;
+    perplexity?: string;
+    exa?: string;
+    ollama?: string;
+    brave?: string;
+  };
   subagentModels?: Record<string, "flash" | "pro">;
+  /** Per-model context-window override (tokens). */
+  contextTokens?: Record<string, number>;
   showSystemEvents?: boolean;
   version: string;
+};
+
+export type BalanceInfoItem = {
+  currency: string;
+  total: number;
+  granted?: number;
+  toppedUp?: number;
 };
 
 export type Balance = {
   currency: string;
   total: number;
   isAvailable: boolean;
+  infos: BalanceInfoItem[];
 };
 
 type MentionResults = { nonce: number; query: string; results: string[] };
@@ -246,6 +324,13 @@ type MentionPreviewState = {
   path: string;
   head: string;
   totalLines: number;
+};
+
+type PromptHistoryNavState = {
+  mode: "idle" | "browsing";
+  draft: string;
+  cursor: PromptHistoryCursor | null;
+  originSessionName: string | null;
 };
 
 type State = {
@@ -264,17 +349,23 @@ type State = {
   activePlan: ActivePlan | null;
   usage: UsageStats;
   sessions: SessionInfo[];
+  externalImportSources: ExternalSessionApp[];
   settings: Settings | null;
   qq: QQDesktopSettingsState | null;
   balance: Balance | null;
   mentionResults: MentionResults | null;
   mentionPreview: MentionPreviewState | null;
+  promptHistoryResult: {
+    nonce: number;
+    entry: { value: string; cursor: PromptHistoryCursor } | null;
+  } | null;
   mcpSpecs: McpSpecInfo[];
   mcpBridged: boolean;
   skills: SkillInfo[];
   /** Files the agent has read or modified this session — paths as the tool args provided them. */
   sessionFiles: SessionFile[];
   memory: MemoryEntryInfo[];
+  memoryDetail: MemoryDetail | null;
   jobs: JobInfo[];
   /** Live "skill running" indicator — set when a `skill_run` RPC dispatches, cleared on `$turn_complete`. */
   activeSkill: SkillOrigin | null;
@@ -317,7 +408,26 @@ type Action =
   | { t: "enqueue_send"; text: string }
   | { t: "dequeue_send"; index: number }
   | { t: "shift_queued_send" }
+  | { t: "settings_patch"; patch: SettingsPatch }
   | { t: "push_status"; text: string };
+
+function sanitizeSettingsPatch(patch: SettingsPatch): Partial<Settings> {
+  const {
+    metasoApiKey: _metaso,
+    baiduApiKey: _baidu,
+    tavilyApiKey: _tavily,
+    perplexityApiKey: _perplexity,
+    exaApiKey: _exa,
+    ollamaApiKey: _ollama,
+    webSearchEndpoint,
+    ...rest
+  } = patch;
+  const sanitized: Partial<Settings> = { ...rest };
+  if (webSearchEndpoint !== undefined) {
+    sanitized.webSearchEndpoint = webSearchEndpoint ?? undefined;
+  }
+  return sanitized;
+}
 
 function fallbackSkillDesc(skill: SkillInfo): string {
   const scope =
@@ -348,6 +458,10 @@ function nextErrorId(): string {
 }
 
 export function reduce(state: State, action: Action): State {
+  return withElidedTranscript(reduceRaw(state, action));
+}
+
+function reduceRaw(state: State, action: Action): State {
   switch (action.t) {
     case "send_user": {
       return {
@@ -395,6 +509,10 @@ export function reduce(state: State, action: Action): State {
       };
     case "incoming":
       return applyIncoming(state, action.event);
+    case "settings_patch":
+      return state.settings
+        ? { ...state, settings: { ...state.settings, ...sanitizeSettingsPatch(action.patch) } }
+        : state;
     case "batch_delta": {
       const collapsed: DeltaBatchItem[] = [];
       for (const item of action.items) {
@@ -523,6 +641,11 @@ export function reduce(state: State, action: Action): State {
     case "push_status":
       return { ...state, messages: [...state.messages, { kind: "status", text: action.text }] };
   }
+}
+
+function withElidedTranscript(state: State): State {
+  const messages = elideTranscriptMessages(state.messages);
+  return messages === state.messages ? state : { ...state, messages };
 }
 
 const READING_TOOLS = new Set(["read_file"]);
@@ -664,6 +787,7 @@ function zeroUsage(): UsageStats {
     lastCallCacheHit: null,
     lastCallCacheMiss: null,
     reservedTokens: 0,
+    liveLogTokens: 0,
   };
 }
 
@@ -680,6 +804,10 @@ function appendTextSegment(
 }
 
 export function applyIncoming(state: State, ev: IncomingEvent): State {
+  return withElidedTranscript(applyIncomingRaw(state, ev));
+}
+
+function applyIncomingRaw(state: State, ev: IncomingEvent): State {
   switch (ev.type) {
     case "user.message": {
       return {
@@ -817,6 +945,23 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
       };
     case "$sessions":
       return { ...state, sessions: ev.items };
+    case "$session_import_sources":
+      return { ...state, externalImportSources: ev.apps };
+    case "$session_import_result":
+      return {
+        ...state,
+        messages: [
+          ...state.messages,
+          {
+            kind: "status",
+            text: t("sidebarPanel.importResult", {
+              imported: ev.imported,
+              skipped: ev.skipped,
+              failed: ev.failed,
+            }),
+          },
+        ],
+      };
     case "$mcp_specs":
       return {
         ...state,
@@ -828,15 +973,21 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
     case "$ctx_breakdown": {
       const next: UsageStats = { ...state.usage, reservedTokens: ev.reservedTokens };
       if (typeof ev.logTokens === "number") {
-        next.cacheHitTokens = 0;
-        next.cacheMissTokens = ev.logTokens;
-        next.lastCallCacheHit = 0;
-        next.lastCallCacheMiss = ev.logTokens;
+        next.liveLogTokens = ev.logTokens;
       }
       return { ...state, usage: next };
     }
     case "$memory":
-      return { ...state, memory: ev.entries };
+      return {
+        ...state,
+        memory: ev.entries,
+        memoryDetail:
+          state.memoryDetail && ev.entries.some((entry) => entry.path === state.memoryDetail?.path)
+            ? state.memoryDetail
+            : null,
+      };
+    case "$memory_detail":
+      return { ...state, memoryDetail: ev.detail };
     case "$jobs":
       return { ...state, jobs: ev.items };
     case "$balance":
@@ -846,6 +997,7 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
           currency: ev.currency,
           total: ev.total,
           isAvailable: ev.isAvailable,
+          infos: ev.balanceInfos ?? [],
         },
       };
     case "$qq_settings":
@@ -890,7 +1042,10 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
           recentWorkspaces: ev.recentWorkspaces,
           model: ev.model,
           editor: ev.editor,
+          desktopCloseBehavior: ev.desktopCloseBehavior,
           webSearchEngine: ev.webSearchEngine,
+          webSearchEndpoint: ev.webSearchEndpoint,
+          webSearchApiKeys: ev.webSearchApiKeys,
           subagentModels: ev.subagentModels,
           showSystemEvents: ev.showSystemEvents,
           version: ev.version,
@@ -976,6 +1131,11 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
         ],
       };
     }
+    case "$prompt_history_result":
+      return {
+        ...state,
+        promptHistoryResult: { nonce: ev.nonce, entry: ev.entry },
+      };
     case "$error":
     case "error": {
       // Kernel-level errors carry a `recoverable` flag — true for
@@ -985,12 +1145,18 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
       // ones so a session full of self-repaired loops doesn't look
       // like everything's on fire (#1456-followup).
       const recoverable = ev.type === "error" ? ev.recoverable : false;
+      // Loop has returned (any error path ends the turn); flip the still-
+      // streaming assistant message to settled so the UI doesn't keep
+      // showing a "thinking" spinner above the error card (#1660).
+      const settled = state.messages.map((m) =>
+        m.kind === "assistant" && m.pending ? { ...m, pending: false } : m,
+      );
       return {
         ...state,
         busy: false,
         activeSkill: null,
         messages: [
-          ...state.messages,
+          ...settled,
           { kind: "error", message: ev.message, id: nextErrorId(), recoverable },
         ],
       };
@@ -1007,118 +1173,106 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
           { kind: "assistant", turn: ev.turn, segments: [], pending: true },
         ],
       };
-    case "model.delta":
-      return {
-        ...state,
-        messages: state.messages.map((m) => {
-          if (m.kind !== "assistant" || m.turn !== ev.turn) return m;
-          if (ev.channel === "content") {
-            return { ...m, segments: appendTextSegment(m.segments, "text", ev.text) };
-          }
-          if (ev.channel === "reasoning") {
-            return { ...m, segments: appendTextSegment(m.segments, "reasoning", ev.text) };
-          }
-          return m;
-        }),
-      };
+    case "model.delta": {
+      // Walk backwards — streaming always targets the latest assistant message
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        const m = state.messages[i]!;
+        if (m.kind !== "assistant" || m.turn !== ev.turn) continue;
+        let updated = m;
+        if (ev.channel === "content") updated = { ...m, segments: appendTextSegment(m.segments, "text", ev.text) };
+        else if (ev.channel === "reasoning") updated = { ...m, segments: appendTextSegment(m.segments, "reasoning", ev.text) };
+        const next = [...state.messages];
+        next[i] = updated;
+        return { ...state, messages: next };
+      }
+      return state;
+    }
     case "model.final": {
       const u = ev.usage;
+      const promptTokens =
+        u?.prompt_tokens ??
+        (u?.prompt_cache_hit_tokens ?? 0) + (u?.prompt_cache_miss_tokens ?? 0);
       const callHit = u?.prompt_cache_hit_tokens ?? 0;
-      const callMiss = u?.prompt_cache_miss_tokens ?? 0;
-      const hasCall = callHit > 0 || callMiss > 0;
+      const callMiss = u?.prompt_cache_miss_tokens ?? Math.max(0, promptTokens - callHit);
+      const hasCall = promptTokens > 0 || callHit > 0 || callMiss > 0;
       const usage: UsageStats = {
         totalCostUsd: state.usage.totalCostUsd + (ev.costUsd ?? 0),
-        totalPromptTokens: state.usage.totalPromptTokens + (u?.prompt_tokens ?? 0),
+        totalPromptTokens: state.usage.totalPromptTokens + promptTokens,
         totalCompletionTokens: state.usage.totalCompletionTokens + (u?.completion_tokens ?? 0),
         cacheHitTokens: state.usage.cacheHitTokens + callHit,
         cacheMissTokens: state.usage.cacheMissTokens + callMiss,
         lastCallCacheHit: hasCall ? callHit : state.usage.lastCallCacheHit,
         lastCallCacheMiss: hasCall ? callMiss : state.usage.lastCallCacheMiss,
         reservedTokens: state.usage.reservedTokens,
+        liveLogTokens: state.usage.liveLogTokens,
       };
-      return {
-        ...state,
-        usage,
-        messages: state.messages.map((m) => {
-          if (m.kind !== "assistant" || m.turn !== ev.turn) return m;
-          return { ...m, pending: false };
-        }),
-      };
+      // Walk backwards to clear pending flag on the matching assistant
+      let settledPending = false;
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        const m = state.messages[i]!;
+        if (m.kind !== "assistant" || m.turn !== ev.turn) continue;
+        if (m.pending) {
+          const s = [...state.messages];
+          s[i] = { ...m, pending: false };
+          state = { ...state, messages: s };
+        }
+        settledPending = true;
+        break;
+      }
+      return settledPending ? { ...state, usage } : { ...state, usage };
     }
-    case "tool.preparing":
-      return {
-        ...state,
-        messages: state.messages.map((m) => {
-          if (m.kind !== "assistant" || m.turn !== ev.turn) return m;
-          if (m.segments.some((s) => s.kind === "tool" && s.callId === ev.callId)) return m;
-          return {
-            ...m,
-            segments: [
-              ...m.segments,
-              {
-                kind: "tool",
-                callId: ev.callId,
-                name: ev.name,
-                args: "",
-                startedAt: Date.now(),
-              },
-            ],
-          };
-        }),
-      };
+    case "tool.preparing": {
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        const m = state.messages[i]!;
+        if (m.kind !== "assistant" || m.turn !== ev.turn) continue;
+        if (m.segments.some((s) => s.kind === "tool" && s.callId === ev.callId)) return state;
+        const next = [...state.messages];
+        next[i] = { ...m, segments: [...m.segments, { kind: "tool" as const, callId: ev.callId, name: ev.name, args: "", startedAt: Date.now() }] };
+        return { ...state, messages: next };
+      }
+      return state;
+    }
     case "tool.intent": {
       const adds = extractToolFiles(ev.name, ev.args);
-      return {
-        ...state,
-        sessionFiles: mergeSessionFiles(state.sessionFiles, adds),
-        messages: state.messages.map((m) => {
-          if (m.kind !== "assistant" || m.turn !== ev.turn) return m;
-          const idx = m.segments.findIndex((s) => s.kind === "tool" && s.callId === ev.callId);
-          if (idx >= 0) {
-            const segs = [...m.segments];
-            const seg = segs[idx];
-            if (seg?.kind === "tool") {
-              segs[idx] = { ...seg, args: ev.args };
-            }
-            return { ...m, segments: segs };
-          }
-          return {
-            ...m,
-            segments: [
-              ...m.segments,
-              {
-                kind: "tool",
-                callId: ev.callId,
-                name: ev.name,
-                args: ev.args,
-                startedAt: Date.now(),
-              },
-            ],
-          };
-        }),
-      };
+      let nextState = { ...state, sessionFiles: mergeSessionFiles(state.sessionFiles, adds) };
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        const m = state.messages[i]!;
+        if (m.kind !== "assistant" || m.turn !== ev.turn) continue;
+        const idx = m.segments.findIndex((s) => s.kind === "tool" && s.callId === ev.callId);
+        if (idx >= 0) {
+          const segs = [...m.segments];
+          if (segs[idx]?.kind === "tool") segs[idx] = { ...(segs[idx] as AssistantSegment & { kind: "tool" }), args: ev.args };
+          const msgs = [...nextState.messages];
+          msgs[i] = { ...m, segments: segs };
+          nextState = { ...nextState, messages: msgs };
+        } else {
+          const msgs = [...nextState.messages];
+          msgs[i] = { ...m, segments: [...m.segments, { kind: "tool" as const, callId: ev.callId, name: ev.name, args: ev.args, startedAt: Date.now() }] };
+          nextState = { ...nextState, messages: msgs };
+        }
+        break;
+      }
+      return nextState;
     }
-    case "tool.result":
-      return {
-        ...state,
-        messages: state.messages.map((m) => {
-          if (m.kind !== "assistant") return m;
-          let mutated = false;
-          const segs = m.segments.map((s) => {
-            if (s.kind === "tool" && s.callId === ev.callId) {
-              mutated = true;
-              return {
-                ...s,
-                result: ev.output,
-                ok: ev.ok,
-                durationMs: Date.now() - s.startedAt,
-              };
-            }
-            return s;
-          });
-          return mutated ? { ...m, segments: segs } : m;
-        }),
-      };
+    case "tool.result": {
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        const m = state.messages[i]!;
+        if (m.kind !== "assistant") continue;
+        let mutated = false;
+        const segs = m.segments.map((s) => {
+          if (s.kind === "tool" && s.callId === ev.callId) {
+            mutated = true;
+            return { ...s, result: ev.output, ok: ev.ok, durationMs: Date.now() - s.startedAt };
+          }
+          return s;
+        });
+        if (!mutated) continue;
+        const next = [...state.messages];
+        next[i] = { ...m, segments: segs };
+        return { ...state, messages: next };
+      }
+      return state;
+    }
     case "$retry_result":
       return { ...state, retryText: ev.text, retryNonce: state.retryNonce + 1 };
     case "$btw_result":
@@ -1196,11 +1350,6 @@ interface TabRuntimeProps {
   tabId: string;
   active: boolean;
   currency: "CNY" | "USD";
-  pendingUpdate: Update | null;
-  updateStatus: "idle" | "installing" | "error";
-  updateProgress: { downloaded: number; total: number | null } | null;
-  installUpdate: () => void;
-  dismissUpdate: () => void;
   registerDispatch: (tabId: string, d: TabDispatcher | null) => void;
   onNewTab: () => void;
   onCloseTab: () => void;
@@ -1226,20 +1375,16 @@ interface TabRuntimeProps {
   onToggleSide: () => void;
   onToggleCtx: () => void;
   onToggleCurrency: () => void;
-  tabsList: { id: string; workspaceDir?: string }[];
+  tabsList: { id: string; workspaceDir?: string; busy?: boolean }[];
   activeTabId: string;
   setActiveTabId: (id: string) => void;
+  onBusyChange?: (tabId: string, busy: boolean) => void;
 }
 
 function TabRuntime({
   tabId,
   active,
   currency,
-  pendingUpdate,
-  updateStatus,
-  updateProgress,
-  installUpdate,
-  dismissUpdate,
   registerDispatch,
   onNewTab,
   onCloseTab,
@@ -1268,6 +1413,7 @@ function TabRuntime({
   tabsList,
   activeTabId,
   setActiveTabId,
+  onBusyChange,
 }: TabRuntimeProps) {
   const [state, dispatch] = useReducer(reduce, {
     ready: false,
@@ -1283,16 +1429,19 @@ function TabRuntime({
     activePlan: null,
     usage: zeroUsage(),
     sessions: [],
+    externalImportSources: [],
     settings: null,
     qq: null,
     balance: null,
     mentionResults: null,
     mentionPreview: null,
+    promptHistoryResult: null,
     mcpSpecs: [],
     mcpBridged: false,
     skills: [],
     sessionFiles: [],
     memory: [],
+    memoryDetail: null,
     jobs: [],
     activeSkill: null,
     queuedSends: [],
@@ -1301,6 +1450,22 @@ function TabRuntime({
   useLang();
   useDisableTextAssist();
   const [draft, setDraft] = useState("");
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const [promptHistoryNav, setPromptHistoryNav] = useState<PromptHistoryNavState>({
+    mode: "idle",
+    draft: "",
+    cursor: null,
+    originSessionName: null,
+  });
+  const promptHistoryNavRef = useRef(promptHistoryNav);
+  promptHistoryNavRef.current = promptHistoryNav;
+  const promptHistoryRequestRef = useRef<{
+    nonce: number;
+    direction: "older" | "newer";
+    draft: string;
+  } | null>(null);
+  const promptHistoryNonceRef = useRef(0);
   const [toast, setToast] = useState<{ msg: string; yolo?: boolean } | null>(null);
   const [splashOn, setSplashOn] = useState<boolean>(() => shouldShowSplash());
   const [wdOpen, setWdOpen] = useState(false);
@@ -1309,11 +1474,18 @@ function TabRuntime({
   >(undefined);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
-  const threadInnerRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const virtScrollerRef = useRef<HTMLDivElement | null>(null);
+  const atBottomRef = useRef(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPageId>("general");
+  const [mcpEditTarget, setMcpEditTarget] = useState<{ raw: string; nonce: number } | null>(
+    null,
+  );
   const [jobsOpen, setJobsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [contextPanelTab, setContextPanelTab] = useState<ContextPanelTab>("files");
+  const [contextPanelTabNonce, setContextPanelTabNonce] = useState(0);
   const previousApprovalSnapshotRef = useRef<ApprovalSnapshot>({
     confirms: [],
     pathAccess: [],
@@ -1337,6 +1509,12 @@ function TabRuntime({
   }, []);
   const openSettingsAt = useCallback((page: SettingsPageId = "general") => {
     setSettingsPage(page);
+    setMcpEditTarget(null);
+    setSettingsOpen(true);
+  }, []);
+  const openMcpEditor = useCallback((spec: McpSpecInfo) => {
+    setSettingsPage("mcp");
+    setMcpEditTarget((prev) => ({ raw: spec.raw, nonce: (prev?.nonce ?? 0) + 1 }));
     setSettingsOpen(true);
   }, []);
   const palette = useCommandPalette(active);
@@ -1346,6 +1524,10 @@ function TabRuntime({
     return () => registerDispatch(tabId, null);
   }, [tabId, registerDispatch]);
 
+  useEffect(() => {
+    onBusyChange?.(tabId, state.busy);
+  }, [tabId, state.busy, onBusyChange]);
+
   const sendRpc = useCallback(
     (cmd: OutgoingCommand) => {
       const payload = { tabId, ...cmd };
@@ -1354,6 +1536,35 @@ function TabRuntime({
       );
     },
     [tabId],
+  );
+
+  const resetPromptHistoryNav = useCallback(() => {
+    promptHistoryRequestRef.current = null;
+    setPromptHistoryNav({
+      mode: "idle",
+      draft: "",
+      cursor: null,
+      originSessionName: null,
+    });
+  }, []);
+
+  const requestPromptHistoryNavigation = useCallback(
+    (direction: "older" | "newer", currentDraft: string) => {
+      const nav = promptHistoryNavRef.current;
+      if (direction === "newer" && nav.mode === "idle") return false;
+      const nonce = ++promptHistoryNonceRef.current;
+      promptHistoryRequestRef.current = { nonce, direction, draft: currentDraft };
+      sendRpc({
+        cmd: "prompt_history_step",
+        nonce,
+        direction,
+        cursor: nav.mode === "browsing" ? nav.cursor : null,
+        startSessionName: nav.mode === "idle" ? state.currentSession : undefined,
+        stopSessionName: nav.originSessionName ?? undefined,
+      });
+      return true;
+    },
+    [sendRpc, state.currentSession],
   );
 
   const queryMentions = useCallback(
@@ -1371,6 +1582,13 @@ function TabRuntime({
   const saveSettings = useCallback(
     (patch: SettingsPatch) => sendRpc({ cmd: "settings_save", ...patch }),
     [sendRpc],
+  );
+  const applySettingsPatch = useCallback(
+    (patch: SettingsPatch) => {
+      dispatch({ t: "settings_patch", patch });
+      saveSettings(patch);
+    },
+    [saveSettings],
   );
   const loadQQSettings = useCallback(() => sendRpc({ cmd: "qq_status_get" }), [sendRpc]);
   const connectQQ = useCallback(() => sendRpc({ cmd: "qq_connect" }), [sendRpc]);
@@ -1392,11 +1610,20 @@ function TabRuntime({
     (spec: string) => sendRpc({ cmd: "mcp_specs_remove", spec }),
     [sendRpc],
   );
+  const updateMcpSpec = useCallback(
+    (raw: string, server: ImportedMcpServer) => sendRpc({ cmd: "mcp_specs_update", raw, server }),
+    [sendRpc],
+  );
+  const retryMcpSpec = useCallback(
+    (raw: string) => sendRpc({ cmd: "mcp_specs_retry", raw }),
+    [sendRpc],
+  );
   const newChat = useCallback(() => {
     clearAbortDraft();
+    resetPromptHistoryNav();
     sendRpc({ cmd: "new_chat" });
     dispatch({ t: "clear" });
-  }, [clearAbortDraft, sendRpc]);
+  }, [clearAbortDraft, resetPromptHistoryNav, sendRpc]);
 
   const pickWorkspace = useCallback(async () => {
     try {
@@ -1421,6 +1648,108 @@ function TabRuntime({
       window.setTimeout(() => setToast(null), opts?.duration ?? 1600);
     },
     [],
+  );
+
+  const importCcSwitchMcp = useCallback(async () => {
+    try {
+      const result = await invoke<CcSwitchImportResult>("import_cc_switch_mcp");
+      const existingNames = new Set(
+        state.mcpSpecs
+          .map((spec) => spec.name)
+          .filter((name): name is string => typeof name === "string" && name.length > 0),
+      );
+      const pending = result.servers.filter((server) => !existingNames.has(server.name));
+      const skipped = result.servers.length - pending.length;
+      if (pending.length === 0) {
+        flashToast(t("toast.mcpImportNone"));
+        return;
+      }
+      await invoke("rpc_send", {
+        line: JSON.stringify({ tabId, cmd: "mcp_import_servers", servers: pending }),
+      });
+      flashToast(
+        skipped > 0
+          ? t("toast.mcpImportedWithSkipped", { imported: pending.length, skipped })
+          : t("toast.mcpImported", { imported: pending.length }),
+        { duration: 2600 },
+      );
+    } catch (err) {
+      flashToast(t("toast.mcpImportFailed", { error: String(err) }), { duration: 3200 });
+      throw err;
+    }
+  }, [flashToast, state.mcpSpecs, tabId]);
+
+  const openMcpStatus = useCallback(() => {
+    setContextPanelTab("tools");
+    setContextPanelTabNonce((nonce) => nonce + 1);
+    if (ctxCollapsed) onToggleCtx();
+    flashToast(t("toast.mcpStatusOpened"));
+  }, [ctxCollapsed, flashToast, onToggleCtx]);
+
+  const retryFailedMcpSpecs = useCallback(() => {
+    const failed = state.mcpSpecs.filter((spec) => spec.status === "failed");
+    if (failed.length === 0) {
+      flashToast(t("toast.mcpRetryNone"));
+      return;
+    }
+    for (const spec of failed) retryMcpSpec(spec.raw);
+    flashToast(t("toast.mcpRetryQueued", { count: failed.length }), { duration: 2200 });
+  }, [flashToast, retryMcpSpec, state.mcpSpecs]);
+
+  const runMcpSlashCommand = useCallback(
+    (arg?: string) => {
+      const subcommand = arg?.trim().toLowerCase() ?? "";
+      if (!subcommand || subcommand === "settings" || subcommand === "config") {
+        openSettingsAt("mcp");
+        return true;
+      }
+      if (subcommand === "status" || subcommand === "list" || subcommand === "ls") {
+        openMcpStatus();
+        return true;
+      }
+      if (subcommand === "retry" || subcommand === "reconnect") {
+        retryFailedMcpSpecs();
+        return true;
+      }
+      if (subcommand === "import" || subcommand === "cc-switch" || subcommand === "ccswitch") {
+        openSettingsAt("mcp");
+        void importCcSwitchMcp().catch(() => undefined);
+        return true;
+      }
+      return false;
+    },
+    [importCcSwitchMcp, openMcpStatus, openSettingsAt, retryFailedMcpSpecs],
+  );
+
+  const applyReasoningEffort = useCallback(
+    (reasoningEffort: Settings["reasoningEffort"]) => {
+      applySettingsPatch({ reasoningEffort });
+      flashToast(t("app.toast.effortSwitched", { effort: reasoningEffort }));
+    },
+    [applySettingsPatch, flashToast],
+  );
+
+  const applyEditMode = useCallback(
+    (mode: Settings["editMode"]) => {
+      applySettingsPatch({ editMode: mode });
+      if (mode === "yolo") {
+        flashToast(t("app.yolo.toast"), { yolo: true, duration: 3000 });
+      } else {
+        flashToast(t("app.toast.modeSwitched", { mode: mode.toUpperCase() }));
+      }
+    },
+    [applySettingsPatch, flashToast],
+  );
+
+  const applySlashSettingsCommand = useCallback(
+    (command: SlashSettingsCommand) => {
+      if (command.type === "reasoningEffort") {
+        applyReasoningEffort(command.reasoningEffort);
+      } else {
+        applyEditMode(command.editMode);
+      }
+    },
+    [applyEditMode, applyReasoningEffort],
   );
 
   // Drag-and-drop: dropping files/folders onto the window inserts them
@@ -1491,6 +1820,14 @@ function TabRuntime({
     (override?: string) => {
       const text = (override ?? draft).trim();
       if (!text || !state.ready || state.busy) return;
+      resetPromptHistoryNav();
+
+      const settingsCommand = parseSlashSettingsCommand(text);
+      if (settingsCommand) {
+        applySlashSettingsCommand(settingsCommand);
+        if (!override) setDraft("");
+        return;
+      }
 
       // /btw <question> — route to side-question RPC instead of user_input.
       // Empty payload used to silently swallow the keystroke (#1370); surface
@@ -1517,6 +1854,22 @@ function TabRuntime({
       const skillMatch = text.match(/^\/([a-zA-Z0-9_-]+)(\s+.*)?$/);
       if (skillMatch) {
         const [, name, args] = skillMatch;
+        if (name === "search-engine" || name === "se") {
+          openSettingsAt("general");
+          if (!override) setDraft("");
+          return;
+        }
+        if (name === "mcp") {
+          if (runMcpSlashCommand(args?.trim())) {
+            if (!override) setDraft("");
+            return;
+          }
+        }
+        if (name === "skill" || name === "skills") {
+          openSettingsAt("skills");
+          if (!override) setDraft("");
+          return;
+        }
         const skill = state.skills.find((s) => s.name === name);
         if (skill) {
           const clientId = `skill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1534,7 +1887,18 @@ function TabRuntime({
       sendRpc({ cmd: "user_input", text });
       if (!override) setDraft("");
     },
-    [draft, state.ready, state.busy, state.skills, sendRpc, recordAbortDraft],
+    [
+      draft,
+      state.ready,
+      state.busy,
+      state.skills,
+      sendRpc,
+      recordAbortDraft,
+      applySlashSettingsCommand,
+      openSettingsAt,
+      resetPromptHistoryNav,
+      runMcpSlashCommand,
+    ],
   );
 
   const abort = useCallback(() => {
@@ -1553,12 +1917,14 @@ function TabRuntime({
 
   const clearConversation = useCallback(() => {
     clearAbortDraft();
+    resetPromptHistoryNav();
     dispatch({ t: "clear" });
-  }, [clearAbortDraft]);
+  }, [clearAbortDraft, resetPromptHistoryNav]);
 
   // When /retry returns the last user text, set it as the composer draft
   useEffect(() => {
     if (state.retryNonce > 0 && state.retryText) {
+      resetPromptHistoryNav();
       setDraft(state.retryText);
       composerRef.current?.focus();
     }
@@ -1567,9 +1933,10 @@ function TabRuntime({
   }, [state.retryNonce]);
 
   const onEditUserMsg = useCallback((t: string) => {
+    resetPromptHistoryNav();
     setDraft(t);
     composerRef.current?.focus();
-  }, []);
+  }, [resetPromptHistoryNav]);
 
   useEffect(() => {
     if (state.busy || !state.ready || state.queuedSends.length === 0) return;
@@ -1578,6 +1945,49 @@ function TabRuntime({
     dispatch({ t: "shift_queued_send" });
     send(next);
   }, [state.busy, state.ready, state.queuedSends, send]);
+
+  useEffect(() => {
+    const result = state.promptHistoryResult;
+    const request = promptHistoryRequestRef.current;
+    if (!result || !request || result.nonce !== request.nonce) return;
+    promptHistoryRequestRef.current = null;
+
+    const nav = promptHistoryNavRef.current;
+    if (!result.entry) {
+      if (request.direction === "newer" && nav.mode === "browsing") {
+        const restored = nav.draft;
+        setDraft(restored);
+        setPromptHistoryNav({
+          mode: "idle",
+          draft: "",
+          cursor: null,
+          originSessionName: null,
+        });
+        requestAnimationFrame(() => {
+          composerRef.current?.focus();
+          composerRef.current?.setSelectionRange(restored.length, restored.length);
+        });
+      }
+      return;
+    }
+
+    const value = result.entry.value;
+    setDraft(value);
+    setPromptHistoryNav((prev) => ({
+      mode: "browsing",
+      draft: prev.mode === "idle" ? request.draft : prev.draft,
+      cursor: result.entry?.cursor ?? null,
+      originSessionName: prev.mode === "idle" ? (state.currentSession ?? null) : prev.originSessionName,
+    }));
+    requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(value.length, value.length);
+    });
+  }, [state.promptHistoryResult, state.currentSession]);
+
+  useEffect(() => {
+    resetPromptHistoryNav();
+  }, [resetPromptHistoryNav, state.currentSession]);
 
   useEffect(() => {
     const currentSnapshot: ApprovalSnapshot = {
@@ -1698,28 +2108,50 @@ function TabRuntime({
     [sendRpc],
   );
 
-  // Read the latest session inside the stable restore callback below.
-  const currentSessionRef = useRef(state.currentSession);
-  currentSessionRef.current = state.currentSession;
-  const restoreScrollTop = useCallback(() => {
-    const session = currentSessionRef.current;
-    if (!session) return null;
-    const raw = localStorage.getItem(`reasonix.scroll.${session}`);
-    const n = raw ? Number(raw) : Number.NaN;
-    return Number.isFinite(n) ? n : null;
-  }, []);
+  const messageItems = state.messages;
 
-  const { showJumpButton, scrollToBottom } = useAutoScroll(
-    threadRef,
-    threadInnerRef,
-    state.busy,
-    restoreScrollTop,
-  );
+  const [showJumpButton, setShowJumpButton] = useState(false);
+
+  // Reserve scroll to bottom when busy becomes true (message just sent).
+  const busyPrevRef = useRef(state.busy);
+  useEffect(() => {
+    if (state.busy && !busyPrevRef.current) {
+      atBottomRef.current = true;
+      setShowJumpButton(false);
+    }
+    busyPrevRef.current = state.busy;
+  }, [state.busy]);
+
+  const scrollToBottom = useCallback(() => {
+    const len = messageItems.length;
+    if (len > 0) {
+      const scroller = virtScrollerRef.current;
+      if (scroller) {
+        scroller.scrollTop = scroller.scrollHeight;
+      } else {
+        virtuosoRef.current?.scrollToIndex({ index: len - 1, behavior: "auto" });
+      }
+    }
+  }, [messageItems.length]);
+
+  // Follow the bottom while the assistant is streaming and the user hasn't
+  // scrolled up. The dependency on messageItems.length covers new messages;
+  // atBottomRef guards against re-pinning when the user intentionally scrolled
+  // up to read earlier content (#2159).
+  useEffect(() => {
+    const s = virtScrollerRef.current;
+    if (!s || messageItems.length === 0) return;
+    if (!atBottomRef.current) return;
+    const id = requestAnimationFrame(() => {
+      if (atBottomRef.current) s.scrollTop = s.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [messageItems]);
 
   // Persist the transcript scroll offset per session so a restart reopens
   // the conversation where the user left it (#1244).
   useEffect(() => {
-    const el = threadRef.current;
+    const el = virtScrollerRef.current;
     const session = state.currentSession;
     if (!el || !session) return;
     const key = `reasonix.scroll.${session}`;
@@ -1792,6 +2224,32 @@ function TabRuntime({
         if (settingsOpen || aboutOpen || jobsOpen || wdOpen) return;
         e.preventDefault();
         abort();
+      } else if (e.key === "Enter" && !mod && !e.shiftKey && !e.altKey) {
+        // Defer to any control that already handles Enter — native inputs/buttons,
+        // ARIA button/link widgets (sidebar rows, file pills), or anything that called
+        // preventDefault — so we only grant when focus is on inert layout (#2015).
+        if (e.defaultPrevented) return;
+        const target = e.target as HTMLElement | null;
+        if (
+          target?.isContentEditable ||
+          target?.closest('input, textarea, button, select, a, [role="button"], [role="link"]')
+        ) {
+          return;
+        }
+        if (settingsOpen || aboutOpen || jobsOpen || wdOpen) return;
+        // Enter grants the pending authorization prompt (run once), matching the
+        // TUI where Enter confirms the highlighted choice (#1962).
+        const confirm = state.pendingConfirms.at(-1);
+        if (confirm) {
+          e.preventDefault();
+          resolveConfirm(confirm.id, { type: "run_once" });
+          return;
+        }
+        const pathAccess = state.pendingPathAccess.at(-1);
+        if (pathAccess) {
+          e.preventDefault();
+          resolvePathAccess(pathAccess.id, { type: "run_once" });
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1799,6 +2257,10 @@ function TabRuntime({
   }, [
     active,
     state.busy,
+    state.pendingConfirms,
+    state.pendingPathAccess,
+    resolveConfirm,
+    resolvePathAccess,
     abort,
     newChat,
     settingsOpen,
@@ -1848,6 +2310,17 @@ function TabRuntime({
     hasMessages: state.messages.length > 0,
   });
 
+  const slashSettingCommands: SlashCmd[] = buildSlashSettingsDescriptors().map(
+    ({ cmd, action }) => ({
+      cmd,
+      desc:
+        action.type === "editMode"
+          ? t("app.cmd.setMode", { mode: action.editMode })
+          : t("app.cmd.setEffort", { effort: action.reasoningEffort }),
+      run: () => applySlashSettingsCommand(action),
+    }),
+  );
+
   const slashCommands: SlashCmd[] = [
     {
       cmd: "/help",
@@ -1878,6 +2351,25 @@ function TabRuntime({
       },
     },
     { cmd: "/model", desc: t("app.cmd.switchModel"), run: () => openSettingsAt("models") },
+    { cmd: "/mcp", desc: t("app.cmd.mcp"), run: () => openSettingsAt("mcp") },
+    { cmd: "/mcp status", desc: t("app.cmd.mcpStatus"), run: openMcpStatus },
+    { cmd: "/mcp retry", desc: t("app.cmd.mcpRetry"), run: retryFailedMcpSpecs },
+    {
+      cmd: "/mcp import",
+      desc: t("app.cmd.mcpImport"),
+      run: () => {
+        openSettingsAt("mcp");
+        void importCcSwitchMcp().catch(() => undefined);
+      },
+    },
+    {
+      cmd: "/search-engine",
+      desc: t("app.cmd.searchEngine"),
+      run: () => openSettingsAt("general"),
+    },
+    { cmd: "/skill", desc: t("app.cmd.skill"), run: () => openSettingsAt("skills") },
+    { cmd: "/skills", desc: t("app.cmd.skill"), run: () => openSettingsAt("skills") },
+    ...slashSettingCommands,
     { cmd: "/theme", desc: t("app.cmd.toggleTheme"), run: onToggleTheme },
     {
       cmd: "/currency",
@@ -1888,9 +2380,10 @@ function TabRuntime({
       cmd: "/lang",
       desc: t("app.cmd.toggleLang"),
       run: () => {
-        const next = getLang() === "zh-CN" ? "en" : "zh-CN";
+        const langs = getSupportedLangs();
+        const next = langs[(langs.indexOf(getLang()) + 1) % langs.length] ?? "en";
         setLang(next);
-        const langName = next === "zh-CN" ? t("app.langZH") : t("app.langEN");
+        const langName = getLangLabel(next);
         flashToast(t("app.toast.langSwitched", { lang: langName }));
       },
     },
@@ -2009,7 +2502,7 @@ function TabRuntime({
 
   return (
     <WorkspaceProvider
-      value={{ dir: state.settings?.workspaceDir, editor: state.settings?.editor }}
+      value={{ dir: state.settings?.workspaceDir, editor: state.settings?.editor, sessionFiles: state.sessionFiles }}
     >
       <div
         className="app"
@@ -2055,7 +2548,9 @@ function TabRuntime({
 
         <Sidebar
           sessions={state.sessions}
+          importSources={state.externalImportSources}
           activeName={state.currentSession}
+          workspaceDir={state.settings?.workspaceDir}
           onNewChat={newChat}
           onLoadSession={(name) => {
             clearAbortDraft();
@@ -2063,6 +2558,17 @@ function TabRuntime({
           }}
           onDeleteSession={(name) => sendRpc({ cmd: "session_delete", name })}
           onRenameSession={(name, title) => sendRpc({ cmd: "session_rename", name, title })}
+          onRefreshImportSources={() => sendRpc({ cmd: "session_import_scan" })}
+          onImportDetectedSessions={(sources: ExternalSessionSource[]) =>
+            sendRpc({ cmd: "session_import_bulk", sources })
+          }
+          onImportSession={({ source, path, name }) =>
+            sendRpc({ cmd: "session_import", source, path, ...(name ? { name } : {}) })
+          }
+          onOpenWorkdir={(anchor) => {
+            setWdAnchor(anchor);
+            setWdOpen(true);
+          }}
           onOpenSettings={() => openSettingsAt("general")}
           onOpenRules={() => openSettingsAt("rules")}
           onOpenCommands={() => palette.setOpen(true)}
@@ -2079,6 +2585,10 @@ function TabRuntime({
         ) : null}
 
         <main className="main" style={{ position: "relative" }}>
+          <JumpBar messages={state.messages} threadEl={threadRef.current} onScrollToTurn={(turn) => {
+            const idx = state.messages.findIndex((m) => (m.kind === "user" || m.kind === "assistant") && m.turn === turn);
+            if (idx >= 0) virtuosoRef.current?.scrollToIndex(idx);
+          }} />
           {state.needsSetup ? (
             <NeedsSetupView
               workspaceDir={state.settings?.workspaceDir}
@@ -2103,201 +2613,117 @@ function TabRuntime({
                 }}
               />
               <div className="thread" ref={threadRef}>
-                <div className="thread-inner" ref={threadInnerRef}>
-                  {pendingUpdate ? (
-                    <UpdateBanner
-                      version={pendingUpdate.version}
-                      currentVersion={pendingUpdate.currentVersion}
-                      status={updateStatus}
-                      progress={updateProgress}
-                      onInstall={installUpdate}
-                      onDismiss={dismissUpdate}
-                    />
-                  ) : null}
-
-                  {state.activePlan ? (
-                    <>
-                      <PlanBanner
-                        plan={state.activePlan}
-                        onDismiss={state.busy ? undefined : () => dispatch({ t: "dismiss_plan" })}
-                      />
-                      <ActivePlanTaskCard plan={state.activePlan} />
-                    </>
-                  ) : null}
-
-                  {state.messages.length === 0 ? (
+                {state.messages.length === 0 ? (
+                  <div className="thread-inner thread-inner--standalone">
                     <EmptyState
                       onPick={(text) => {
                         const trimmed = text.trim();
                         if (trimmed.startsWith("/")) {
                           const cmd = trimmed.split(/\s+/)[0] ?? "";
                           const match = slashCommands.find((s) => s.cmd === cmd);
-                          if (match) {
-                            match.run();
-                            return;
-                          }
+                          if (match) { match.run(); return; }
                         }
                         send(text);
                       }}
                       workspaceDir={state.settings?.workspaceDir}
                     />
-                  ) : null}
-
-                  {state.messages.map((m, i) => {
-                    if (m.kind === "user") {
-                      const dividerLabel = `turn ${m.turn}`;
-                      const prev = state.messages[i - 1];
-                      const needsDivider = !prev || prev.kind === "user";
-                      return (
-                        <div key={`u-${i}`}>
-                          {needsDivider ? <TurnDivider label={dividerLabel} /> : null}
-                          <UserMsg text={m.text} skill={m.skill} onEdit={onEditUserMsg} />
-                        </div>
-                      );
-                    }
-                    if (m.kind === "assistant") {
-                      const stats = !m.pending ? countFileStats(m.segments) : null;
-                      return (
-                        <div key={`a-${m.turn}`}>
-                          <AssistantMsg
-                            segments={m.segments}
-                            pending={m.pending}
-                            model={state.model}
-                            onApproveConfirm={onApproveConfirm}
-                            onRejectConfirm={onRejectConfirm}
-                            onAlwaysAllowConfirm={onAlwaysAllowConfirm}
-                            pendingConfirms={state.pendingConfirms}
+                  </div>
+                ) : (
+                  <Virtuoso
+                    ref={virtuosoRef}
+                    style={{ height: "90%" }}
+                    className="virtuoso-scroll"
+                    totalCount={messageItems.length}
+                    followOutput={"auto"}
+                    initialTopMostItemIndex={messageItems.length > 0 ? messageItems.length - 1 : undefined}
+                    scrollerRef={(ref) => { virtScrollerRef.current = ref as HTMLDivElement | null; }}
+                    atBottomStateChange={(atBottom) => { atBottomRef.current = atBottom; setShowJumpButton(!atBottom); }}
+                    components={{
+                      Header: state.activePlan ? () => (
+                        <div className="thread-inner">
+                          <PlanBanner
+                            plan={state.activePlan!}
+                            onDismiss={state.busy ? undefined : () => dispatch({ t: "dismiss_plan" })}
                           />
-                          {stats ? <DiffStats stats={stats} /> : null}
+                          <ActivePlanTaskCard plan={state.activePlan!} />
                         </div>
-                      );
-                    }
-                    if (m.kind === "error") {
-                      const toneVar = m.recoverable ? "var(--tone-warn)" : "var(--tone-err)";
-                      const bgVar = m.recoverable
-                        ? "var(--warn-soft, var(--danger-soft))"
-                        : "var(--danger-soft)";
-                      const labelKey = m.recoverable ? "app.warningLabel" : "app.errorLabel";
-                      return (
-                        <div
-                          key={m.id}
-                          className="warn-card"
-                          style={{ borderColor: toneVar, background: bgVar, position: "relative" }}
-                        >
-                          <span className="ico" style={{ color: toneVar }}>
-                            <I.warning size={16} />
-                          </span>
-                          <div style={{ flex: 1 }}>
-                            <div className="tt">{t(labelKey)}</div>
-                            <div className="ds">{m.message}</div>
+                      ) : undefined,
+                      Footer: () => (
+                        <div className="thread-inner">
+                          {state.pendingPlans.map((p) => <PlanApprovalCard key={`pp-${p.id}`} p={p} onApprove={() => resolvePlan(p.id, { type: "approve" })} onRefine={() => resolvePlan(p.id, { type: "refine" })} onCancel={() => resolvePlan(p.id, { type: "cancel" })} />)}
+                          {state.pendingCheckpoints.map((c) => <CheckpointApprovalCard key={`cp-${c.id}`} c={c} onContinue={() => resolveCheckpoint(c.id, { type: "continue" })} onRevise={() => resolveCheckpoint(c.id, { type: "revise" })} onStop={() => resolveCheckpoint(c.id, { type: "stop" })} />)}
+                          {state.pendingRevisions.map((r) => <RevisionApprovalCard key={`rv-${r.id}`} r={r} onAccept={() => resolveRevision(r.id, { type: "accepted" })} onReject={() => resolveRevision(r.id, { type: "rejected" })} />)}
+                          {state.pendingConfirms.map((c) => <ConfirmApprovalCard key={`cc-${c.id}`} prompt={c.prompt} onAllow={() => resolveConfirm(c.id, { type: "run_once" })} onAlwaysAllow={(prefix) => resolveConfirm(c.id, { type: "always_allow", prefix })} onDeny={() => resolveConfirm(c.id, { type: "deny" })} />)}
+                          {state.pendingPathAccess.map((p) => <PathAccessApprovalCard key={`pa-${p.id}`} prompt={p.prompt} onAllow={() => resolvePathAccess(p.id, { type: "run_once" })} onAlwaysAllow={(prefix) => resolvePathAccess(p.id, { type: "always_allow", prefix })} onDeny={() => resolvePathAccess(p.id, { type: "deny" })} />)}
+                          {state.pendingChoices.map((c) => <ChoiceApprovalCard key={`ch-${c.id}`} c={c} onPick={(optionId) => resolveChoice(c.id, { type: "pick", optionId })} onCancel={() => resolveChoice(c.id, { type: "cancel" })} />)}
+                          {!state.ready ? <div style={{ padding: 12, color: "var(--muted)", fontFamily: "Geist Mono, monospace", fontSize: 11 }}>{t("app.connecting")}</div> : null}
+                        </div>
+                      ),
+                    }}
+                    itemContent={(index) => {
+                      const m = state.messages[index]!;
+                      if (m.kind === "user") {
+                        return (
+                          <div className="thread-inner" data-turn={m.turn}>
+                            <TurnDivider label={`turn ${m.turn}`} />
+                            <UserMsg text={m.text} skill={m.skill} onEdit={onEditUserMsg} />
                           </div>
-                          <button
-                            type="button"
-                            className="warn-card-dismiss"
-                            title={t("app.dismissError")}
-                            onClick={() => dispatch({ t: "dismiss_error", id: m.id })}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: toneVar,
-                              cursor: "pointer",
-                              padding: "4px",
-                              alignSelf: "flex-start",
-                            }}
-                          >
-                            <I.x size={14} />
-                          </button>
-                        </div>
-                      );
-                    }
-                    if (m.kind === "warning") {
-                      if (state.settings?.showSystemEvents === false) return null;
-                      return (
-                        <div key={m.id} className="sys-event-row" title={m.text}>
-                          <span className="line" />
-                          <span className="label">{m.text}</span>
-                          <span className="line" />
-                        </div>
-                      );
-                    }
-                    return null;
-                  })}
-
-                  {/* Pending approvals */}
-                  {state.pendingPlans.map((p) => (
-                    <PlanApprovalCard
-                      key={`pp-${p.id}`}
-                      p={p}
-                      onApprove={() => resolvePlan(p.id, { type: "approve" })}
-                      onRefine={() => resolvePlan(p.id, { type: "refine" })}
-                      onCancel={() => resolvePlan(p.id, { type: "cancel" })}
-                    />
-                  ))}
-                  {state.pendingCheckpoints.map((c) => (
-                    <CheckpointApprovalCard
-                      key={`cp-${c.id}`}
-                      c={c}
-                      onContinue={() => resolveCheckpoint(c.id, { type: "continue" })}
-                      onRevise={() => resolveCheckpoint(c.id, { type: "revise" })}
-                      onStop={() => resolveCheckpoint(c.id, { type: "stop" })}
-                    />
-                  ))}
-                  {state.pendingRevisions.map((r) => (
-                    <RevisionApprovalCard
-                      key={`rv-${r.id}`}
-                      r={r}
-                      onAccept={() => resolveRevision(r.id, { type: "accepted" })}
-                      onReject={() => resolveRevision(r.id, { type: "rejected" })}
-                    />
-                  ))}
-                  {state.pendingConfirms.map((c) => (
-                    <ConfirmApprovalCard
-                      key={`cc-${c.id}`}
-                      prompt={c.prompt}
-                      onAllow={() => resolveConfirm(c.id, { type: "run_once" })}
-                      onAlwaysAllow={(prefix) =>
-                        resolveConfirm(c.id, { type: "always_allow", prefix })
+                        );
                       }
-                      onDeny={() => resolveConfirm(c.id, { type: "deny" })}
-                    />
-                  ))}
-                  {state.pendingPathAccess.map((p) => (
-                    <PathAccessApprovalCard
-                      key={`pa-${p.id}`}
-                      prompt={p.prompt}
-                      onAllow={() => resolvePathAccess(p.id, { type: "run_once" })}
-                      onAlwaysAllow={(prefix) =>
-                        resolvePathAccess(p.id, { type: "always_allow", prefix })
+                      if (m.kind === "assistant") {
+                        const stats = !m.pending ? countFileStats(m.segments) : null;
+                        return (
+                          <div className="thread-inner">
+                            <AssistantMsg
+                              segments={m.segments}
+                              pending={m.pending}
+                              model={state.model}
+                              onApproveConfirm={onApproveConfirm}
+                              onRejectConfirm={onRejectConfirm}
+                              onAlwaysAllowConfirm={onAlwaysAllowConfirm}
+                              pendingConfirms={state.pendingConfirms}
+                            />
+                            {stats ? <DiffStats stats={stats} /> : null}
+                          </div>
+                        );
                       }
-                      onDeny={() => resolvePathAccess(p.id, { type: "deny" })}
-                    />
-                  ))}
-                  {state.pendingChoices.map((c) => (
-                    <ChoiceApprovalCard
-                      key={`ch-${c.id}`}
-                      c={c}
-                      onPick={(optionId) => resolveChoice(c.id, { type: "pick", optionId })}
-                      onCancel={() => resolveChoice(c.id, { type: "cancel" })}
-                    />
-                  ))}
-
-                  {!state.ready ? (
-                    <div
-                      style={{
-                        padding: 12,
-                        color: "var(--muted)",
-                        fontFamily: "Geist Mono, monospace",
-                        fontSize: 11,
-                      }}
-                    >
-                      {t("app.connecting")}
-                    </div>
-                  ) : null}
-                </div>
+                      if (m.kind === "error") {
+                        const toneVar = m.recoverable ? "var(--tone-warn)" : "var(--tone-err)";
+                        const bgVar = m.recoverable ? "var(--warn-soft, var(--danger-soft))" : "var(--danger-soft)";
+                        const labelKey = m.recoverable ? "app.warningLabel" : "app.errorLabel";
+                        return (
+                          <div key={m.id} className="warn-card" style={{ borderColor: toneVar, background: bgVar, position: "relative" }}>
+                            <span className="ico" style={{ color: toneVar }}><I.warning size={16} /></span>
+                            <div style={{ flex: 1 }}>
+                              <div className="tt">{t(labelKey)}</div>
+                              <div className="ds">{m.message}</div>
+                            </div>
+                            <button type="button" className="warn-card-dismiss" title={t("app.dismissError")}
+                              onClick={() => dispatch({ t: "dismiss_error", id: m.id })}
+                              style={{ background: "transparent", border: "none", color: toneVar, cursor: "pointer", padding: "4px", alignSelf: "flex-start" }}>
+                              <I.x size={14} />
+                            </button>
+                          </div>
+                        );
+                      }
+                      if (m.kind === "warning") {
+                        if (state.settings?.showSystemEvents === false) return null;
+                        return (
+                          <div key={m.id} className="sys-event-row" title={m.text}>
+                            <span className="line" />
+                            <span className="label">{m.text}</span>
+                            <span className="line" />
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                )}
                 {showJumpButton ? (
                   <button
                     className="thread-jump-bottom"
-                    onClick={() => scrollToBottom(true)}
+                    onClick={() => { atBottomRef.current = true; setShowJumpButton(false); scrollToBottom(); }}
                     title={t("app.jumpToBottom") ?? "Jump to bottom"}
                     aria-label={t("app.jumpToBottom") ?? "Jump to bottom"}
                   >
@@ -2309,6 +2735,11 @@ function TabRuntime({
               <Composer
                 draft={draft}
                 setDraft={setDraft}
+                onDraftUserEdit={resetPromptHistoryNav}
+                promptHistoryBrowsing={promptHistoryNav.mode === "browsing"}
+                onPromptHistoryNavigate={(direction) =>
+                  requestPromptHistoryNavigation(direction, draftRef.current)
+                }
                 onSend={() => send()}
                 onAbort={abort}
                 disabled={!state.ready}
@@ -2325,22 +2756,12 @@ function TabRuntime({
                 modelLabel={state.settings?.model ?? "deepseek-v4-flash"}
                 reasoningEffort={state.settings?.reasoningEffort ?? "high"}
                 onModelChange={(model) => {
-                  saveSettings({ model });
+                  applySettingsPatch({ model });
                   flashToast(t("app.toast.modelSwitched", { model }));
                 }}
-                onEffortChange={(reasoningEffort) => {
-                  saveSettings({ reasoningEffort });
-                  flashToast(t("app.toast.effortSwitched", { effort: reasoningEffort }));
-                }}
+                onEffortChange={applyReasoningEffort}
                 editMode={state.settings?.editMode ?? "review"}
-                onEditModeChange={(mode) => {
-                  saveSettings({ editMode: mode });
-                  if (mode === "yolo") {
-                    flashToast(t("app.yolo.toast"), { yolo: true, duration: 3000 });
-                  } else {
-                    flashToast(t("app.toast.modeSwitched", { mode: mode.toUpperCase() }));
-                  }
-                }}
+                onEditModeChange={applyEditMode}
                 workspaceDir={state.settings?.workspaceDir}
                 slashCommands={slashCommands}
                 onMentionQuery={queryMentions}
@@ -2349,6 +2770,7 @@ function TabRuntime({
                 mentionResults={state.mentionResults}
                 queuedSends={state.queuedSends}
                 onQueueWhileBusy={(text) => {
+                  resetPromptHistoryNav();
                   dispatch({ t: "enqueue_send", text });
                   setDraft("");
                 }}
@@ -2366,7 +2788,6 @@ function TabRuntime({
             onMouseDown={onCtxResizeDown}
           />
         ) : null}
-
         <ContextPanel
           settings={state.settings}
           usage={state.usage}
@@ -2374,6 +2795,13 @@ function TabRuntime({
           mcpBridged={state.mcpBridged}
           sessionFiles={state.sessionFiles}
           memory={state.memory}
+          memoryDetail={state.memoryDetail}
+          activeTab={contextPanelTab}
+          activeTabNonce={contextPanelTabNonce}
+          onReadMemory={(path) => sendRpc({ cmd: "memory_read", path })}
+          onOpenMcpSettings={() => openSettingsAt("mcp")}
+          onEditMcpSpec={openMcpEditor}
+          onRetryMcpSpec={retryMcpSpec}
         />
 
         <StatusBar
@@ -2414,6 +2842,10 @@ function TabRuntime({
             saveSettings({ workspaceDir: path });
           }}
           onBrowse={pickWorkspace}
+          onRemoveRecent={(path) => {
+            const nextRecent = (state.settings?.recentWorkspaces ?? []).filter((p) => p !== path);
+            applySettingsPatch({ recentWorkspaces: nextRecent });
+          }}
         />
 
         {aboutOpen ? <AboutModal onClose={() => setAboutOpen(false)} /> : null}
@@ -2435,9 +2867,13 @@ function TabRuntime({
             customFontFamily={customFontFamily}
             onSetCustomFontFamily={onSetCustomFontFamily}
             initialPage={settingsPage}
+            initialMcpEditRaw={mcpEditTarget?.raw}
+            initialMcpEditNonce={mcpEditTarget?.nonce ?? 0}
             mcpSpecs={state.mcpSpecs}
             mcpBridged={state.mcpBridged}
             skills={state.skills}
+            memory={state.memory}
+            memoryDetail={state.memoryDetail}
             qq={state.qq}
             onClose={() => setSettingsOpen(false)}
             onSave={saveSettings}
@@ -2450,8 +2886,12 @@ function TabRuntime({
               openUrl("https://q.qq.com/qqbot/openclaw/login.html").catch(() => undefined)
             }
             onPickWorkspace={pickWorkspace}
+            onImportCcSwitchMcp={importCcSwitchMcp}
             onAddMcpSpec={addMcpSpec}
             onRemoveMcpSpec={removeMcpSpec}
+            onUpdateMcpSpec={updateMcpSpec}
+            onRetryMcpSpec={retryMcpSpec}
+            onReadMemory={(path) => sendRpc({ cmd: "memory_read", path })}
           />
         ) : null}
 
@@ -2537,13 +2977,23 @@ function TitleBar({
 
   useEffect(() => {
     const win = getCurrentWindow();
-    win.isMaximized().then(setIsMaximized);
+    const syncWindowState = async () => {
+      setIsMaximized(await readWindowExpanded(win, isMac));
+    };
+    void syncWindowState();
     let unlisten: (() => void) | undefined;
     win.listen("tauri://resize", async () => {
-      setIsMaximized(await win.isMaximized());
+      await syncWindowState();
     }).then((fn) => { unlisten = fn; });
-    return () => unlisten?.();
-  }, []);
+    let fullscreenUnlisten: (() => void) | undefined;
+    win.listen("tauri://fullscreen", async () => {
+      await syncWindowState();
+    }).then((fn) => { fullscreenUnlisten = fn; });
+    return () => {
+      unlisten?.();
+      fullscreenUnlisten?.();
+    };
+  }, [isMac]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -2594,7 +3044,7 @@ function TitleBar({
               aria-label={isMaximized ? t("app.titlebar.restore") : t("app.titlebar.maximize")}
               onMouseDown={(e) => {
                 e.stopPropagation();
-                win.toggleMaximize();
+                void toggleWindowExpanded(win, true, isMaximized);
               }}
             >
               {isMaximized ? <WinRestore /> : <WinMaximize />}
@@ -2708,7 +3158,7 @@ function TitleBar({
               type="button"
               className="win-ctrl"
               title={isMaximized ? t("app.titlebar.restore") : t("app.titlebar.maximize")}
-              onMouseDown={(e) => { e.stopPropagation(); win.toggleMaximize(); }}
+              onMouseDown={(e) => { e.stopPropagation(); void toggleWindowExpanded(win, false, isMaximized); }}
             >
               {isMaximized ? <WinRestore /> : <WinMaximize />}
             </button>
@@ -2735,7 +3185,7 @@ function TabBar({
   onNew,
   singleTab,
 }: {
-  tabs: { id: string; workspaceDir?: string }[];
+  tabs: { id: string; workspaceDir?: string; busy?: boolean }[];
   activeId: string;
   setActive: (id: string) => void;
   onClose: (id: string) => void;
@@ -2760,7 +3210,7 @@ function TabBar({
             onClick={() => setActive(t.id)}
             title={ws || label}
           >
-            <span className="dot" data-state="running" />
+            <span className="dot" data-state={t.busy ? "running" : "idle"} />
             <span className="label">{label}</span>
             {!singleTab ? (
               <span
@@ -3021,7 +3471,7 @@ function NeedsSetupView({
   );
 }
 
-function UpdateBanner({
+function UpdateOverlay({
   version,
   currentVersion,
   status,
@@ -3058,31 +3508,30 @@ function UpdateBanner({
           : t("app.update.installing")
         : t("app.update.clickToInstall");
   return (
-    <div
-      className="plan-banner"
-      style={{ background: "var(--accent-soft)", borderColor: "var(--accent)" }}
-    >
-      <span className="ico">
-        <I.download size={14} />
-      </span>
-      <div className="body">
-        <div className="t">
-          {t("app.update.available", { current: currentVersion, latest: version })}
-        </div>
-        <div className="s">{statusText}</div>
-        {status === "installing" && ratio !== null ? (
-          <div className="meter-mini" aria-label="download progress">
-            <span style={{ width: `${Math.round(ratio * 100)}%` }} />
+    <div className="update-overlay" aria-live="polite">
+      <div className="plan-banner update-overlay-card">
+        <span className="ico">
+          <I.download size={14} />
+        </span>
+        <div className="body">
+          <div className="t">
+            {t("app.update.available", { current: currentVersion, latest: version })}
           </div>
-        ) : null}
-      </div>
-      <div className="prog">
-        <button type="button" onClick={onInstall} disabled={status === "installing"}>
-          {t("app.update.install")}
-        </button>
-        <button type="button" onClick={onDismiss} disabled={status === "installing"}>
-          {t("app.update.later")}
-        </button>
+          <div className="s">{statusText}</div>
+          {status === "installing" && ratio !== null ? (
+            <div className="meter-mini" aria-label="download progress">
+              <span style={{ width: `${Math.round(ratio * 100)}%` }} />
+            </div>
+          ) : null}
+        </div>
+        <div className="prog">
+          <button type="button" onClick={onInstall} disabled={status === "installing"}>
+            {t("app.update.install")}
+          </button>
+          <button type="button" onClick={onDismiss} disabled={status === "installing"}>
+            {t("app.update.later")}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -3100,10 +3549,14 @@ type TabMeta = { id: string; workspaceDir?: string; busy?: boolean };
 export function App() {
   const [tabs, setTabs] = useState<TabMeta[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>("");
+  const [startupFailure, setStartupFailure] = useState<StartupFailureState | null>(null);
+  const [startupRetryNonce, setStartupRetryNonce] = useState(0);
+  const tabBusyRef = useRef<Map<string, boolean>>(new Map());
   const dispatchersRef = useRef<Map<string, TabDispatcher>>(new Map());
   const pendingEventsRef = useRef<Map<string, TabAction[]>>(new Map());
   const pendingDeltasRef = useRef<Map<string, DeltaBatchItem[]>>(new Map());
   const rafScheduledRef = useRef(false);
+  const startupStderrRef = useRef<string[]>([]);
   const tabsRef = useRef<TabMeta[]>([]);
   useEffect(() => {
     tabsRef.current = tabs;
@@ -3157,9 +3610,10 @@ export function App() {
 
   const { width: sideWidth, onMouseDown: onSideResizeDown } = useResizable("side", sideCollapsed);
   const { width: ctxWidth, onMouseDown: onCtxResizeDown } = useResizable("ctx", ctxCollapsed);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const visibleSide = sideCollapsed ? 0 : sideWidth;
   const visibleCtx = ctxCollapsed ? 0 : ctxWidth;
-  const threadMaxWidth = Math.max(580, Math.min(window.innerWidth - visibleSide - visibleCtx - 80, 1120));
+  const threadMaxWidth = getThreadMaxWidth({ viewportWidth, visibleSide, visibleCtx });
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -3168,13 +3622,22 @@ export function App() {
     localStorage.setItem("reasonix.themeStyle", themeStyle);
   }, [theme, themeStyle]);
 
+  // Sync --composer-max-width to .app (separate from inline style to avoid React override)
+  const composerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!composerRef.current) composerRef.current = document.querySelector(".app");
+    composerRef.current?.style.setProperty("--composer-max-width", `${threadMaxWidth}px`);
+  }, [threadMaxWidth]);
+
   useEffect(() => {
     let raf = 0;
     let prevStage: ResponsiveStage | null = null;
 
     const sync = () => {
       raf = 0;
-      const next = responsiveStage(window.innerWidth);
+      const width = window.innerWidth;
+      setViewportWidth(width);
+      const next = responsiveStage(width);
       if (prevStage === next) return;
       const prev = prevStage;
       prevStage = next;
@@ -3256,6 +3719,10 @@ export function App() {
     }
   }, []);
 
+  const retryStartup = useCallback(() => {
+    setStartupRetryNonce((n) => n + 1);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -3320,6 +3787,8 @@ export function App() {
     };
 
     const setup = async () => {
+      startupStderrRef.current = [];
+      setStartupFailure(null);
       const subs = await Promise.all([
         listen<{ data: string }>("rpc:event", (e) => {
           try {
@@ -3403,10 +3872,27 @@ export function App() {
           }
         }),
         listen<{ data: string }>("rpc:stderr", (e) => {
+          startupStderrRef.current = [...startupStderrRef.current, e.payload.data].slice(-12);
+          setStartupFailure((prev) =>
+            prev
+              ? coerceStartupFailure(
+                  prev.details[0] ?? t("app.startupFailedUnknown"),
+                  startupStderrRef.current,
+                )
+              : prev,
+          );
           console.warn("[reasonix stderr]", e.payload.data);
         }),
         listen<{ code: number | null }>("rpc:exit", (e) => {
           for (const tabId of dispatchersRef.current.keys()) flushTabDeltas(tabId);
+          if (dispatchersRef.current.size === 0) {
+            setStartupFailure(
+              coerceStartupFailure(
+                new Error(`reasonix exited (code ${e.payload.code ?? "?"})`),
+                startupStderrRef.current,
+              ),
+            );
+          }
           for (const dispatch of dispatchersRef.current.values()) {
             dispatch({ t: "rpc_exit", code: e.payload.code });
           }
@@ -3428,7 +3914,10 @@ export function App() {
           });
         }
       } catch (err) {
-        if (!cancelled) console.error("rpc_spawn failed", err);
+        if (!cancelled) {
+          setStartupFailure(coerceStartupFailure(err, startupStderrRef.current));
+          console.error("rpc_spawn failed", err);
+        }
       }
     };
     void setup();
@@ -3436,7 +3925,7 @@ export function App() {
       cancelled = true;
       for (const c of cleanups) c();
     };
-  }, [deliverToTab]);
+  }, [deliverToTab, startupRetryNonce]);
 
   // Tell the backend which tab is focused so a restart can reopen on it (#1244).
   useEffect(() => {
@@ -3515,6 +4004,15 @@ export function App() {
     });
   }, []);
 
+  const onTabBusyChange = useCallback((tabId: string, busy: boolean) => {
+    tabBusyRef.current.set(tabId, busy);
+    setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, busy } : t)));
+  }, []);
+
+  if (startupFailure && tabs.length === 0) {
+    return <StartupFailure details={startupFailure.details} onRetry={retryStartup} />;
+  }
+
   return (
     <>
       {tabs.map((t) => (
@@ -3523,11 +4021,6 @@ export function App() {
           tabId={t.id}
           active={t.id === activeTabId}
           currency={currency}
-          pendingUpdate={pendingUpdate}
-          updateStatus={updateStatus}
-          updateProgress={updateProgress}
-          installUpdate={installUpdate}
-          dismissUpdate={() => setPendingUpdate(null)}
           registerDispatch={registerDispatch}
           onNewTab={openTab}
           onCloseTab={() => closeTab(t.id)}
@@ -3556,8 +4049,19 @@ export function App() {
           tabsList={tabs}
           activeTabId={activeTabId}
           setActiveTabId={setActiveTabId}
+          onBusyChange={onTabBusyChange}
         />
       ))}
+      {pendingUpdate ? (
+        <UpdateOverlay
+          version={pendingUpdate.version}
+          currentVersion={pendingUpdate.currentVersion}
+          status={updateStatus}
+          progress={updateProgress}
+          onInstall={installUpdate}
+          onDismiss={() => setPendingUpdate(null)}
+        />
+      ) : null}
     </>
   );
 }

@@ -218,6 +218,7 @@ export function ShellCard({
   onApprove,
   onReject,
   onAlwaysAllow,
+  defaultOpen,
 }: {
   command: string;
   output?: string;
@@ -226,6 +227,7 @@ export function ShellCard({
   onApprove?: () => void;
   onReject?: () => void;
   onAlwaysAllow?: () => void;
+  defaultOpen?: boolean;
 }) {
   useLang();
   const tone: Tone = state === "failed" ? "danger" : state === "done" ? "success" : "warning";
@@ -236,7 +238,7 @@ export function ShellCard({
       kind="shell"
       name="shell"
       compact
-      defaultOpen={state !== "done"}
+      defaultOpen={defaultOpen ?? false}
       meta={
         <>
           {state === "await" ? (
@@ -335,12 +337,14 @@ export function ToolCard({
   result,
   ok,
   durationMs,
+  defaultOpen,
 }: {
   name: string;
   args?: string;
   result?: string;
   ok?: boolean;
   durationMs?: number;
+  defaultOpen?: boolean;
 }) {
   useLang();
   const running = result === undefined;
@@ -351,7 +355,7 @@ export function ToolCard({
       icon={<I.wrench size={12} />}
       kind="tool"
       name={name}
-      defaultOpen={false}
+      defaultOpen={defaultOpen ?? false}
       compact
       meta={
         <>
@@ -733,7 +737,8 @@ export function MetricStrip({
   costLabel,
   elapsed,
 }: {
-  cacheHit?: number;
+  /** Pre-formatted cache percentage string (e.g. "72.12%"). */
+  cacheHit?: string;
   promptTokens?: number;
   outputTokens?: number;
   costLabel?: string;
@@ -745,7 +750,7 @@ export function MetricStrip({
         <span className="item">
           <I.zap size={11} style={{ color: "var(--accent)" }} />
           <span>{t("cards.cacheHit")}</span>
-          <span className="v acc">{cacheHit}%</span>
+          <span className="v acc">{cacheHit}</span>
         </span>
       ) : null}
       {promptTokens !== undefined ? (

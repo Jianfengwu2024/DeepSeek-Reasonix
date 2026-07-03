@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import type React from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { t, type TKey } from "../i18n";
 import { I } from "../icons";
@@ -69,6 +70,7 @@ export type SlashCmd = {
 };
 export type MentionItem = {
   name: string;
+  path?: string;
   kind: "file" | "dir" | "url" | "agent" | "clip";
   desc?: string;
 };
@@ -77,10 +79,61 @@ export type Chip =
   | { kind: "at"; label: string }
   | { kind: "slash"; label: string };
 
+/** For long paths show only the filename; truncate filename if it's still too long. */
+function chipLabel(label: string, maxLen = 32): string {
+  if (label.length <= maxLen) return label;
+  const sep = label.includes("/") ? "/" : "\\";
+  const segments = label.split(sep);
+  const filename = segments[segments.length - 1]!;
+  if (filename.length <= maxLen) return filename;
+  return filename.slice(0, maxLen - 1) + "…";
+}
+
 type Popup =
   | { kind: "slash"; query: string }
   | { kind: "at"; query: string; nonce: number }
   | null;
+
+type ActiveRange = { start: number; end: number; sigil: string; query: string };
+
+/** Return the @word or /word range at cursorPos, or null. */
+function findActiveRange(text: string, cursorPos: number): ActiveRange | null {
+  if (cursorPos < 0 || cursorPos > text.length) return null;
+  let wordStart = cursorPos;
+  while (wordStart > 0 && !/\s/.test(text[wordStart - 1]!)) wordStart--;
+  let wordEnd = cursorPos;
+  while (wordEnd < text.length && !/\s/.test(text[wordEnd]!)) wordEnd++;
+  if (wordStart === wordEnd) return null;
+  const word = text.slice(wordStart, wordEnd);
+  if (word.length > 0 && (word[0] === "@" || word[0] === "/")) {
+    if (wordStart === 0 || /\s/.test(text[wordStart - 1]!)) {
+      return { start: wordStart, end: wordEnd, sigil: word[0], query: word.slice(1) };
+    }
+  }
+  return null;
+}
+
+/** Render draft text with @word and /word tokens wrapped in highlight spans. */
+function highlightTokens(text: string): React.ReactNode {
+  if (!text) return text;
+  const parts: React.ReactNode[] = [];
+  let lastIdx = 0;
+  for (const m of text.matchAll(/(\s|^)([@\/]\S+)/g)) {
+    const pre = text.slice(lastIdx, m.index);
+    if (pre) parts.push(pre);
+    parts.push(
+      <span key={m.index}>
+        {m[1]}
+        <span className="hl-token">{m[2]}</span>
+      </span>,
+    );
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) {
+    parts.push(text.slice(lastIdx));
+  }
+  return parts.length > 0 ? parts : text;
+}
 
 function slashIcon(cmd: string) {
   const m: Record<string, React.ReactNode> = {
@@ -108,6 +161,20 @@ function parentOfAtQuery(query: string): string | null {
   return parentIdx >= 0 ? `${dirContext.slice(0, parentIdx)}/` : "";
 }
 
+function displayMentionPath(path: string): { name: string; desc?: string } {
+  const normalized = path.replace(/\\/g, "/");
+  const isDir = /[\\/]$/.test(path);
+  const trimmed = normalized.replace(/\/+$/, "");
+  if (!trimmed) return { name: path };
+  const slash = trimmed.lastIndexOf("/");
+  const base = slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
+  const parent = slash >= 0 ? `${trimmed.slice(0, slash)}/` : "";
+  return {
+    name: isDir ? `${base}/` : base,
+    desc: parent || undefined,
+  };
+}
+
 function atIcon(k: MentionItem["kind"]) {
   if (k === "file") return <I.file size={12} />;
   if (k === "dir") return <I.folder size={12} />;
@@ -117,9 +184,23 @@ function atIcon(k: MentionItem["kind"]) {
   return <I.at size={12} />;
 }
 
+function guessImageExtension(mime: string): string {
+  const normalized = mime.toLowerCase();
+  if (normalized === "image/jpeg") return "jpg";
+  if (normalized === "image/png") return "png";
+  if (normalized === "image/gif") return "gif";
+  if (normalized === "image/webp") return "webp";
+  if (normalized === "image/svg+xml") return "svg";
+  const slash = normalized.indexOf("/");
+  return slash >= 0 ? normalized.slice(slash + 1).replace(/[^a-z0-9]+/g, "") || "png" : "png";
+}
+
 export function Composer({
   draft,
   setDraft,
+  onDraftUserEdit,
+  promptHistoryBrowsing,
+  onPromptHistoryNavigate,
   onSend,
   onAbort,
   disabled,
@@ -144,7 +225,10 @@ export function Composer({
   onDequeueSend,
 }: {
   draft: string;
-  setDraft: (s: string) => void;
+  setDraft: React.Dispatch<React.SetStateAction<string>>;
+  onDraftUserEdit?: () => void;
+  promptHistoryBrowsing?: boolean;
+  onPromptHistoryNavigate?: (direction: "older" | "newer") => boolean | void;
   onSend: () => void;
   onAbort: () => void;
   disabled?: boolean;
@@ -171,18 +255,58 @@ export function Composer({
   onQueueWhileBusy?: (text: string) => void;
   onDequeueSend?: (index: number) => void;
 }) {
-  const [chips, setChips] = useState<Chip[]>([]);
   const [popup, setPopup] = useState<Popup>(null);
+  const [pickedChips, setPickedChips] = useState<Map<string, Chip["kind"]>>(new Map());
+  const chips = useMemo(() => {
+    const result: Chip[] = [];
+    for (const [label, kind] of pickedChips) {
+      const sigil = kind === "at" ? "@" : "/";
+      const escaped = sigil + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`);
+      if (re.test(draft)) {
+        result.push({ kind, label });
+      }
+    }
+    return result;
+  }, [draft, pickedChips]);
   const [activeIdx, setActiveIdx] = useState(0);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const backdropContent = useMemo(() => highlightTokens(draft), [draft]);
   const nonceRef = useRef(0);
   const modelWrapRef = useRef<HTMLDivElement>(null);
   // macOS Chinese IME fires compositionend BEFORE the confirm keydown.
   const composingRef = useRef(false);
   const compositionEndedAtRef = useRef(0);
-  const historyRef = useRef<string[]>([]);
-  const [browseIdx, setBrowseIdx] = useState(-1);
-  const savedDraftRef = useRef("");
+  const activeRangeRef = useRef<ActiveRange | null>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+
+  const insertMention = (picked: string) => {
+    const rel =
+      workspaceDir && picked.startsWith(workspaceDir)
+        ? picked.slice(workspaceDir.length).replace(/^[\\/]+/, "")
+        : picked;
+    const range = activeRangeRef.current;
+    if (range && range.sigil === "@") {
+      const savedRange = { ...range };
+      setDraft((current) => {
+        const before = current.slice(0, savedRange.start);
+        const after = current.slice(savedRange.end);
+        const insertion = `@${rel}`;
+        const spacerBefore = before && !before.endsWith(" ") ? " " : "";
+        const spacerAfter = after ? (after.startsWith(" ") ? "" : " ") : " ";
+        return `${before}${spacerBefore}${insertion}${spacerAfter}${after}`;
+      });
+    } else {
+      setDraft((current) =>
+        current ? `${current.replace(/\s+$/, "")} @${rel} ` : `@${rel} `,
+      );
+    }
+    activeRangeRef.current = null;
+    setPickedChips((prev) => new Map(prev).set(rel, "at"));
+    onMentionPicked?.(rel);
+    setPopup(null);
+    textareaRef.current?.focus();
+  };
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -196,6 +320,7 @@ export function Composer({
     const prev = prevDraftRef.current;
     prevDraftRef.current = draft;
     if (draft === "/" && prev !== "/") {
+      activeRangeRef.current = { start: 0, end: 1, sigil: "/", query: "" };
       setPopup({ kind: "slash", query: "" });
     }
   }, [draft]);
@@ -231,16 +356,28 @@ export function Composer({
             : undefined,
       });
       if (typeof picked !== "string" || !picked) return;
-      const rel =
-        workspaceDir && picked.startsWith(workspaceDir)
-          ? picked.slice(workspaceDir.length).replace(/^[\\/]+/, "")
-          : picked;
-      setDraft(draft ? `${draft.replace(/\s+$/, "")} @${rel} ` : `@${rel} `);
-      setChips((c) => [...c, { kind: "at", label: rel }]);
-      onMentionPicked?.(rel);
-      textareaRef.current?.focus();
+      insertMention(picked);
     } catch (err) {
       console.error("attach failed", err);
+    }
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const imageItem = items.find((item) => item.type.startsWith("image/"));
+    if (!imageItem) return;
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    e.preventDefault();
+    try {
+      const buffer = await file.arrayBuffer();
+      const savedPath = await invoke<string>("save_clipboard_image", {
+        bytes: buffer,
+        extension: guessImageExtension(file.type),
+      });
+      insertMention(savedPath);
+    } catch (err) {
+      console.error("clipboard image paste failed", err);
     }
   };
 
@@ -254,11 +391,15 @@ export function Composer({
   const atItems = useMemo<MentionItem[]>(() => {
     if (!popup || popup.kind !== "at") return [];
     if (!mentionResults || mentionResults.nonce !== popup.nonce) return [];
-    const base: MentionItem[] = mentionResults.results.map((path) => ({
-      name: path,
-      kind: path.endsWith("/") || path.endsWith("\\") ? "dir" : "file",
-      desc: path,
-    }));
+    const base: MentionItem[] = mentionResults.results.map((path) => {
+      const display = displayMentionPath(path);
+      return {
+        name: display.name,
+        path,
+        kind: path.endsWith("/") || path.endsWith("\\") ? "dir" : "file",
+        desc: display.desc,
+      };
+    });
     // "../" entry (#1019): one level up whenever the @ query is inside a subdir.
     const parent = parentOfAtQuery(popup.query);
     if (parent !== null) {
@@ -276,28 +417,55 @@ export function Composer({
 
   useEffect(() => {
     setActiveIdx(0);
-  }, [items.length, popup?.kind]);
+  }, [popup?.kind]);
+
+  useEffect(() => {
+    setActiveIdx((i) => (items.length ? Math.min(i, items.length - 1) : 0));
+  }, [items.length]);
 
   useEffect(() => {
     if (!popup || popup.kind !== "at" || !onMentionQuery) return;
     onMentionQuery(popup.query, popup.nonce);
   }, [popup, onMentionQuery]);
 
-  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
-    const v = e.target.value;
-    setDraft(v);
-    const trail = v.match(/(^|\s)([/@])([^\s]*)$/);
-    if (trail) {
-      const sigil = trail[2];
-      const query = trail[3] ?? "";
-      if (sigil === "/") {
-        setPopup({ kind: "slash", query });
+  const syncPopupFromCursor = (value: string, cursorPos: number) => {
+    const range = findActiveRange(value, cursorPos);
+    if (range && (range.sigil === "/" || range.sigil === "@")) {
+      activeRangeRef.current = range;
+      if (range.sigil === "/") {
+        if (popup?.kind !== "slash" || popup.query !== range.query) {
+          setPopup({ kind: "slash", query: range.query });
+        }
       } else {
-        const nonce = ++nonceRef.current;
-        setPopup({ kind: "at", query, nonce });
+        if (popup?.kind !== "at" || popup.query !== range.query) {
+          const nonce = ++nonceRef.current;
+          setPopup({ kind: "at", query: range.query, nonce });
+        }
       }
     } else if (popup) {
+      activeRangeRef.current = null;
       setPopup(null);
+    }
+  };
+
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    const v = e.target.value;
+    onDraftUserEdit?.();
+    setDraft(v);
+    const cursorPos = e.target.selectionStart ?? v.length;
+    syncPopupFromCursor(v, cursorPos);
+  };
+
+  const handleSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const ta = e.currentTarget;
+    const cursorPos = ta.selectionStart;
+    if (cursorPos === null) return;
+    syncPopupFromCursor(ta.value, cursorPos);
+  };
+
+  const handleTextareaScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (backdropRef.current) {
+      backdropRef.current.scrollTop = e.currentTarget.scrollTop;
     }
   };
 
@@ -306,66 +474,61 @@ export function Composer({
   const pickItem = (idx: number) => {
     const it = items[idx];
     if (!it || !popup) return;
+    const range = activeRangeRef.current;
+    const before = range ? draft.slice(0, range.start) : draft;
+    const after = range ? draft.slice(range.end) : "";
     if (popup.kind === "slash") {
       const cmd = (it as SlashCmd).cmd;
       const insertOnly = (it as SlashCmd).insertOnly === true;
       if (insertOnly) {
-        const next = draft.replace(/[/@][^\s]*$/, "").trimEnd();
-        setDraft(next ? `${next} ${cmd} ` : `${cmd} `);
-        setChips((c) => [...c, { kind: "slash", label: cmd.replace(/^\//, "") }]);
+        const spacer = before && !before.endsWith(" ") ? " " : "";
+        setDraft(`${before}${spacer}${cmd} ${after}`);
+        setPickedChips((prev) => new Map(prev).set(cmd.replace(/^\//, ""), "slash"));
       } else {
-        const next = draft.replace(/[/@][^\s]*$/, "").trimEnd();
-        setDraft(next);
-        setChips((c) => [...c, { kind: "slash", label: cmd.replace(/^\//, "") }]);
+        setDraft(`${before}${after}`);
         (it as SlashCmd).run();
       }
     } else {
       const mention = it as MentionItem;
       if (mention.name === "..") {
         const parent = parentOfAtQuery(popup.query) ?? "";
-        const next = draft.replace(/[@][^\s]*$/, `@${parent}`);
+        const newText = `@${parent}`;
+        const next = `${before}${newText}${after}`;
         setDraft(next);
+        activeRangeRef.current = {
+          start: range?.start ?? 0,
+          end: (range?.start ?? 0) + newText.length,
+          sigil: "@",
+          query: parent,
+        };
         const nonce = ++nonceRef.current;
         setPopup({ kind: "at", query: parent, nonce });
         textareaRef.current?.focus();
         return;
       }
-      const next = draft.replace(/[/@][^\s]*$/, "").trimEnd();
-      setDraft(next ? `${next} @${mention.name} ` : `@${mention.name} `);
-      setChips((c) => [...c, { kind: "at", label: mention.name }]);
-      onMentionPicked?.(mention.name);
+      const mentionPath = mention.path ?? mention.name;
+      insertMention(mentionPath);
+      return;
     }
+    activeRangeRef.current = null;
     setPopup(null);
     textareaRef.current?.focus();
   };
 
-  const recordSendAndReset = () => {
-    const trimmed = draft.trim();
-    historyRef.current.push(trimmed);
-    if (historyRef.current.length > 100) historyRef.current.shift();
-    setBrowseIdx(-1);
-  };
-
-  const navigateHistory = (dir: -1 | 1) => {
-    const hist = historyRef.current;
-    if (hist.length === 0) return;
-    if (dir === -1) {
-      const nextIdx = browseIdx + 1;
-      if (nextIdx < hist.length) {
-        if (browseIdx === -1) savedDraftRef.current = draft;
-        setBrowseIdx(nextIdx);
-        setDraft(hist[hist.length - 1 - nextIdx]);
-      }
-    } else {
-      if (browseIdx > 0) {
-        const nextIdx = browseIdx - 1;
-        setBrowseIdx(nextIdx);
-        setDraft(hist[hist.length - 1 - nextIdx]);
-      } else if (browseIdx === 0) {
-        setBrowseIdx(-1);
-        setDraft(savedDraftRef.current);
-      }
-    }
+  const shouldNavigatePromptHistory = (
+    e: KeyboardEvent<HTMLTextAreaElement>,
+    direction: "older" | "newer",
+  ) => {
+    if (!onPromptHistoryNavigate) return false;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+    const native = e.nativeEvent as globalThis.KeyboardEvent;
+    if (native.isComposing) return false;
+    const ta = textareaRef.current;
+    if (!ta || ta.selectionStart !== ta.selectionEnd) return false;
+    const atStart = ta.selectionStart === 0;
+    const atEnd = ta.selectionStart === draft.length;
+    if (promptHistoryBrowsing) return atStart || atEnd;
+    return direction === "older" && atStart;
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -388,25 +551,40 @@ export function Composer({
         return;
       }
       if (e.key === "Tab" && popup.kind === "at" && items.length > 0) {
-        // Tab on a directory enters it — replaces `@src` with `@src/`
-        // and re-queries so the popup shows that directory's children.
+        e.preventDefault();
         // `..` is the synthetic parent-dir entry (#1019); same shape
         // but rewrites to the parent path.
         const it = items[activeIdx];
         if (it && (it as MentionItem).kind === "dir") {
-          e.preventDefault();
           const mention = it as MentionItem;
+          const range = activeRangeRef.current;
+          const before = range ? draft.slice(0, range.start) : draft;
+          const after = range ? draft.slice(range.end) : "";
           if (mention.name === "..") {
             const parent = parentOfAtQuery(popup.query) ?? "";
-            const next = draft.replace(/[@][^\s]*$/, `@${parent}`);
+            const newText = `@${parent}`;
+            const next = `${before}${newText}${after}`;
             setDraft(next);
+            activeRangeRef.current = {
+              start: range?.start ?? 0,
+              end: (range?.start ?? 0) + newText.length,
+              sigil: "@",
+              query: parent,
+            };
             const nonce = ++nonceRef.current;
             setPopup({ kind: "at", query: parent, nonce });
             return;
           }
-          const dirPath = mention.name.replace(/\/+$/, "");
-          const next = draft.replace(/[@][^\s]*$/, `@${dirPath}/`);
+          const dirPath = (mention.path ?? mention.name).replace(/[\\/]+$/, "");
+          const newText = `@${dirPath}/`;
+          const next = `${before}${newText}${after}`;
           setDraft(next);
+          activeRangeRef.current = {
+            start: range?.start ?? 0,
+            end: (range?.start ?? 0) + newText.length,
+            sigil: "@",
+            query: `${dirPath}/`,
+          };
           const nonce = ++nonceRef.current;
           setPopup({ kind: "at", query: `${dirPath}/`, nonce });
           return;
@@ -422,31 +600,29 @@ export function Composer({
       }
     }
     if (!popup) {
-      const ta = textareaRef.current;
-      if (e.key === "ArrowUp" && ta && ta.selectionStart === 0) {
-        e.preventDefault();
-        navigateHistory(-1);
-        return;
-      }
-      if (e.key === "ArrowDown" && ta && ta.selectionStart === draft.length) {
-        e.preventDefault();
-        navigateHistory(1);
-        return;
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        const direction = e.key === "ArrowUp" ? "older" : "newer";
+        if (shouldNavigatePromptHistory(e, direction)) {
+          const handled = onPromptHistoryNavigate?.(direction);
+          if (handled !== false) {
+            e.preventDefault();
+            return;
+          }
+        }
       }
     }
-    if (composingRef.current || Date.now() - compositionEndedAtRef.current < 50) return;
+    if (composingRef.current || e.nativeEvent.isComposing || Date.now() - compositionEndedAtRef.current < 50) return;
     if (e.key === "Enter" && !e.shiftKey && !popup) {
       e.preventDefault();
       if (busy) {
         const text = draft.trim();
         if (text && onQueueWhileBusy) {
           onQueueWhileBusy(text);
-          setChips([]);
+          setPickedChips(new Map());
         }
       } else if (!disabled && draft.trim()) {
-        recordSendAndReset();
         onSend();
-        setChips([]);
+        setPickedChips(new Map());
       }
     }
   };
@@ -512,40 +688,40 @@ export function Composer({
           {chips.length > 0 ? (
             <div className="composer-tags">
               {chips.map((c, i) => (
-                <span key={i} className={`chip ${c.kind}`}>
+                <span key={`${c.kind}-${c.label}-${i}`} className={`chip ${c.kind}`} title={c.label}>
                   {c.kind === "slash" ? (
                     <I.slash size={11} />
                   ) : (
                     <I.at size={11} />
                   )}
-                  <span>{c.label}</span>
-                  <span
-                    className="x"
-                    onClick={() =>
-                      setChips((cs) => cs.filter((_, j) => j !== i))
-                    }
-                  >
-                    <I.x size={10} />
-                  </span>
+                  <span>{chipLabel(c.label)}</span>
                 </span>
               ))}
             </div>
           ) : null}
 
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            placeholder={t("composer.placeholder")}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            onCompositionStart={() => { composingRef.current = true; }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-              compositionEndedAtRef.current = Date.now();
-            }}
-            rows={DEFAULT_COMPOSER_ROWS}
-            disabled={disabled}
-          />
+          <div className="composer-textarea-wrap">
+            <div className="composer-backdrop" ref={backdropRef} aria-hidden="true">
+              {backdropContent}
+            </div>
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              placeholder={t("composer.placeholder")}
+              onChange={handleChange}
+              onSelect={handleSelect}
+              onScroll={handleTextareaScroll}
+              onPaste={(e) => void handlePaste(e)}
+              onKeyDown={handleKeyDown}
+              onCompositionStart={() => { composingRef.current = true; }}
+              onCompositionEnd={() => {
+                composingRef.current = false;
+                compositionEndedAtRef.current = Date.now();
+              }}
+              rows={DEFAULT_COMPOSER_ROWS}
+              disabled={disabled}
+            />
+          </div>
 
           <div className="composer-foot">
             <button
@@ -638,9 +814,8 @@ export function Composer({
                 disabled={disabled || !draft.trim()}
                 onClick={() => {
                   if (!disabled && draft.trim()) {
-                    recordSendAndReset();
                     onSend();
-                    setChips([]);
+                    setPickedChips(new Map());
                   }
                 }}
               >
@@ -659,7 +834,8 @@ export function Composer({
               onHover={(i, item) => {
                 setActiveIdx(i);
                 if (popup.kind === "at" && onMentionPreview) {
-                  const path = (item as MentionItem).name;
+                  const mention = item as MentionItem;
+                  const path = mention.path ?? mention.name;
                   onMentionPreview(path, popup.nonce);
                 }
               }}
@@ -691,12 +867,15 @@ function Popup({
   useEffect(() => {
     requestAnimationFrame(() => {
       const el = listRef.current?.querySelector<HTMLElement>(`[data-active="true"]`);
-      el?.scrollIntoView({ block: "nearest" });
+      el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     });
   }, [activeIdx]);
 
   return (
-    <div className="popup" onMouseDown={(e) => e.preventDefault()}>
+    <div
+      className={kind === "at" ? "popup at-popup" : "popup"}
+      onMouseDown={(e) => e.preventDefault()}
+    >
       <div className="ph">
         <span className="tok">{kind === "slash" ? "/" : "@"}</span>
         <span>
@@ -709,7 +888,7 @@ function Popup({
           <I.x size={11} />
         </span>
       </div>
-      <div className="popup-list" ref={listRef}>
+      <div className={kind === "at" ? "popup-list at-popup-list" : "popup-list"} ref={listRef}>
         {items.length === 0 ? (
           <div
             style={{
@@ -743,7 +922,7 @@ function Popup({
                 </>
               ) : (
                 <>
-                  <span>{(it as MentionItem).name}</span>
+                  <span className="mention-name">{(it as MentionItem).name}</span>
                   {(it as MentionItem).desc ? (
                     <div className="desc">{(it as MentionItem).desc}</div>
                   ) : null}

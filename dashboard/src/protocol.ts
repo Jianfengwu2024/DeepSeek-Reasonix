@@ -88,6 +88,17 @@ export type RevisionRequiredEvent = {
 
 export type RevisionVerdict = { type: "accepted" } | { type: "rejected" } | { type: "cancelled" };
 
+export type ModalKind =
+  | "shell"
+  | "path"
+  | "choice"
+  | "plan"
+  | "checkpoint"
+  | "revision"
+  | "edit-review";
+
+export type ModalDismissedEvent = { type: "$modal_dismissed"; kind: ModalKind };
+
 export type StepCompletedEvent = {
   type: "$step_completed";
   stepId: string;
@@ -100,7 +111,23 @@ export type PlanClearedEvent = { type: "$plan_cleared" };
 
 export type SessionsEvent = {
   type: "$sessions";
-  items: { name: string; messageCount: number; mtime: string; summary?: string }[];
+  currentSession?: string | null;
+  items: {
+    name: string;
+    messageCount: number;
+    mtime: string;
+    summary?: string;
+    workspaceStatus?: "matched" | "legacy_missing_meta";
+  }[];
+};
+
+export type SessionUsageEvent = {
+  type: "$session_usage";
+  totalCostUsd: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  cacheHitTokens: number;
+  cacheMissTokens: number;
 };
 
 export type MentionResultsEvent = {
@@ -170,14 +197,27 @@ export type CtxBreakdownEvent = {
 };
 
 export type MemoryEntryInfo = {
+  kind: "project_file" | "global_file" | "structured";
   name: string;
   scope: "project" | "global";
+  path: string;
   description: string;
+  type?: string;
 };
 
 export type MemoryEvent = {
   type: "$memory";
   entries: MemoryEntryInfo[];
+};
+
+export type MemoryDetail = MemoryEntryInfo & {
+  body: string;
+  createdAt?: string;
+};
+
+export type MemoryDetailEvent = {
+  type: "$memory_detail";
+  detail: MemoryDetail;
 };
 
 export type RetryResultEvent = { type: "$retry_result"; text: string };
@@ -251,11 +291,15 @@ export type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 export type WebSearchEngineName =
   | "bing"
+  | "bing-intl"
   | "searxng"
   | "metaso"
+  | "baidu"
   | "tavily"
   | "perplexity"
-  | "exa";
+  | "exa"
+  | "brave"
+  | "ollama";
 
 export type SettingsEvent = {
   type: "$settings";
@@ -269,6 +313,9 @@ export type SettingsEvent = {
   model: string;
   editor?: string;
   webSearchEngine?: WebSearchEngineName;
+  webSearchApiKeys?: {
+    baidu?: string;
+  };
   subagentModels?: Record<string, "flash" | "pro">;
   showSystemEvents?: boolean;
   version: string;
@@ -300,9 +347,11 @@ export type SettingsPatch = {
   budgetUsd?: number | null;
   baseUrl?: string;
   workspaceDir?: string;
+  recentWorkspaces?: string[];
   model?: string;
   editor?: string;
   webSearchEngine?: WebSearchEngineName;
+  baiduApiKey?: string | null;
   subagentModels?: Record<string, "flash" | "pro">;
   showSystemEvents?: boolean;
 };
@@ -423,6 +472,7 @@ export type IncomingEvent = { tabId?: string } & (
   | ChoiceRequiredEvent
   | PlanRequiredEvent
   | SessionsEvent
+  | SessionUsageEvent
   | SessionLoadedEvent
   | SessionEmptyEvent
   | NeedsSetupEvent
@@ -431,6 +481,7 @@ export type IncomingEvent = { tabId?: string } & (
   | BalanceEvent
   | CheckpointRequiredEvent
   | RevisionRequiredEvent
+  | ModalDismissedEvent
   | StepCompletedEvent
   | PlanClearedEvent
   | MentionResultsEvent
@@ -441,6 +492,7 @@ export type IncomingEvent = { tabId?: string } & (
   | SkillsEvent
   | CtxBreakdownEvent
   | MemoryEvent
+  | MemoryDetailEvent
   | JobsEvent
   | UserMessageEvent
   | ModelTurnStartedEvent
@@ -459,7 +511,7 @@ export type IncomingEvent = { tabId?: string } & (
 export type OutgoingCommand = { tabId?: string } & (
   | { cmd: "user_input"; text: string }
   | { cmd: "abort" }
-  | { cmd: "confirm_response"; id: number; response: ConfirmationChoice }
+  | { cmd: "confirm_response"; id: number; response: ConfirmationChoice; kind: "shell" | "path" }
   | { cmd: "choice_response"; id: number; response: ChoiceVerdict }
   | { cmd: "plan_response"; id: number; response: PlanVerdict }
   | { cmd: "checkpoint_response"; id: number; response: CheckpointVerdict }
@@ -467,6 +519,7 @@ export type OutgoingCommand = { tabId?: string } & (
   | { cmd: "session_list" }
   | { cmd: "session_delete"; name: string }
   | { cmd: "session_load"; name: string }
+  | { cmd: "memory_read"; path: string }
   | { cmd: "new_chat" }
   | { cmd: "setup_save_key"; key: string }
   | { cmd: "settings_get" }

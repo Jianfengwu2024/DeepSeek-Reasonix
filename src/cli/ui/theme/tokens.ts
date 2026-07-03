@@ -1,28 +1,65 @@
-export type ThemeName = "dark" | "light" | "midnight" | "deep-blue" | "high-contrast";
+import type { Color } from "ink";
+
+export type PublicThemeName =
+  | "graphite"
+  | "ember"
+  | "aurora"
+  | "sandstone"
+  | "porcelain"
+  | "linen"
+  | "glacier"
+  | "midnight";
+
+type LegacyThemeName = "dark" | "light" | "deep-blue" | "high-contrast";
+
+export type ThemeName = PublicThemeName | LegacyThemeName;
 
 export interface ThemeTokens {
   fg: {
-    strong: string;
-    body: string;
-    sub: string;
-    meta: string;
-    faint: string;
+    strong: Color;
+    body: Color;
+    sub: Color;
+    meta: Color;
+    faint: Color;
   };
   tone: {
-    brand: string;
-    accent: string;
-    violet: string;
-    ok: string;
-    warn: string;
-    err: string;
-    info: string;
+    brand: Color;
+    accent: Color;
+    violet: Color;
+    ok: Color;
+    warn: Color;
+    err: Color;
+    info: Color;
   };
   toneActive: ThemeTokens["tone"];
   surface: {
-    bg: string;
-    bgInput: string;
-    bgCode: string;
-    bgElev: string;
+    bg: Color;
+    bgInput: Color;
+    bgCode: Color;
+    bgElev: Color;
+  };
+  messageBg: {
+    user: Color;
+    bash: Color;
+    selected: Color;
+  };
+  pill: {
+    bg: Color;
+    section: Record<
+      | "reason"
+      | "output"
+      | "tool"
+      | "shell"
+      | "task"
+      | "taskDone"
+      | "taskFailed"
+      | "plan"
+      | "user"
+      | "empty",
+      { bg: Color; fg: Color }
+    >;
+    path: { bg: Color; fg: Color };
+    model: Record<"flash" | "pro" | "r1" | "unknown", { bg: Color; fg: Color }>;
   };
   card: Record<
     | "user"
@@ -42,11 +79,11 @@ export interface ThemeTokens {
     | "ctx"
     | "doctor"
     | "branch",
-    { color: string; glyph: string }
+    { color: Color; glyph: string }
   >;
 }
 
-type ThemeBase = Omit<ThemeTokens, "card">;
+type ThemeBase = Omit<ThemeTokens, "card" | "pill">;
 
 function card(fg: ThemeTokens["fg"], tone: ThemeTokens["tone"]): ThemeTokens["card"] {
   return {
@@ -70,8 +107,38 @@ function card(fg: ThemeTokens["fg"], tone: ThemeTokens["tone"]): ThemeTokens["ca
   };
 }
 
+function pill(
+  surface: ThemeTokens["surface"],
+  tone: ThemeTokens["tone"],
+  fg: ThemeTokens["fg"],
+): ThemeTokens["pill"] {
+  const bg = surface.bgElev;
+  return {
+    bg,
+    section: {
+      reason: { bg, fg: tone.violet },
+      output: { bg, fg: tone.info },
+      tool: { bg, fg: tone.info },
+      shell: { bg, fg: tone.info },
+      task: { bg, fg: tone.info },
+      taskDone: { bg, fg: tone.ok },
+      taskFailed: { bg, fg: tone.err },
+      plan: { bg, fg: tone.violet },
+      user: { bg, fg: tone.brand },
+      empty: { bg, fg: fg.faint },
+    },
+    path: { bg, fg: fg.meta },
+    model: {
+      flash: { bg, fg: tone.info },
+      pro: { bg, fg: tone.violet },
+      r1: { bg, fg: tone.accent },
+      unknown: { bg, fg: fg.meta },
+    },
+  };
+}
+
 function defineTheme(base: ThemeBase): ThemeTokens {
-  return { ...base, card: card(base.fg, base.tone) };
+  return { ...base, card: card(base.fg, base.tone), pill: pill(base.surface, base.tone, base.fg) };
 }
 
 const dark = defineTheme({
@@ -79,8 +146,8 @@ const dark = defineTheme({
     strong: "#f4f7fb",
     body: "#d8dee9",
     sub: "#a7b1c2",
-    meta: "#778294",
-    faint: "#4d5666",
+    meta: "#9aa5b5",
+    faint: "#8791a3",
   },
   tone: {
     brand: "#7dd3fc",
@@ -104,17 +171,24 @@ const dark = defineTheme({
     bg: "#0b1020",
     bgInput: "#0f172a",
     bgCode: "#080c16",
-    bgElev: "#151d2f",
+    bgElev: "#1c2844",
+  },
+  messageBg: {
+    user: "#373737",
+    bash: "#413c41",
+    selected: "#2c323e",
   },
 });
+
+const graphite = dark;
 
 const light = defineTheme({
   fg: {
     strong: "#111827",
     body: "#1f2937",
     sub: "#4b5563",
-    meta: "#6b7280",
-    faint: "#9ca3af",
+    meta: "#5c6371",
+    faint: "#666d7b",
   },
   tone: {
     brand: "#2563eb",
@@ -140,15 +214,22 @@ const light = defineTheme({
     bgCode: "#f3f4f6",
     bgElev: "#eef2f7",
   },
+  messageBg: {
+    user: "#e5e7eb",
+    bash: "#f5e0e9",
+    selected: "#dde6f5",
+  },
 });
+
+const porcelain = light;
 
 const midnight = defineTheme({
   fg: {
     strong: "#c0caf5",
     body: "#a9b1d6",
     sub: "#9aa5ce",
-    meta: "#565f89",
-    faint: "#414868",
+    meta: "#9da5bb",
+    faint: "#8a92a8",
   },
   tone: {
     brand: "#7aa2f7",
@@ -174,6 +255,11 @@ const midnight = defineTheme({
     bgCode: "#16161e",
     bgElev: "#24283b",
   },
+  messageBg: {
+    user: "#2a2d44",
+    bash: "#39304a",
+    selected: "#1f2740",
+  },
 });
 
 const deepBlue = defineTheme({
@@ -181,8 +267,8 @@ const deepBlue = defineTheme({
     strong: "#ffffff",
     body: "#e0e0e0",
     sub: "#b0b0b0",
-    meta: "#808080",
-    faint: "#606060",
+    meta: "#909090",
+    faint: "#8c8c8c",
   },
   tone: {
     brand: "#0153e5",
@@ -207,6 +293,206 @@ const deepBlue = defineTheme({
     bgInput: "#1e1e1e",
     bgCode: "#141414",
     bgElev: "#252525",
+  },
+  messageBg: {
+    user: "#1c1c2a",
+    bash: "#2a1f2a",
+    selected: "#162033",
+  },
+});
+
+const ember = defineTheme({
+  fg: {
+    strong: "#fff7ed",
+    body: "#f5dec8",
+    sub: "#c8ad96",
+    meta: "#947a66",
+    faint: "#665142",
+  },
+  tone: {
+    brand: "#fb923c",
+    accent: "#fdba74",
+    violet: "#f0abfc",
+    ok: "#86efac",
+    warn: "#facc15",
+    err: "#fb7185",
+    info: "#7dd3fc",
+  },
+  toneActive: {
+    brand: "#fed7aa",
+    accent: "#ffedd5",
+    violet: "#f5d0fe",
+    ok: "#bbf7d0",
+    warn: "#fef08a",
+    err: "#fecdd3",
+    info: "#bae6fd",
+  },
+  surface: {
+    bg: "#140f0b",
+    bgInput: "#1f160f",
+    bgCode: "#0f0a07",
+    bgElev: "#2a1d13",
+  },
+  messageBg: {
+    user: "#342016",
+    bash: "#2b1c18",
+    selected: "#3a261a",
+  },
+});
+
+const aurora = defineTheme({
+  fg: {
+    strong: "#ecfeff",
+    body: "#d1fae5",
+    sub: "#a7c9bf",
+    meta: "#73958c",
+    faint: "#4d655f",
+  },
+  tone: {
+    brand: "#5eead4",
+    accent: "#93c5fd",
+    violet: "#c4b5fd",
+    ok: "#86efac",
+    warn: "#fbbf24",
+    err: "#fb7185",
+    info: "#67e8f9",
+  },
+  toneActive: {
+    brand: "#99f6e4",
+    accent: "#bfdbfe",
+    violet: "#ddd6fe",
+    ok: "#bbf7d0",
+    warn: "#fde68a",
+    err: "#fecdd3",
+    info: "#a5f3fc",
+  },
+  surface: {
+    bg: "#071817",
+    bgInput: "#0b2422",
+    bgCode: "#061211",
+    bgElev: "#12302d",
+  },
+  messageBg: {
+    user: "#12352f",
+    bash: "#142c34",
+    selected: "#163b3a",
+  },
+});
+
+const sandstone = defineTheme({
+  fg: {
+    strong: "#24180f",
+    body: "#38291e",
+    sub: "#6a5848",
+    meta: "#806b58",
+    faint: "#ad9982",
+  },
+  tone: {
+    brand: "#c05621",
+    accent: "#b45309",
+    violet: "#7c3aed",
+    ok: "#15803d",
+    warn: "#b45309",
+    err: "#dc2626",
+    info: "#0369a1",
+  },
+  toneActive: {
+    brand: "#9a3412",
+    accent: "#92400e",
+    violet: "#6d28d9",
+    ok: "#166534",
+    warn: "#92400e",
+    err: "#b91c1c",
+    info: "#075985",
+  },
+  surface: {
+    bg: "#fff4e3",
+    bgInput: "#f3e3cc",
+    bgCode: "#fbedd7",
+    bgElev: "#ead7bd",
+  },
+  messageBg: {
+    user: "#ead7bd",
+    bash: "#efdfd0",
+    selected: "#dfc7a8",
+  },
+});
+
+const linen = defineTheme({
+  fg: {
+    strong: "#1f1a14",
+    body: "#312820",
+    sub: "#5a4a3c",
+    meta: "#766554",
+    faint: "#a38f79",
+  },
+  tone: {
+    brand: "#c05621",
+    accent: "#2563eb",
+    violet: "#7c3aed",
+    ok: "#15803d",
+    warn: "#b45309",
+    err: "#dc2626",
+    info: "#0369a1",
+  },
+  toneActive: {
+    brand: "#9a3412",
+    accent: "#1d4ed8",
+    violet: "#6d28d9",
+    ok: "#166534",
+    warn: "#92400e",
+    err: "#b91c1c",
+    info: "#075985",
+  },
+  surface: {
+    bg: "#fff8ed",
+    bgInput: "#f4eadb",
+    bgCode: "#fbf0df",
+    bgElev: "#eadcc9",
+  },
+  messageBg: {
+    user: "#eadcc9",
+    bash: "#f0dfd9",
+    selected: "#e4d3bd",
+  },
+});
+
+const glacier = defineTheme({
+  fg: {
+    strong: "#172033",
+    body: "#25334a",
+    sub: "#4f647f",
+    meta: "#6b7f99",
+    faint: "#9aacbf",
+  },
+  tone: {
+    brand: "#0284c7",
+    accent: "#2563eb",
+    violet: "#7c3aed",
+    ok: "#15803d",
+    warn: "#b45309",
+    err: "#dc2626",
+    info: "#0369a1",
+  },
+  toneActive: {
+    brand: "#0369a1",
+    accent: "#1d4ed8",
+    violet: "#6d28d9",
+    ok: "#166534",
+    warn: "#92400e",
+    err: "#b91c1c",
+    info: "#075985",
+  },
+  surface: {
+    bg: "#f4faff",
+    bgInput: "#eaf4fb",
+    bgCode: "#f8fbff",
+    bgElev: "#dceaf5",
+  },
+  messageBg: {
+    user: "#dceaf5",
+    bash: "#e8eef7",
+    selected: "#d2e3f0",
   },
 });
 
@@ -242,17 +528,40 @@ const highContrast = defineTheme({
     bgCode: "#050505",
     bgElev: "#141414",
   },
+  messageBg: {
+    user: "#1a1a1a",
+    bash: "#241f24",
+    selected: "#102030",
+  },
 });
 
 export const THEMES = {
+  graphite,
+  ember,
+  aurora,
+  sandstone,
+  porcelain,
+  linen,
+  glacier,
+  midnight,
   dark,
   light,
-  midnight,
   "deep-blue": deepBlue,
   "high-contrast": highContrast,
 } as const satisfies Record<ThemeName, ThemeTokens>;
 
-export const DEFAULT_THEME_NAME: ThemeName = "dark";
+export const THEME_NAMES = [
+  "graphite",
+  "ember",
+  "aurora",
+  "sandstone",
+  "porcelain",
+  "linen",
+  "glacier",
+  "midnight",
+] as const satisfies readonly PublicThemeName[];
+
+export const DEFAULT_THEME_NAME: PublicThemeName = "graphite";
 
 export function isThemeName(value: string): value is ThemeName {
   return Object.prototype.hasOwnProperty.call(THEMES, value);
@@ -261,14 +570,14 @@ export function isThemeName(value: string): value is ThemeName {
 export function resolveThemeName(value?: string | null): ThemeName {
   if (!value || value === "auto") return DEFAULT_THEME_NAME;
   // Handle old theme names
-  if (value === "default" || value === "github-dark") return "dark";
-  if (value === "github-light") return "light";
+  if (value === "default" || value === "github-dark" || value === "dark") return "graphite";
+  if (value === "github-light" || value === "light") return "porcelain";
   if (value === "tokyo-night") return "midnight";
   return isThemeName(value) ? value : DEFAULT_THEME_NAME;
 }
 
-export function listThemeNames(): ThemeName[] {
-  return Object.keys(THEMES) as ThemeName[];
+export function listThemeNames(): PublicThemeName[] {
+  return [...THEME_NAMES];
 }
 
 export function themeTokens(name?: string | null): ThemeTokens {
@@ -314,7 +623,9 @@ export const FG = proxyTokens((theme) => theme.fg);
 export const TONE = proxyTokens((theme) => theme.tone);
 export const TONE_ACTIVE = proxyTokens((theme) => theme.toneActive);
 export const SURFACE = proxyTokens((theme) => theme.surface);
+export const MESSAGE_BG = proxyTokens((theme) => theme.messageBg);
 export const CARD = proxyTokens((theme) => theme.card);
+export const PILL = proxyTokens((theme) => theme.pill);
 
 export type CardTone = keyof ThemeTokens["card"];
 
@@ -344,7 +655,7 @@ export function formatCost(costUsd: number, currency?: string, fractionDigits = 
 }
 
 /** Threshold color for a wallet balance. USD is converted to CNY before the threshold check. */
-export function balanceColor(amount: number, currency?: string): string {
+export function balanceColor(amount: number, currency?: string): Color {
   const cny = (currency ?? "CNY") === "USD" ? amount * USD_TO_CNY : amount;
   if (cny < 5) return TONE.err;
   if (cny < 20) return TONE.warn;

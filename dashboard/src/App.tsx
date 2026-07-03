@@ -6,7 +6,7 @@ import { isWebRuntime } from "./lib/tauri-bridge";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { CommandPalette, Toast, buildCommands, useCommandPalette } from "./CommandPalette";
 import { WorkspaceProvider } from "./Markdown";
-import { getLang, setLang, t, useLang } from "./i18n";
+import { getLang, getLangLabel, getSupportedLangs, setLang, t, useLang } from "./i18n";
 import { I } from "./icons";
 import {
   FONT_FAMILY,
@@ -32,6 +32,7 @@ import type {
   IncomingEvent,
   JobInfo,
   McpSpecInfo,
+  MemoryDetail,
   MemoryEntryInfo,
   OutgoingCommand,
   PlanVerdict,
@@ -68,6 +69,7 @@ import { WorkdirPop } from "./ui/workdir-pop";
 import { WorkdirInputModal } from "./ui/workdir-input-modal";
 import { useAutoScroll } from "./ui/useAutoScroll";
 import { useDisableTextAssist } from "./ui/useDisableTextAssist";
+import { elideTranscriptMessages } from "./ui/transcript-elision";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type AssistantSegment =
@@ -179,6 +181,7 @@ export type SessionInfo = {
   messageCount: number;
   mtime: string;
   summary?: string;
+  workspaceStatus?: "matched" | "legacy_missing_meta";
 };
 
 export type Settings = {
@@ -191,7 +194,20 @@ export type Settings = {
   recentWorkspaces: string[];
   model: string;
   editor?: string;
-  webSearchEngine?: "bing" | "searxng" | "metaso" | "tavily" | "perplexity" | "exa";
+  webSearchEngine?:
+    | "bing"
+    | "bing-intl"
+    | "searxng"
+    | "metaso"
+    | "baidu"
+    | "tavily"
+    | "perplexity"
+    | "exa"
+    | "brave"
+    | "ollama";
+  webSearchApiKeys?: {
+    baidu?: string;
+  };
   subagentModels?: Record<string, "flash" | "pro">;
   showSystemEvents?: boolean;
   version: string;
@@ -238,6 +254,7 @@ type State = {
   /** Files the agent has read or modified this session — paths as the tool args provided them. */
   sessionFiles: SessionFile[];
   memory: MemoryEntryInfo[];
+  memoryDetail: MemoryDetail | null;
   jobs: JobInfo[];
   /** Live "skill running" indicator — set when a `skill_run` RPC dispatches, cleared on `$turn_complete`. */
   activeSkill: SkillOrigin | null;
@@ -303,6 +320,10 @@ function nextMessageTurn(messages: ChatMessage[]): number {
 }
 
 function reduce(state: State, action: Action): State {
+  return withElidedTranscript(reduceRaw(state, action));
+}
+
+function reduceRaw(state: State, action: Action): State {
   switch (action.t) {
     case "send_user": {
       return {
@@ -467,6 +488,11 @@ function reduce(state: State, action: Action): State {
   }
 }
 
+function withElidedTranscript(state: State): State {
+  const messages = elideTranscriptMessages(state.messages);
+  return messages === state.messages ? state : { ...state, messages };
+}
+
 const READING_TOOLS = new Set(["read_file"]);
 const MODIFYING_TOOLS = new Set(["edit_file", "write_file"]);
 
@@ -545,6 +571,10 @@ function appendTextSegment(
 }
 
 export function applyIncoming(state: State, ev: IncomingEvent): State {
+  return withElidedTranscript(applyIncomingRaw(state, ev));
+}
+
+function applyIncomingRaw(state: State, ev: IncomingEvent): State {
   switch (ev.type) {
     case "user.message": {
       const last = state.messages[state.messages.length - 1];
@@ -646,6 +676,23 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
           },
         ],
       };
+    case "$modal_dismissed":
+      switch (ev.kind) {
+        case "shell":
+          return { ...state, pendingConfirms: [] };
+        case "path":
+          return { ...state, pendingPathAccess: [] };
+        case "choice":
+          return { ...state, pendingChoices: [] };
+        case "plan":
+          return { ...state, pendingPlans: [] };
+        case "checkpoint":
+          return { ...state, pendingCheckpoints: [] };
+        case "revision":
+          return { ...state, pendingRevisions: [] };
+        default:
+          return state;
+      }
     case "$step_completed": {
       if (!state.activePlan) return state;
       const stepIds = new Set(state.activePlan.completedStepIds);
@@ -666,8 +713,49 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
         pendingCheckpoints: [],
         pendingRevisions: [],
       };
-    case "$sessions":
-      return { ...state, sessions: ev.items };
+    case "$sessions": {
+      const hasCurrent = "currentSession" in ev;
+      const nextCurrent =
+        ev.currentSession === null ? undefined : (ev.currentSession ?? state.currentSession);
+      const currentChanged = hasCurrent && nextCurrent !== state.currentSession;
+      return {
+        ...state,
+        sessions: ev.items,
+        currentSession: nextCurrent,
+        messages: currentChanged ? [] : state.messages,
+        pendingConfirms: currentChanged ? [] : state.pendingConfirms,
+        pendingPathAccess: currentChanged ? [] : state.pendingPathAccess,
+        pendingChoices: currentChanged ? [] : state.pendingChoices,
+        pendingPlans: currentChanged ? [] : state.pendingPlans,
+        pendingCheckpoints: currentChanged ? [] : state.pendingCheckpoints,
+        pendingRevisions: currentChanged ? [] : state.pendingRevisions,
+        activePlan: currentChanged ? null : state.activePlan,
+        usage: currentChanged ? zeroUsage() : state.usage,
+        sessionFiles: currentChanged ? [] : state.sessionFiles,
+        queuedSends: currentChanged ? [] : state.queuedSends,
+      };
+    }
+    case "$session_usage": {
+      const empty =
+        ev.totalCostUsd === 0 &&
+        ev.totalPromptTokens === 0 &&
+        ev.totalCompletionTokens === 0 &&
+        ev.cacheHitTokens === 0 &&
+        ev.cacheMissTokens === 0;
+      return {
+        ...state,
+        usage: {
+          ...state.usage,
+          totalCostUsd: ev.totalCostUsd,
+          totalPromptTokens: ev.totalPromptTokens,
+          totalCompletionTokens: ev.totalCompletionTokens,
+          cacheHitTokens: ev.cacheHitTokens,
+          cacheMissTokens: ev.cacheMissTokens,
+          lastCallCacheHit: empty ? null : state.usage.lastCallCacheHit,
+          lastCallCacheMiss: empty ? null : state.usage.lastCallCacheMiss,
+        },
+      };
+    }
     case "$mcp_specs":
       return {
         ...state,
@@ -679,7 +767,16 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
     case "$ctx_breakdown":
       return { ...state, usage: { ...state.usage, reservedTokens: ev.reservedTokens } };
     case "$memory":
-      return { ...state, memory: ev.entries };
+      return {
+        ...state,
+        memory: ev.entries,
+        memoryDetail:
+          state.memoryDetail && ev.entries.some((entry) => entry.path === state.memoryDetail?.path)
+            ? state.memoryDetail
+            : null,
+      };
+    case "$memory_detail":
+      return { ...state, memoryDetail: ev.detail };
     case "$jobs":
       return { ...state, jobs: ev.items };
     case "$balance":
@@ -734,6 +831,7 @@ export function applyIncoming(state: State, ev: IncomingEvent): State {
           model: ev.model,
           editor: ev.editor,
           webSearchEngine: ev.webSearchEngine,
+          webSearchApiKeys: ev.webSearchApiKeys,
           subagentModels: ev.subagentModels,
           showSystemEvents: ev.showSystemEvents,
           version: ev.version,
@@ -1105,6 +1203,7 @@ function TabRuntime({
     skills: [],
     sessionFiles: [],
     memory: [],
+    memoryDetail: null,
     jobs: [],
     activeSkill: null,
     queuedSends: [],
@@ -1352,7 +1451,7 @@ function TabRuntime({
 
   const resolveConfirm = useCallback(
     (id: number, response: ConfirmationChoice) => {
-      sendRpc({ cmd: "confirm_response", id, response });
+      sendRpc({ cmd: "confirm_response", id, response, kind: "shell" });
       dispatch({ t: "resolve_confirm", id });
     },
     [sendRpc],
@@ -1371,7 +1470,7 @@ function TabRuntime({
   );
   const resolvePathAccess = useCallback(
     (id: number, response: ConfirmationChoice) => {
-      sendRpc({ cmd: "confirm_response", id, response });
+      sendRpc({ cmd: "confirm_response", id, response, kind: "path" });
       dispatch({ t: "resolve_path_access", id });
     },
     [sendRpc],
@@ -1515,11 +1614,50 @@ function TabRuntime({
         if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
         e.preventDefault();
         abort();
+      } else if (e.key === "Enter" && !mod && !e.shiftKey && !e.altKey) {
+        // Defer to any control that already handles Enter — native inputs/buttons,
+        // ARIA button/link widgets (sidebar rows, file pills), or anything that called
+        // preventDefault — so we only grant when focus is on inert layout (#2015).
+        if (e.defaultPrevented) return;
+        const target = e.target as HTMLElement | null;
+        if (
+          target?.isContentEditable ||
+          target?.closest('input, textarea, button, select, a, [role="button"], [role="link"]')
+        ) {
+          return;
+        }
+        if (settingsOpen || jobsOpen || wdOpen) return;
+        // Enter grants the pending authorization prompt (run once), matching the
+        // TUI where Enter confirms the highlighted choice (#1962).
+        const confirm = state.pendingConfirms.at(-1);
+        if (confirm) {
+          e.preventDefault();
+          resolveConfirm(confirm.id, { type: "run_once" });
+          return;
+        }
+        const pathAccess = state.pendingPathAccess.at(-1);
+        if (pathAccess) {
+          e.preventDefault();
+          resolvePathAccess(pathAccess.id, { type: "run_once" });
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, state.busy, abort, newChat, settingsOpen, openSettingsAt]);
+  }, [
+    active,
+    state.busy,
+    state.pendingConfirms,
+    state.pendingPathAccess,
+    resolveConfirm,
+    resolvePathAccess,
+    settingsOpen,
+    jobsOpen,
+    wdOpen,
+    abort,
+    newChat,
+    openSettingsAt,
+  ]);
 
   const commands = buildCommands({
     newChat: () => {
@@ -1601,9 +1739,10 @@ function TabRuntime({
       cmd: "/lang",
       desc: t("app.cmd.toggleLang"),
       run: () => {
-        const next = getLang() === "zh-CN" ? "en" : "zh-CN";
+        const langs = getSupportedLangs();
+        const next = langs[(langs.indexOf(getLang()) + 1) % langs.length] ?? "en";
         setLang(next);
-        const langName = next === "zh-CN" ? t("app.langZH") : t("app.langEN");
+        const langName = getLangLabel(next);
         flashToast(t("app.toast.langSwitched", { lang: langName }));
       },
     },
@@ -2052,6 +2191,8 @@ function TabRuntime({
           mcpBridged={state.mcpBridged}
           sessionFiles={state.sessionFiles}
           memory={state.memory}
+          memoryDetail={state.memoryDetail}
+          onReadMemory={(path) => sendRpc({ cmd: "memory_read", path })}
         />
 
         <StatusBar
@@ -2121,6 +2262,8 @@ function TabRuntime({
             mcpSpecs={state.mcpSpecs}
             mcpBridged={state.mcpBridged}
             skills={state.skills}
+            memory={state.memory}
+            memoryDetail={state.memoryDetail}
             qq={state.qq}
             onClose={() => setSettingsOpen(false)}
             onSave={saveSettings}
@@ -2135,6 +2278,7 @@ function TabRuntime({
             onPickWorkspace={pickWorkspace}
             onAddMcpSpec={addMcpSpec}
             onRemoveMcpSpec={removeMcpSpec}
+            onReadMemory={(path) => sendRpc({ cmd: "memory_read", path })}
           />
         ) : null}
 

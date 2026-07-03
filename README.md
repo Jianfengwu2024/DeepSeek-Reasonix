@@ -2,10 +2,17 @@
   <img src="docs/logo.svg" alt="Reasonix" width="640"/>
 </p>
 
+> [!WARNING]
+> **This is the legacy TypeScript line (Reasonix 0.x), in maintenance mode.**
+> Active development moved to the **Go rewrite** — see the [`main-v2`](https://github.com/esengine/DeepSeek-Reasonix/tree/main-v2) branch (the new default) and the [migration guide](https://github.com/esengine/DeepSeek-Reasonix/blob/main-v2/docs/MIGRATING.md). Only bug fixes land here.
+
+
 <p align="center">
   <strong>English</strong>
   &nbsp;·&nbsp;
   <a href="./README.zh-CN.md">简体中文</a>
+  &nbsp;·&nbsp;
+  <a href="./README.ja-JP.md">日本語</a>
   &nbsp;·&nbsp;
   <a href="https://esengine.github.io/DeepSeek-Reasonix/">Website</a>
   &nbsp;·&nbsp;
@@ -25,6 +32,7 @@
   <a href="https://www.npmjs.com/package/reasonix"><img src="https://img.shields.io/npm/dm/reasonix.svg?style=flat-square&color=3fb950&labelColor=161b22&label=downloads" alt="downloads"/></a>
   <a href="./package.json"><img src="https://img.shields.io/node/v/reasonix.svg?style=flat-square&color=5fa04e&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="node"/></a>
   <a href="https://github.com/esengine/reasonix/stargazers"><img src="https://img.shields.io/github/stars/esengine/reasonix.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
+  <a href="https://atomgit.com/esengine/DeepSeek-Reasonix"><img src="https://atomgit.com/esengine/DeepSeek-Reasonix/star/badge.svg" alt="AtomGit stars"/></a>
   <a href="https://github.com/esengine/reasonix/graphs/contributors"><img src="https://img.shields.io/github/contributors/esengine/reasonix.svg?style=flat-square&color=bc8cff&labelColor=161b22&logo=github&logoColor=white" alt="contributors"/></a>
   <a href="https://github.com/esengine/reasonix/discussions"><img src="https://img.shields.io/github/discussions/esengine/reasonix.svg?style=flat-square&color=58a6ff&labelColor=161b22&logo=github&logoColor=white" alt="Discussions"/></a>
   <a href="https://discord.gg/XF78rEME2D"><img src="https://img.shields.io/badge/discord-join-5865F2.svg?style=flat-square&labelColor=161b22&logo=discord&logoColor=white" alt="Discord"/></a>
@@ -179,7 +187,7 @@ One JSON file at `~/.reasonix/config.json` plus per-project overrides under `<pr
 | [Memory](https://esengine.github.io/DeepSeek-Reasonix/configuration.html#memory) | User-private knowledge pinned into the prefix. `user` / `feedback` / `project` / `reference` types. |
 | [Hooks](https://esengine.github.io/DeepSeek-Reasonix/configuration.html#hooks) | Shell commands on lifecycle events. `PreToolUse` (gating) · `PostToolUse` · `UserPromptSubmit` · `Stop`. |
 | [Permissions](https://esengine.github.io/DeepSeek-Reasonix/configuration.html#permissions) | Per-workspace shell allowlist. Exact-prefix match. |
-| [Web search](https://esengine.github.io/DeepSeek-Reasonix/configuration.html#search) | Mojeek by default; switch to self-hosted SearXNG or Metaso with `/search-engine`. |
+| [Web search](https://esengine.github.io/DeepSeek-Reasonix/configuration.html#search) | Bing by default; switch to Baidu AI Search, self-hosted SearXNG, Metaso, Tavily, Perplexity, Exa, Brave, or Ollama with `/search-engine`. |
 | [Semantic index](https://esengine.github.io/DeepSeek-Reasonix/configuration.html#index) | `reasonix index` — local Ollama or any OpenAI-compatible embedding endpoint. |
 
 <br/>
@@ -216,7 +224,7 @@ Click through to the full architecture writeup → [Pillar 1 — Cache-first loo
 | Configurable web search engine    | `/search-engine` | —             | —                   | —                  |
 | Persistent per-workspace sessions | yes              | partial           | n/a                 | —                  |
 | Plan mode · MCP · hooks · skills  | yes              | yes               | yes                 | partial            |
-| Web search (Mojeek + SearXNG + Metaso)   | yes              | yes               | yes                 | yes                |
+| Web search (Bing + Baidu + SearXNG + API engines) | yes              | yes               | yes                 | yes                |
 | Open community development        | yes              | —                 | —                   | yes                |
 
 For live cache-hit rates, costs, and methodology, see [`benchmarks/`](./benchmarks/) — the numbers move with model pricing, so they live with the harness, not in the README.

@@ -19,6 +19,16 @@ function tokenLabel(n: number): string {
   return `${n}`;
 }
 
+/** Format a 0–100 percentage to 2 decimal places.
+ *  100.00 is shown only when the value is exactly 100; values that would round
+ *  to 100.00 are capped at 99.99. */
+function formatPct(value: number): string {
+  if (value === 100) return "100.00";
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded >= 100) return "99.99";
+  return rounded.toFixed(2);
+}
+
 export function StatusBar({
   settings,
   balance,
@@ -52,8 +62,17 @@ export function StatusBar({
   onOpenSettings: () => void;
   onOpenWorkdir?: (anchor: { bottom: number; left: number }) => void;
 }) {
-  const totalTokens = usage.cacheHitTokens + usage.cacheMissTokens;
-  const cacheHitPct = totalTokens > 0 ? Math.round((usage.cacheHitTokens / totalTokens) * 100) : 0;
+  const sessionPromptTokens =
+    usage.totalPromptTokens || usage.cacheHitTokens + usage.cacheMissTokens;
+  const liveContextTokens = usage.reservedTokens + usage.liveLogTokens;
+  const totalTokens = Math.max(sessionPromptTokens, liveContextTokens);
+  const cacheDenom = usage.cacheHitTokens + usage.cacheMissTokens;
+  const cacheHitRaw = cacheDenom > 0 ? (usage.cacheHitTokens / cacheDenom) * 100 : 0;
+  const cacheHitPctDisplay = formatPct(cacheHitRaw);
+  const cacheHitDetail =
+    cacheDenom > 0
+      ? `${usage.cacheHitTokens.toLocaleString()} / ${cacheDenom.toLocaleString()} tokens (${cacheHitPctDisplay}%)`
+      : "";
   const runningJobs = jobs.filter((j) => j.running).length;
   const spent = formatMoney(usage.totalCostUsd, currency);
   const balanceLabel = balance
@@ -85,10 +104,10 @@ export function StatusBar({
         <span>{settings?.baseUrl?.replace(/^https?:\/\//, "") ?? "api.deepseek.com"}</span>
         <span className="v">{!ready ? t("statusbar.offline") : busy ? t("statusbar.busy") : t("statusbar.online")}</span>
       </span>
-      <span className="seg" title={t("statusbar.cacheHit")}>
+      <span className="seg" title={cacheHitDetail || t("statusbar.cacheHit")}>
         <I.zap size={11} style={{ color: "var(--accent)" }} />
         <span>{t("statusbar.cache")}</span>
-        <span className="v acc">{cacheHitPct}%</span>
+        <span className="v acc">{cacheHitPctDisplay}%</span>
       </span>
       <span className="seg">
         <I.cpu size={11} />
@@ -137,10 +156,20 @@ export function StatusBar({
         <span className="v vio">{settings?.model ?? "—"}</span>
         <span className="v">{settings?.reasoningEffort ?? "high"}</span>
       </span>
-      <span className="seg" title={t("statusbar.switchCurrency")} onClick={onToggleCurrency}>
+      <span
+        className="seg"
+        title={t("statusbar.switchCurrency")}
+        onClick={onToggleCurrency}
+      >
         <I.coin size={11} />
         <span>{t("statusbar.balance")}</span>
-        <span className="v ok">{balanceLabel}</span>
+        <span className="v ok">
+          {balance && balance.infos.length > 0
+            ? balance.infos
+                .map((info) => `${info.currency === "USD" ? "$" : "¥"} ${info.total.toFixed(2)}`)
+                .join(" / ")
+            : balanceLabel}
+        </span>
       </span>
       <span
         ref={themeButtonRef}

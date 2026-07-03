@@ -1,6 +1,7 @@
 import { isCompactionSummary, stripCompactionMarker } from "@reasonix/core-utils";
 import type { ChatMessage } from "../../../types.js";
 import { extractToolExitCode } from "../tool-summary.js";
+import { elideHydratedCards } from "./card-elision.js";
 import type { Card, ToolCard } from "./cards.js";
 
 /** Rebuild cards from a persisted ChatMessage[] so resumed sessions render their history. */
@@ -48,6 +49,9 @@ export function hydrateCardsFromMessages(messages: ReadonlyArray<ChatMessage>): 
       }
       if (m.tool_calls?.length) {
         for (const tc of m.tool_calls) {
+          // A persisted session can carry a partial tool_call (a streaming delta
+          // saved before its function landed); skip it instead of crashing hydration.
+          if (!tc.function) continue;
           let parsedArgs: unknown = tc.function.arguments;
           try {
             parsedArgs = JSON.parse(tc.function.arguments);
@@ -84,5 +88,5 @@ export function hydrateCardsFromMessages(messages: ReadonlyArray<ChatMessage>): 
     }
   }
 
-  return cards;
+  return [...elideHydratedCards(cards)];
 }

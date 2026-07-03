@@ -1,4 +1,4 @@
-import Parser = require('tree-sitter');
+import Parser = require('triadmind-tree-sitter');
 
 export interface TreeSitterBindingProfile {
     identifierNodes: readonly string[];

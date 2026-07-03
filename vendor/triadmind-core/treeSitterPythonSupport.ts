@@ -1,4 +1,4 @@
-import Parser = require('tree-sitter');
+import Parser = require('triadmind-tree-sitter');
 
 export type PythonDefinitionType = 'class_definition' | 'function_definition';
 

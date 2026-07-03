@@ -4,8 +4,11 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { parse as parseHtml } from "node-html-parser";
 import {
+  loadBaiduApiKey,
+  loadBraveApiKey,
   loadExaApiKey,
   loadMetasoApiKey,
+  loadOllamaApiKey,
   loadPerplexityApiKey,
   loadTavilyApiKey,
   webSearchEndpoint as loadWebSearchEndpoint,
@@ -35,14 +38,28 @@ export interface WebFetchOptions {
   maxChars?: number;
   /** Timeout in ms. Defaults to 15_000. */
   timeoutMs?: number;
+  /** Config path for provider-specific keys. Defaults to ~/.reasonix/config.json. */
+  configPath?: string;
   signal?: AbortSignal;
 }
 
 export interface WebSearchOptions {
   topK?: number;
   signal?: AbortSignal;
-  /** Backend engine: "bing" (scrapes cn.bing.com HTML — default, works from CN without proxy), "searxng" (self-hosted SearXNG), "metaso" (Metaso API), "tavily" (LLM-friendly JSON API), "perplexity" (Perplexity AI), or "exa" (Exa API). */
-  engine?: "bing" | "searxng" | "metaso" | "tavily" | "perplexity" | "exa";
+  /** Config path for provider-specific keys. Defaults to ~/.reasonix/config.json. */
+  configPath?: string;
+  /** Backend engine: "bing" (scrapes cn.bing.com HTML — default, works from CN without proxy), "bing-intl" (www.bing.com, indexes international sites), "searxng" (self-hosted SearXNG), "metaso" (Metaso API), "baidu" (Baidu AI Search API), "tavily" (LLM-friendly JSON API), "perplexity" (Perplexity AI), "exa" (Exa API), "brave" (Brave Search API), or "ollama" (Ollama cloud web search). */
+  engine?:
+    | "bing"
+    | "bing-intl"
+    | "searxng"
+    | "metaso"
+    | "baidu"
+    | "tavily"
+    | "perplexity"
+    | "exa"
+    | "brave"
+    | "ollama";
   /** Base URL for SearXNG. Default http://localhost:8080. */
   endpoint?: string;
 }
@@ -50,6 +67,8 @@ export interface WebSearchOptions {
 const DEFAULT_FETCH_MAX_CHARS = 32_000;
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 const DEFAULT_TOPK = 5;
+/** Timeout applied to every outbound search request (#2252 extended Bing; apply consistently). */
+const SEARCH_TIMEOUT_MS = 15_000;
 /** Bytes cap applied before `resp.text()` — char cap can't fire until the body is fully buffered. */
 const FETCH_MAX_BYTES = 10 * 1024 * 1024;
 // Real-browser UA. Most search backends gate obvious scraper UAs; a stock
@@ -60,10 +79,15 @@ const USER_AGENT =
 // HTML; the international endpoint wraps them in `bing.com/ck/a?u=a1<base64>`
 // click-tracking redirects we'd have to decode per result.
 const BING_ENDPOINT = "https://cn.bing.com/search";
+const BING_INTL_ENDPOINT = "https://www.bing.com/search";
 const METASO_ENDPOINT = "https://metaso.cn/api/v1";
+const BAIDU_AI_SEARCH_ENDPOINT = "https://qianfan.baidubce.com/v2/ai_search/web_search";
 const TAVILY_ENDPOINT = "https://api.tavily.com/search";
 const PERPLEXITY_ENDPOINT = "https://api.perplexity.ai/chat/completions";
 const EXA_ENDPOINT = "https://api.exa.ai/answer";
+const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
+const OLLAMA_WEB_SEARCH_ENDPOINT = "https://ollama.com/api/web_search";
+const OLLAMA_WEB_FETCH_ENDPOINT = "https://ollama.com/api/web_fetch";
 const FETCH_MAX_REDIRECTS = 5;
 
 /** Pick a status-specific webErrors key so the model gets an actionable hint, not a bare status. */
@@ -150,6 +174,38 @@ function isInternalAddress(address: string): boolean {
   return false;
 }
 
+/** DoH fallback for when system DNS returns Fake-IP (TUN proxies). */
+interface DohAnswer {
+  type: number;
+  data: string;
+}
+
+interface DohResponse {
+  Status: number;
+  Answer?: DohAnswer[];
+}
+
+async function dohResolve(host: string): Promise<string[]> {
+  const url = new URL("https://1.1.1.1/dns-query");
+  url.searchParams.set("name", host);
+  url.searchParams.set("type", "A");
+
+  const resp = await fetch(url.toString(), {
+    headers: { Accept: "application/dns-json" },
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!resp.ok) throw new Error(`DoH resolve failed: HTTP ${resp.status} for ${host}`);
+
+  const data = (await resp.json()) as DohResponse;
+  if (data.Status !== 0)
+    throw new Error(`DoH resolve failed: DNS status ${data.Status} for ${host}`);
+
+  const addresses = (data.Answer ?? []).filter((a) => a.type === 1).map((a) => a.data);
+
+  if (addresses.length === 0) throw new Error(`DoH resolve returned no A records for ${host}`);
+  return addresses;
+}
+
 async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
   const url = new URL(rawUrl);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -158,12 +214,30 @@ async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
 
   const host = url.hostname;
   const literal = isIP(host);
-  const addresses = literal
-    ? [host]
-    : (await lookup(host, { all: true, verbatim: true })).map((entry) => entry.address);
-  if (addresses.length === 0 || addresses.some(isInternalAddress)) {
+  if (literal) {
+    if (isInternalAddress(host)) {
+      throw new Error(`web_fetch refuses internal or reserved host: ${host}`);
+    }
+    return url;
+  }
+
+  // Primary: system DNS
+  const sysAddrs = (await lookup(host, { all: true, verbatim: true })).map((e) => e.address);
+
+  if (sysAddrs.length === 0) {
     throw new Error(`web_fetch refuses internal or reserved host: ${host}`);
   }
+
+  if (sysAddrs.some(isInternalAddress)) {
+    // System DNS returned fake/internal addresses (e.g. TUN Fake-IP) —
+    // fall back to DoH to get the real public IPs
+    const dohAddrs = await dohResolve(host).catch(() => null);
+    if (!dohAddrs || dohAddrs.some(isInternalAddress)) {
+      throw new Error(`web_fetch refuses internal or reserved host: ${host}`);
+    }
+    // DoH resolved to public IPs → host is legitimate
+  }
+
   return url;
 }
 
@@ -182,6 +256,9 @@ export async function webSearch(
   if (opts.engine === "metaso") {
     return searchMetaso(query, opts);
   }
+  if (opts.engine === "baidu") {
+    return searchBaidu(query, opts);
+  }
   if (opts.engine === "searxng") {
     return searchSearxng(query, opts);
   }
@@ -194,18 +271,38 @@ export async function webSearch(
   if (opts.engine === "exa") {
     return searchExa(query, opts);
   }
+  if (opts.engine === "ollama") {
+    return searchOllama(query, opts);
+  }
+  if (opts.engine === "brave") {
+    return searchBrave(query, opts);
+  }
+  if (opts.engine === "bing-intl") {
+    return searchBing(query, opts, BING_INTL_ENDPOINT);
+  }
   return searchBing(query, opts);
 }
 
-async function searchBing(query: string, opts: WebSearchOptions = {}): Promise<SearchResult[]> {
+/** Combine caller's abort signal with the per-request search timeout. */
+function searchSignal(callerSignal?: AbortSignal): AbortSignal {
+  const t = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
+  return callerSignal ? AbortSignal.any([callerSignal, t]) : t;
+}
+
+async function searchBing(
+  query: string,
+  opts: WebSearchOptions = {},
+  endpoint = BING_ENDPOINT,
+): Promise<SearchResult[]> {
   const topK = Math.max(1, Math.min(10, opts.topK ?? DEFAULT_TOPK));
-  const resp = await fetch(`${BING_ENDPOINT}?q=${encodeURIComponent(query)}`, {
+  const signal = searchSignal(opts.signal);
+  const resp = await fetch(`${endpoint}?q=${encodeURIComponent(query)}`, {
     headers: {
       "User-Agent": USER_AGENT,
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9",
       "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     },
-    signal: opts.signal,
+    signal,
     redirect: "follow",
   });
   if (!resp.ok) throw new Error(searchStatusError(resp.status));
@@ -253,7 +350,7 @@ async function searchSearxng(query: string, opts: WebSearchOptions = {}): Promis
         "User-Agent": USER_AGENT,
         Accept: "text/html",
       },
-      signal: opts.signal,
+      signal: searchSignal(opts.signal),
     });
   } catch (err) {
     if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
@@ -293,7 +390,7 @@ interface MetasoSearchResponse {
 
 async function searchMetaso(query: string, opts: WebSearchOptions = {}): Promise<SearchResult[]> {
   const topK = Math.max(1, Math.min(100, opts.topK ?? DEFAULT_TOPK));
-  const apiKey = loadMetasoApiKey();
+  const apiKey = loadMetasoApiKey(opts.configPath);
   if (!apiKey) throw new Error(t("webErrors.metasoMissingKey"));
 
   let resp: Response;
@@ -310,7 +407,7 @@ async function searchMetaso(query: string, opts: WebSearchOptions = {}): Promise
         scope: "webpage",
         size: topK,
       }),
-      signal: opts.signal,
+      signal: searchSignal(opts.signal),
     });
   } catch (err) {
     if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
@@ -320,13 +417,6 @@ async function searchMetaso(query: string, opts: WebSearchOptions = {}): Promise
   }
 
   const raw = await resp.text();
-  let data: MetasoSearchResponse;
-  try {
-    data = JSON.parse(raw) as MetasoSearchResponse;
-  } catch {
-    throw new Error(t("webErrors.metasoParseError", { status: resp.status }));
-  }
-
   if (!resp.ok) {
     if (resp.status === 401 || resp.status === 403) {
       throw new Error(t("webErrors.metasoUnauthorized"));
@@ -335,6 +425,13 @@ async function searchMetaso(query: string, opts: WebSearchOptions = {}): Promise
       throw new Error(t("webErrors.metasoRateLimit"));
     }
     throw new Error(t("webErrors.metasoServerError", { status: resp.status }));
+  }
+
+  let data: MetasoSearchResponse;
+  try {
+    data = JSON.parse(raw) as MetasoSearchResponse;
+  } catch {
+    throw new Error(t("webErrors.metasoParseError", { status: resp.status }));
   }
 
   if (data.code === 3003) {
@@ -359,6 +456,69 @@ async function searchMetaso(query: string, opts: WebSearchOptions = {}): Promise
     url: wp.link,
     snippet: wp.snippet ?? wp.summary ?? "",
   }));
+}
+
+interface BaiduReference {
+  title?: string;
+  url?: string;
+  content?: string;
+  snippet?: string;
+}
+
+interface BaiduSearchResponse {
+  references?: BaiduReference[];
+}
+
+async function searchBaidu(query: string, opts: WebSearchOptions = {}): Promise<SearchResult[]> {
+  const topK = Math.max(1, Math.min(10, opts.topK ?? DEFAULT_TOPK));
+  const apiKey = loadBaiduApiKey(opts.configPath);
+  if (!apiKey) throw new Error(t("webErrors.baiduMissingKey"));
+
+  let resp: Response;
+  try {
+    resp = await fetch(BAIDU_AI_SEARCH_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: query }],
+      }),
+      signal: searchSignal(opts.signal),
+    });
+  } catch (err) {
+    if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
+      throw new Error(t("webErrors.cannotReach", { endpoint: BAIDU_AI_SEARCH_ENDPOINT }));
+    }
+    throw err;
+  }
+
+  const raw = await resp.text();
+  if (!resp.ok) {
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(t("webErrors.baiduUnauthorized"));
+    }
+    if (resp.status === 429) throw new Error(t("webErrors.baiduRateLimit"));
+    throw new Error(t("webErrors.baiduServerError", { status: resp.status }));
+  }
+
+  let data: BaiduSearchResponse;
+  try {
+    data = raw ? (JSON.parse(raw) as BaiduSearchResponse) : {};
+  } catch {
+    throw new Error(t("webErrors.baiduParseError", { status: resp.status }));
+  }
+
+  return (data.references ?? [])
+    .filter((r) => typeof r.title === "string" && typeof r.url === "string")
+    .slice(0, topK)
+    .map((r) => ({
+      title: r.title!,
+      url: r.url!,
+      snippet: r.content ?? r.snippet ?? "",
+    }));
 }
 
 interface TavilyResultItem {
@@ -396,7 +556,7 @@ async function searchTavily(query: string, opts: WebSearchOptions = {}): Promise
         include_raw_content: false,
         include_images: false,
       }),
-      signal: opts.signal,
+      signal: searchSignal(opts.signal),
     });
   } catch (err) {
     if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
@@ -459,7 +619,7 @@ async function searchPerplexity(
         max_tokens: 1024,
         return_related_questions: false,
       }),
-      signal: opts.signal,
+      signal: searchSignal(opts.signal),
     });
   } catch (err) {
     if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
@@ -542,7 +702,7 @@ async function searchExa(query: string, opts: WebSearchOptions = {}): Promise<Se
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ query, text: true }),
-      signal: opts.signal,
+      signal: searchSignal(opts.signal),
     });
   } catch (err) {
     if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
@@ -591,6 +751,203 @@ async function searchExa(query: string, opts: WebSearchOptions = {}): Promise<Se
   return results;
 }
 
+interface OllamaSearchItem {
+  title?: string;
+  url?: string;
+  content?: string;
+}
+
+interface OllamaSearchResponse {
+  results?: OllamaSearchItem[];
+}
+
+async function searchOllama(query: string, opts: WebSearchOptions = {}): Promise<SearchResult[]> {
+  const topK = Math.max(1, Math.min(10, opts.topK ?? DEFAULT_TOPK));
+  const apiKey = loadOllamaApiKey(opts.configPath);
+  if (!apiKey) {
+    throw new Error(t("webErrors.ollamaMissingKey"));
+  }
+
+  let resp: Response;
+  try {
+    resp = await fetch(OLLAMA_WEB_SEARCH_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ query, max_results: topK }),
+      signal: searchSignal(opts.signal),
+    });
+  } catch (err) {
+    if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
+      throw new Error(t("webErrors.cannotReach", { endpoint: OLLAMA_WEB_SEARCH_ENDPOINT }));
+    }
+    throw err;
+  }
+
+  if (!resp.ok) {
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(t("webErrors.ollamaUnauthorized"));
+    }
+    if (resp.status === 429) {
+      throw new Error(t("webErrors.ollamaRateLimit"));
+    }
+    throw new Error(
+      t("webErrors.ollamaServerError", { status: resp.status, url: OLLAMA_WEB_SEARCH_ENDPOINT }),
+    );
+  }
+
+  let data: OllamaSearchResponse;
+  try {
+    data = (await resp.json()) as OllamaSearchResponse;
+  } catch {
+    throw new Error(
+      t("webErrors.ollamaParseError", { status: resp.status, url: OLLAMA_WEB_SEARCH_ENDPOINT }),
+    );
+  }
+
+  return (data.results ?? []).slice(0, topK).map((r, i) => ({
+    title: r.title || `Result ${i + 1}`,
+    url: r.url || "",
+    snippet: r.content ?? "",
+  }));
+}
+
+interface BraveWebResult {
+  title?: string;
+  url?: string;
+  description?: string;
+}
+
+interface BraveSearchResponse {
+  web?: {
+    results?: BraveWebResult[];
+  };
+}
+
+async function searchBrave(query: string, opts: WebSearchOptions = {}): Promise<SearchResult[]> {
+  const topK = Math.max(1, Math.min(20, opts.topK ?? DEFAULT_TOPK));
+  const apiKey = loadBraveApiKey(opts.configPath);
+  if (!apiKey) throw new Error(t("webErrors.braveMissingKey"));
+
+  const url = `${BRAVE_ENDPOINT}?q=${encodeURIComponent(query)}&count=${topK}`;
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "Accept-Encoding": "gzip",
+        "X-Subscription-Token": apiKey,
+      },
+      signal: searchSignal(opts.signal),
+    });
+  } catch (err) {
+    if (err instanceof TypeError && (err as Error).message.includes("fetch")) {
+      throw new Error(t("webErrors.cannotReach", { endpoint: BRAVE_ENDPOINT }));
+    }
+    throw err;
+  }
+
+  if (!resp.ok) {
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(t("webErrors.braveUnauthorized"));
+    }
+    if (resp.status === 429) {
+      throw new Error(t("webErrors.braveRateLimit"));
+    }
+    throw new Error(t("webErrors.braveServerError", { status: resp.status }));
+  }
+
+  const raw = await resp.text();
+  let data: BraveSearchResponse;
+  try {
+    data = JSON.parse(raw) as BraveSearchResponse;
+  } catch {
+    throw new Error(t("webErrors.braveParseError", { status: resp.status }));
+  }
+
+  const results = data.web?.results ?? [];
+  return results.slice(0, topK).map((r) => ({
+    title: r.title ?? "",
+    url: r.url ?? "",
+    snippet: r.description ?? "",
+  }));
+}
+
+interface OllamaFetchResponse {
+  title?: string;
+  content?: string;
+  links?: string[];
+}
+
+async function webFetchOllama(
+  url: string,
+  opts: WebFetchOptions = {},
+): Promise<PageContent & { links?: string[] }> {
+  const apiKey = loadOllamaApiKey(opts.configPath);
+  if (!apiKey) {
+    throw new Error(t("webErrors.fetchOllamaMissingKey"));
+  }
+
+  const ctrl = new AbortController();
+  const timeout = setTimeout(
+    () =>
+      ctrl.abort(
+        new Error(
+          t("webErrors.fetchTimeout", { ms: opts.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS, url }),
+        ),
+      ),
+    opts.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS,
+  );
+  const signal = opts.signal ? AbortSignal.any([opts.signal, ctrl.signal]) : ctrl.signal;
+
+  let resp: Response;
+  try {
+    resp = await fetch(OLLAMA_WEB_FETCH_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ url }),
+      signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!resp.ok) {
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(t("webErrors.fetchOllamaUnauthorized"));
+    }
+    if (resp.status === 429) {
+      throw new Error(t("webErrors.fetchOllamaRateLimit"));
+    }
+    throw new Error(t("webErrors.fetchOllamaServerError", { status: resp.status, url }));
+  }
+
+  let data: OllamaFetchResponse;
+  try {
+    data = (await resp.json()) as OllamaFetchResponse;
+  } catch {
+    throw new Error(t("webErrors.fetchOllamaParseError", { status: resp.status, url }));
+  }
+
+  const maxChars = opts.maxChars ?? DEFAULT_FETCH_MAX_CHARS;
+  const text = data.content ?? "";
+  return {
+    url,
+    title: data.title,
+    text: text.length > maxChars ? text.slice(0, maxChars) : text,
+    truncated: text.length > maxChars,
+    links: data.links,
+  };
+}
+
 /** Parse SearXNG HTML search results using node-html-parser. */
 export function parseSearxngHtmlResults(html: string): SearchResult[] {
   const root = parseHtml(html);
@@ -637,6 +994,23 @@ export function parseSearxngHtmlResults(html: string): SearchResult[] {
   return results;
 }
 
+/** Decode Bing /ck/a click-tracking redirects to the real target. www.bing.com (bing-intl) emits
+ *  these as root-relative `/ck/a?…` hrefs, so resolve against a base before parsing (a bare
+ *  `new URL("/ck/a?…")` throws); the `u=a1…` value is base64url, often unpadded. */
+function unwrapBingUrl(href: string): string {
+  if (!/\/ck\/a\b/.test(href)) return href;
+  try {
+    const u = new URL(href, BING_INTL_ENDPOINT).searchParams.get("u");
+    if (!u) return href;
+    const b64 = u.startsWith("a1") ? u.slice(2) : u;
+    const decoded = Buffer.from(b64, "base64url").toString("utf-8");
+    if (/^https?:\/\//i.test(decoded)) return decoded;
+  } catch {
+    // ignore decode errors and fall back to raw href
+  }
+  return href;
+}
+
 /** Title-anchor + snippet-paragraph passes paired positionally — robust to attribute reorder. */
 export function parseBingResults(html: string): SearchResult[] {
   // DOM walk rather than regex — `<li[^>]*\bclass\b[^>]*>` triggers
@@ -646,7 +1020,7 @@ export function parseBingResults(html: string): SearchResult[] {
   for (const li of root.querySelectorAll("li.b_algo")) {
     const anchor = li.querySelector("h2 a[href]");
     if (!anchor) continue;
-    const href = anchor.getAttribute("href");
+    const href = unwrapBingUrl(anchor.getAttribute("href") || "");
     if (!href) continue;
     const title = anchor.textContent.trim();
     if (!title) continue;
@@ -849,6 +1223,8 @@ export interface WebToolsOptions {
   defaultTopK?: number;
   /** Byte cap for `web_fetch` extracted text. */
   maxFetchChars?: number;
+  /** Config path to read at tool-call time. Defaults to ~/.reasonix/config.json. */
+  configPath?: string;
 }
 
 export function registerWebTools(registry: ToolRegistry, opts: WebToolsOptions = {}): ToolRegistry {
@@ -874,13 +1250,14 @@ export function registerWebTools(registry: ToolRegistry, opts: WebToolsOptions =
     },
     fn: async (args: { query: string; topK?: number }, ctx) => {
       // Read at call time, not registration time — `/search-engine` mutates config mid-session (#1309).
-      const engine = loadWebSearchEngine();
-      const endpoint = loadWebSearchEndpoint();
+      const engine = loadWebSearchEngine(opts.configPath);
+      const endpoint = loadWebSearchEndpoint(opts.configPath);
       const results = await webSearch(args.query, {
         topK: args.topK ?? defaultTopK,
         signal: ctx?.signal,
         engine,
         endpoint,
+        configPath: opts.configPath,
       });
       return formatSearchResults(args.query, results);
     },
@@ -902,6 +1279,16 @@ export function registerWebTools(registry: ToolRegistry, opts: WebToolsOptions =
     fn: async (args: { url: string }, ctx) => {
       if (!/^https?:\/\//i.test(args.url)) {
         throw new Error(t("webErrors.fetchInvalidUrl"));
+      }
+      if (loadWebSearchEngine(opts.configPath) === "ollama") {
+        const page = await webFetchOllama(args.url, {
+          maxChars: maxFetchChars,
+          signal: ctx?.signal,
+          configPath: opts.configPath,
+        });
+        const header = page.title ? `${page.title}\n${page.url}` : page.url;
+        const links = page.links?.length ? `\n\nlinks:\n${page.links.join("\n")}` : "";
+        return `${header}\n\n${page.text}${links}`;
       }
       const page = await webFetch(args.url, { maxChars: maxFetchChars, signal: ctx?.signal });
       const header = page.title ? `${page.title}\n${page.url}` : page.url;

@@ -197,7 +197,10 @@ function sseToIncoming(ev: any): Record<string, any>[] {
       break;
     }
     case "modal-down": {
-      // Modal closed — normally handled by user action response
+      // Sync close from another surface (TUI or sibling tab).
+      if (typeof ev.modalKind === "string") {
+        results.push({ type: "$modal_dismissed", tabId: "tab-1", kind: ev.modalKind });
+      }
       break;
     }
     case "warning":
@@ -227,10 +230,12 @@ function sseToIncoming(ev: any): Record<string, any>[] {
 
 function connectSSE(): void {
   if (sse) sse.close();
-  const token = document.querySelector('meta[name="reasonix-token"]')?.getAttribute("content") ?? "";
-  const sseUrl = token && token !== "__REASONIX_TOKEN__"
-    ? `/api/events?token=${encodeURIComponent(token)}`
-    : "/api/events";
+  const token =
+    document.querySelector('meta[name="reasonix-token"]')?.getAttribute("content") ?? "";
+  const sseUrl =
+    token && token !== "__REASONIX_TOKEN__"
+      ? `/api/events?token=${encodeURIComponent(token)}`
+      : "/api/events";
   sse = new EventSource(sseUrl);
   sse.onmessage = (msg: MessageEvent) => {
     try {
@@ -273,41 +278,19 @@ function connectSSE(): void {
     setTimeout(connectSSE, Math.min(delay, 30000));
   };
 
-  // SSE 连接成功后，开始定期轮询 overview 更新 balance/stats
+  // SSE 连接成功后，开始定期轮询 overview/sessions 更新右侧状态和会话列表
   startStatsPolling();
 }
 
-// 定期轮询 stats/balance
+// 定期轮询 stats/balance/sessions
 let statsPollTimer: ReturnType<typeof setInterval> | null = null;
 
 function startStatsPolling(): void {
   if (statsPollTimer) clearInterval(statsPollTimer);
-  // 每 5 秒轮询一次 overview 获取最新 stats/balance
+  // 每 5 秒轮询一次，补偿 SSE 重连、App remount、以及其他终端写入 session 文件的情况。
   statsPollTimer = setInterval(async () => {
     try {
-      const overview = await apiFetch("overview");
-      if (overview?.stats) {
-        const stats = overview.stats;
-        // 更新 balance
-        if (stats.balance) {
-          const firstBalance = stats.balance[0];
-          if (firstBalance) {
-            emitEvent({
-              type: "$balance",
-              tabId: "tab-1",
-              currency: firstBalance.currency,
-              total: parseFloat(firstBalance.total_balance) || 0,
-              isAvailable: true,
-            });
-          }
-        }
-        // 更新 usage stats（缓存命中率、tokens、金额）
-        const totalTokens = Math.round(
-          stats.totalCostUsd > 0 ? (stats.cacheHitRatio * 10000) : 0
-        );
-        // 通过 $settings 事件附带更新 usage 相关信息
-        // 注意：usage 主要由 model.final 事件更新，这里只更新 balance
-      }
+      await refreshServerSnapshots();
     } catch {
       // 静默失败，等待下次轮询
     }
@@ -318,7 +301,7 @@ function startStatsPolling(): void {
 async function apiFetch(endpoint: string, options?: RequestInit): Promise<any> {
   const token = document.querySelector('meta[name="reasonix-token"]')?.getAttribute("content");
   const headers: Record<string, string> = {
-    ...(options?.headers as Record<string, string> ?? {}),
+    ...((options?.headers as Record<string, string>) ?? {}),
   };
   if (token && token !== "__REASONIX_TOKEN__") {
     headers["x-reasonix-token"] = token;
@@ -329,7 +312,11 @@ async function apiFetch(endpoint: string, options?: RequestInit): Promise<any> {
   const res = await fetch(`/api/${endpoint}`, { ...options, headers });
   if (res.status === 204) return null;
   const text = await res.text();
-  try { return JSON.parse(text); } catch { return text; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 function emitServerSettings(settings: any, overview?: any): void {
@@ -344,6 +331,7 @@ function emitServerSettings(settings: any, overview?: any): void {
     model: overview?.model ?? settings?.model ?? "deepseek-v4-flash",
     editor: "code",
     webSearchEngine: settings?.webSearchEngine ?? "bing",
+    webSearchApiKeys: settings?.webSearchApiKeys ?? {},
     subagentModels: settings?.subagentModels ?? {},
     version: overview?.version ?? "",
     baseUrl: settings?.baseUrl ?? "",
@@ -351,7 +339,184 @@ function emitServerSettings(settings: any, overview?: any): void {
   });
 }
 
+function finiteNumber(value: unknown, fallback = 0): number {
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+interface ServerSessionItem {
+  name: string;
+  messageCount: number;
+  mtime: number;
+  summary?: string;
+  workspaceStatus?: "matched" | "legacy_missing_meta";
+}
+
+interface ServerSessionsResponse {
+  sessions?: ServerSessionItem[];
+  currentSession?: string | null;
+}
+
+interface ServerBalanceEntry {
+  currency: string;
+  total_balance: string;
+}
+
+interface ServerOverviewStats {
+  totalCostUsd?: number;
+  cacheHitTokens?: number;
+  cacheMissTokens?: number;
+  totalCompletionTokens?: number;
+  balance?: ServerBalanceEntry[];
+}
+
+interface ServerOverviewResponse {
+  stats?: ServerOverviewStats;
+}
+
+function mapSessionItem(s: ServerSessionItem) {
+  return {
+    name: s.name,
+    messageCount: s.messageCount,
+    mtime: new Date(s.mtime).toISOString(),
+    summary: s.summary,
+    workspaceStatus: s.workspaceStatus,
+  };
+}
+
+function emitSessionsSnapshot(sessionsData: ServerSessionsResponse | null | undefined): void {
+  if (!sessionsData?.sessions) return;
+  emitEvent({
+    type: "$sessions",
+    tabId: "tab-1",
+    currentSession:
+      typeof sessionsData.currentSession === "string" ? sessionsData.currentSession : null,
+    items: sessionsData.sessions.map(mapSessionItem),
+  });
+}
+
+function emitOverviewSnapshot(overview: ServerOverviewResponse | null | undefined): void {
+  const stats = overview?.stats;
+  if (!stats) return;
+
+  const cacheHitTokens = finiteNumber(stats.cacheHitTokens);
+  const cacheMissTokens = finiteNumber(stats.cacheMissTokens);
+  emitEvent({
+    type: "$session_usage",
+    tabId: "tab-1",
+    totalCostUsd: finiteNumber(stats.totalCostUsd),
+    totalPromptTokens: cacheHitTokens + cacheMissTokens,
+    totalCompletionTokens: finiteNumber(stats.totalCompletionTokens),
+    cacheHitTokens,
+    cacheMissTokens,
+  });
+
+  const firstBalance = stats.balance?.[0];
+  if (firstBalance) {
+    emitEvent({
+      type: "$balance",
+      tabId: "tab-1",
+      currency: firstBalance.currency,
+      total: Number.parseFloat(firstBalance.total_balance) || 0,
+      isAvailable: true,
+    });
+  }
+}
+
+async function refreshServerSnapshots(): Promise<void> {
+  const [sessionsData, overview] = await Promise.all([apiFetch("sessions"), apiFetch("overview")]);
+  emitSessionsSnapshot(sessionsData);
+  emitOverviewSnapshot(overview);
+}
+
 // 初始化 Server 状态
+function emitMcpSpecsFromServer(specs: any[] | undefined, bridged: any[] | undefined): void {
+  const live = new Map<string, any>();
+  for (const s of bridged ?? []) {
+    if (typeof s?.spec === "string") live.set(s.spec, s);
+  }
+  const out = (specs ?? []).map((s: any) => {
+    const liveEntry = live.get(s.raw);
+    return {
+      raw: s.raw,
+      name: s.name ?? null,
+      transport: s.transport,
+      summary: s.summary,
+      parseError: s.parseError,
+      status: liveEntry ? "connected" : s.parseError ? "failed" : "configured",
+      statusReason: liveEntry ? undefined : s.parseError,
+      toolCount: liveEntry?.toolCount,
+    };
+  });
+  emitEvent({
+    type: "$mcp_specs",
+    tabId: "tab-1",
+    specs: out,
+    bridged: out.length > 0 && out.every((s) => s.status === "connected"),
+  });
+}
+
+function emitSkillsFromServer(data: any): void {
+  const items: any[] = [];
+  const tag = (rows: any[] | undefined, scope: string) => {
+    for (const r of rows ?? []) {
+      items.push({
+        name: r.name,
+        description: r.description ?? "",
+        scope,
+        path: r.path ?? "",
+        runAs: r.runAs ?? "inline",
+        model: r.model,
+      });
+    }
+  };
+  tag(data?.builtin, "builtin");
+  tag(data?.global, "global");
+  tag(data?.custom, "global");
+  tag(data?.project, "project");
+  emitEvent({ type: "$skills", tabId: "tab-1", items });
+}
+
+function emitMemoryEntriesFromServer(entries: any[] | undefined): void {
+  emitEvent({ type: "$memory", tabId: "tab-1", entries: entries ?? [] });
+}
+
+async function loadAndEmitMcp(): Promise<void> {
+  try {
+    const [specsResp, liveResp] = await Promise.all([apiFetch("mcp/specs"), apiFetch("mcp")]);
+    emitMcpSpecsFromServer(specsResp?.specs, liveResp?.servers);
+  } catch (err) {
+    console.warn("[tauri-bridge] mcp fetch failed:", err);
+  }
+}
+
+async function loadAndEmitSkills(): Promise<void> {
+  try {
+    const data = await apiFetch("skills");
+    if (data) emitSkillsFromServer(data);
+  } catch (err) {
+    console.warn("[tauri-bridge] skills fetch failed:", err);
+  }
+}
+
+async function loadAndEmitMemory(): Promise<void> {
+  try {
+    const data = await apiFetch("memory/entries");
+    emitMemoryEntriesFromServer(data?.entries);
+  } catch (err) {
+    console.warn("[tauri-bridge] memory fetch failed:", err);
+  }
+}
+
+async function loadAndEmitMemoryDetail(path: string): Promise<void> {
+  try {
+    const data = await apiFetch(`memory/read?path=${encodeURIComponent(path)}`);
+    if (data?.detail) emitEvent({ type: "$memory_detail", tabId: "tab-1", detail: data.detail });
+  } catch (err) {
+    console.warn("[tauri-bridge] memory read failed:", err);
+  }
+}
+
 async function serverInit(): Promise<void> {
   document.documentElement.dataset.web = "true";
 
@@ -365,36 +530,15 @@ async function serverInit(): Promise<void> {
     ]);
     wsDir = overview?.cwd ?? "";
     if (settings) emitServerSettings(settings, overview);
-    if (sessionsData?.sessions) {
-      const items = sessionsData.sessions.map((s: any) => ({
-        name: s.name,
-        messageCount: s.messageCount,
-        mtime: new Date(s.mtime).toISOString(),
-        summary: s.summary,
-      }));
-      emitEvent({
-        type: "$sessions",
-        tabId: "tab-1",
-        items,
-      });
-    }
-    // 从 overview 中提取 balance 和 stats
-    const stats = overview?.stats;
-    if (stats?.balance) {
-      const firstBalance = stats.balance[0];
-      if (firstBalance) {
-        emitEvent({
-          type: "$balance",
-          tabId: "tab-1",
-          currency: firstBalance.currency,
-          total: parseFloat(firstBalance.total_balance) || 0,
-          isAvailable: true,
-        });
-      }
-    }
+    emitSessionsSnapshot(sessionsData);
+    emitOverviewSnapshot(overview);
   } catch (err) {
     console.warn("[tauri-bridge] server init failed:", err);
   }
+
+  // Sidebar/right-rail panels — desktop pushes these on tab open; web has
+  // to pull them or every panel renders empty forever (#1715).
+  void Promise.all([loadAndEmitMcp(), loadAndEmitSkills(), loadAndEmitMemory()]);
 
   emitEvent({ type: "$ready", tabId: "tab-1" });
   emitEvent({
@@ -438,21 +582,17 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
     case "session_list": {
       try {
         const data = await apiFetch("sessions");
-        if (data?.sessions) {
-          const items = data.sessions.map((s: any) => ({
-            name: s.name,
-            messageCount: s.messageCount,
-            mtime: new Date(s.mtime).toISOString(),
-            summary: s.summary,
-          }));
-          emitEvent({ type: "$sessions", tabId: "tab-1", items });
-        }
-      } catch { /* ignore */ }
+        emitSessionsSnapshot(data);
+      } catch {
+        /* ignore */
+      }
       break;
     }
     case "session_load": {
       try {
-        const switchData = await apiFetch(`sessions/${encodeURIComponent(payload.name)}/switch`, { method: "POST" });
+        const switchData = await apiFetch(`sessions/${encodeURIComponent(payload.name)}/switch`, {
+          method: "POST",
+        });
         if (!switchData?.ok) {
           console.warn("[tauri-bridge] session switch failed:", payload.name, switchData);
           break;
@@ -530,16 +670,10 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
         await apiFetch(`sessions/${encodeURIComponent(payload.name)}`, { method: "DELETE" });
         // 删除后刷新列表
         const data = await apiFetch("sessions");
-        if (data?.sessions) {
-          const items = data.sessions.map((s: any) => ({
-            name: s.name,
-            messageCount: s.messageCount,
-            mtime: new Date(s.mtime).toISOString(),
-            summary: s.summary,
-          }));
-          emitEvent({ type: "$sessions", tabId: "tab-1", items });
-        }
-      } catch { /* ignore */ }
+        emitSessionsSnapshot(data);
+      } catch {
+        /* ignore */
+      }
       break;
     }
     case "new_chat": {
@@ -558,24 +692,25 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
             carryover: { totalCostUsd: 0, cacheHitTokens: 0, cacheMissTokens: 0 },
           });
           const listData = await apiFetch("sessions");
-          if (listData?.sessions) {
-            const items = listData.sessions.map((s: any) => ({
-              name: s.name,
-              messageCount: s.messageCount,
-              mtime: new Date(s.mtime).toISOString(),
-              summary: s.summary,
-            }));
-            emitEvent({ type: "$sessions", tabId: "tab-1", items });
-          }
+          emitSessionsSnapshot(listData);
+          const overview = await apiFetch("overview");
+          emitOverviewSnapshot(overview);
         }
-      } catch { /* fallback */ }
+      } catch {
+        /* fallback */
+      }
       break;
     }
     case "settings_get": {
       try {
-        const [settings, overview] = await Promise.all([apiFetch("settings"), apiFetch("overview")]);
+        const [settings, overview] = await Promise.all([
+          apiFetch("settings"),
+          apiFetch("overview"),
+        ]);
         if (settings) emitServerSettings(settings, overview);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       break;
     }
     case "settings_save": {
@@ -585,9 +720,14 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
           body: JSON.stringify(payload),
         });
         // 保存后主动拉取最新设置以同步 UI
-        const [settings, overview] = await Promise.all([apiFetch("settings"), apiFetch("overview")]);
+        const [settings, overview] = await Promise.all([
+          apiFetch("settings"),
+          apiFetch("overview"),
+        ]);
         if (settings) emitServerSettings(settings, overview);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       break;
     }
     case "setup_save_key": {
@@ -598,37 +738,51 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
       break;
     }
     case "confirm_response": {
-      await apiFetch("modal", {
+      const kind = payload.kind === "path" ? "path" : "shell";
+      await apiFetch("modal/resolve", {
         method: "POST",
-        body: JSON.stringify({ id: payload.id, response: payload.response }),
+        body: JSON.stringify({ kind, choice: payload.response.type }),
       }).catch(() => {});
       break;
     }
     case "choice_response": {
-      await apiFetch("modal", {
+      const r = payload.response;
+      let choice: Record<string, unknown>;
+      if (r.type === "pick") choice = { kind: "pick", optionId: r.optionId };
+      else if (r.type === "text") choice = { kind: "custom", text: r.text };
+      else choice = { kind: "cancel" };
+      await apiFetch("modal/resolve", {
         method: "POST",
-        body: JSON.stringify({ id: payload.id, response: payload.response }),
+        body: JSON.stringify({ kind: "choice", choice }),
       }).catch(() => {});
       break;
     }
     case "plan_response": {
-      await apiFetch("modal", {
+      const r = payload.response;
+      await apiFetch("modal/resolve", {
         method: "POST",
-        body: JSON.stringify({ id: payload.id, response: payload.response }),
+        body: JSON.stringify({ kind: "plan", choice: r.type, text: r.feedback }),
       }).catch(() => {});
       break;
     }
     case "checkpoint_response": {
-      await apiFetch("modal", {
+      const r = payload.response;
+      const text = r.type === "revise" ? r.feedback : undefined;
+      await apiFetch("modal/resolve", {
         method: "POST",
-        body: JSON.stringify({ id: payload.id, response: payload.response }),
+        body: JSON.stringify({ kind: "checkpoint", choice: r.type, text }),
       }).catch(() => {});
       break;
     }
     case "revision_response": {
-      await apiFetch("modal", {
+      const r = payload.response;
+      // Server takes "accept" / "reject"; verdict uses past-participle.
+      const choice =
+        r.type === "accepted" ? "accept" : r.type === "rejected" ? "reject" : null;
+      if (choice === null) break;
+      await apiFetch("modal/resolve", {
         method: "POST",
-        body: JSON.stringify({ id: payload.id, response: payload.response }),
+        body: JSON.stringify({ kind: "revision", choice }),
       }).catch(() => {});
       break;
     }
@@ -638,12 +792,16 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
         if (data?.jobs) {
           emitEvent({ type: "$jobs", tabId: "tab-1", items: data.jobs });
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       break;
     }
     case "mention_query": {
       try {
-        const data = await apiFetch(`files/search?q=${encodeURIComponent(payload.query)}&nonce=${payload.nonce}`);
+        const data = await apiFetch(
+          `files/search?q=${encodeURIComponent(payload.query)}&nonce=${payload.nonce}`,
+        );
         if (data) {
           emitEvent({
             type: "$mention_results",
@@ -653,12 +811,16 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
             results: data.results ?? [],
           });
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       break;
     }
     case "mention_preview": {
       try {
-        const data = await apiFetch(`file-read?path=${encodeURIComponent(payload.path)}&nonce=${payload.nonce}`);
+        const data = await apiFetch(
+          `file-read?path=${encodeURIComponent(payload.path)}&nonce=${payload.nonce}`,
+        );
         if (data) {
           emitEvent({
             type: "$mention_preview",
@@ -669,7 +831,9 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
             totalLines: data.totalLines ?? 0,
           });
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       break;
     }
     // ── 桌面端特有操作（Web 版无操作或静默忽略） ──
@@ -686,25 +850,51 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
       break;
     }
     case "jobs_stop": {
-      try { await apiFetch(`jobs/${payload.jobId}/stop`, { method: "POST" }); } catch {}
+      try {
+        await apiFetch(`jobs/${payload.jobId}/stop`, { method: "POST" });
+      } catch {}
       break;
     }
     case "jobs_stop_all": {
-      try { await apiFetch("jobs/stop-all", { method: "POST" }); } catch {}
+      try {
+        await apiFetch("jobs/stop-all", { method: "POST" });
+      } catch {}
       break;
     }
     case "compact_history": {
-      try { await apiFetch("messages/compact", { method: "POST" }); } catch {}
+      try {
+        await apiFetch("messages/compact", { method: "POST" });
+      } catch {}
       break;
     }
     case "retry": {
-      try { await apiFetch("submit", { method: "POST", body: JSON.stringify({ retry: true }) }); } catch {}
+      try {
+        await apiFetch("submit", { method: "POST", body: JSON.stringify({ retry: true }) });
+      } catch {}
       break;
     }
     case "skill_run": {
       const body: Record<string, any> = { name: payload.name };
       if (payload.args) body.args = payload.args;
-      try { await apiFetch("skills/run", { method: "POST", body: JSON.stringify(body) }); } catch {}
+      try {
+        await apiFetch("skills/run", { method: "POST", body: JSON.stringify(body) });
+      } catch {}
+      break;
+    }
+    case "mcp_specs_get": {
+      await loadAndEmitMcp();
+      break;
+    }
+    case "skills_get": {
+      await loadAndEmitSkills();
+      break;
+    }
+    case "memory_get": {
+      await loadAndEmitMemory();
+      break;
+    }
+    case "memory_read": {
+      if (typeof payload.path === "string") await loadAndEmitMemoryDetail(payload.path);
       break;
     }
     case "mcp_specs_add":
@@ -713,8 +903,12 @@ async function serverRpc(payload: Record<string, any>): Promise<void> {
       try {
         await apiFetch("mcp", {
           method: "POST",
-          body: JSON.stringify({ action: cmd === "mcp_specs_add" ? "add" : "remove", spec: payload.spec }),
+          body: JSON.stringify({
+            action: cmd === "mcp_specs_add" ? "add" : "remove",
+            spec: payload.spec,
+          }),
         });
+        await loadAndEmitMcp();
       } catch {}
       break;
     }
@@ -756,20 +950,31 @@ export async function invoke(cmd: string, args?: any): Promise<any> {
     const payload = JSON.parse(args.line);
     if (payload.cmd === "user_input") {
       emitEvent({
-        type: "user.message", tabId: "tab-1",
-        id: Date.now(), ts: new Date().toISOString(), turn: 2, text: payload.text,
+        type: "user.message",
+        tabId: "tab-1",
+        id: Date.now(),
+        ts: new Date().toISOString(),
+        turn: 2,
+        text: payload.text,
       });
       mockAssistantTurn(payload.text);
     } else if (payload.cmd === "session_list") {
       emitEvent({ type: "$sessions", tabId: "tab-1", items: mockSessions });
     } else if (payload.cmd === "session_load") {
       emitEvent({
-        type: "$session_loaded", tabId: "tab-1", name: payload.name,
+        type: "$session_loaded",
+        tabId: "tab-1",
+        name: payload.name,
         messages: mockMessages,
         carryover: { totalCostUsd: 0.045, cacheHitTokens: 2500, cacheMissTokens: 1400 },
       });
     } else if (payload.cmd === "new_chat") {
-      emitEvent({ type: "$session_empty", tabId: "tab-1", name: "desktop-new-session", sizeBytes: 0 });
+      emitEvent({
+        type: "$session_empty",
+        tabId: "tab-1",
+        name: "desktop-new-session",
+        sizeBytes: 0,
+      });
     } else if (payload.cmd === "settings_get") {
       emitEvent({ type: "$settings", tabId: "tab-1", ...mockSettings });
     }
@@ -787,7 +992,7 @@ export async function invoke(cmd: string, args?: any): Promise<any> {
 // 2. @tauri-apps/api/event
 export async function listen<T = any>(
   eventName: string,
-  callback: EventCallback<T>
+  callback: EventCallback<T>,
 ): Promise<UnlistenFn> {
   let bucket = listeners.get(eventName);
   if (!bucket) {
@@ -815,10 +1020,18 @@ export function getCurrentWebview(): any {
 export function getCurrentWindow(): any {
   return {
     isMaximized: async () => false,
-    minimize: async () => { console.log("[tauri-bridge] minimize (no-op)"); },
-    close: async () => { console.log("[tauri-bridge] close (no-op)"); },
-    toggleMaximize: async () => { console.log("[tauri-bridge] toggleMaximize (no-op)"); },
-    listen: async (_event: string, _callback: any): Promise<() => void> => () => {},
+    minimize: async () => {
+      console.log("[tauri-bridge] minimize (no-op)");
+    },
+    close: async () => {
+      console.log("[tauri-bridge] close (no-op)");
+    },
+    toggleMaximize: async () => {
+      console.log("[tauri-bridge] toggleMaximize (no-op)");
+    },
+    listen:
+      async (_event: string, _callback: any): Promise<() => void> =>
+      () => {},
     label: "main",
   };
 }
@@ -854,17 +1067,36 @@ export async function relaunch(): Promise<void> {
 }
 
 // // ═══ Mock 数据（仅 Vite 开发模式使用）
-// 
+//
 const mockSessions = [
-  { name: "desktop-20260520-1", messageCount: 8, mtime: new Date().toISOString(), summary: "项目工程模块重构及自适应 UI 设计" },
-  { name: "desktop-20260519-2", messageCount: 14, mtime: new Date(Date.now() - 86400000).toISOString(), summary: "编写 WebSocket 桥接与 RPC 行协议对接逻辑" },
-  { name: "desktop-20260518-3", messageCount: 4, mtime: new Date(Date.now() - 172800000).toISOString(), summary: "测试移动端 TextArea 与 Dynamic Viewport" },
+  {
+    name: "desktop-20260520-1",
+    messageCount: 8,
+    mtime: new Date().toISOString(),
+    summary: "项目工程模块重构及自适应 UI 设计",
+  },
+  {
+    name: "desktop-20260519-2",
+    messageCount: 14,
+    mtime: new Date(Date.now() - 86400000).toISOString(),
+    summary: "编写 WebSocket 桥接与 RPC 行协议对接逻辑",
+  },
+  {
+    name: "desktop-20260518-3",
+    messageCount: 4,
+    mtime: new Date(Date.now() - 172800000).toISOString(),
+    summary: "测试移动端 TextArea 与 Dynamic Viewport",
+  },
 ];
 
 const mockSettings = {
-  reasoningEffort: "high", editMode: "review", budgetUsd: null,
-  workspaceDir: "", recentWorkspaces: [],
-  model: "deepseek-v4-flash", version: "0.47.2",
+  reasoningEffort: "high",
+  editMode: "review",
+  budgetUsd: null,
+  workspaceDir: "",
+  recentWorkspaces: [],
+  model: "deepseek-v4-flash",
+  version: "0.47.2",
 };
 
 const mockMessages: any[] = [
@@ -884,8 +1116,12 @@ function mockAssistantTurn(_promptText: string) {
   emitEvent({ type: "status", text: "DeepSeek R1 思考中...", tabId: "tab-1" });
   setTimeout(() => {
     emitEvent({
-      type: "model.turn.started", tabId: "tab-1", id: Date.now(),
-      turn: 2, model: "deepseek-reasoner", reasoningEffort: "high",
+      type: "model.turn.started",
+      tabId: "tab-1",
+      id: Date.now(),
+      turn: 2,
+      model: "deepseek-reasoner",
+      reasoningEffort: "high",
     });
   }, 600);
   // reasoning deltas
@@ -904,15 +1140,24 @@ function mockAssistantTurn(_promptText: string) {
   delay += 500;
   setTimeout(() => {
     emitEvent({
-      type: "tool.intent", tabId: "tab-1", name: "list_dir",
-      args: JSON.stringify({ DirectoryPath: "d:/AI/workspace/dashboard" }), callId: "call_12345",
+      type: "tool.intent",
+      tabId: "tab-1",
+      name: "list_dir",
+      args: JSON.stringify({ DirectoryPath: "d:/AI/workspace/dashboard" }),
+      callId: "call_12345",
     });
   }, delay);
   delay += 1000;
   setTimeout(() => {
     emitEvent({
-      type: "tool.result", tabId: "tab-1", name: "list_dir", ok: true,
-      output: JSON.stringify([{ name: "package.json", sizeBytes: 864 }, { name: "src", isDir: true }]),
+      type: "tool.result",
+      tabId: "tab-1",
+      name: "list_dir",
+      ok: true,
+      output: JSON.stringify([
+        { name: "package.json", sizeBytes: 864 },
+        { name: "src", isDir: true },
+      ]),
       callId: "call_12345",
     });
   }, delay);
@@ -931,7 +1176,14 @@ function mockAssistantTurn(_promptText: string) {
     delay += 500;
   });
   setTimeout(() => {
-    emitEvent({ type: "model.final", tabId: "tab-1", turn: 2, content: chunks.join(""), reasoningContent: lines.join(""), costUsd: 0.002 });
+    emitEvent({
+      type: "model.final",
+      tabId: "tab-1",
+      turn: 2,
+      content: chunks.join(""),
+      reasoningContent: lines.join(""),
+      costUsd: 0.002,
+    });
     emitEvent({ type: "$turn_complete", tabId: "tab-1" });
   }, delay + 400);
 }
@@ -940,7 +1192,12 @@ function mockSetupAndReady() {
   document.documentElement.dataset.web = "true";
   setTimeout(() => emitEvent({ type: "$ready", tabId: "tab-1" }), 100);
   setTimeout(() => {
-    emitEvent({ type: "$tab_opened", tabId: "tab-1", workspaceDir: "d:\\AI\\workspace", active: true });
+    emitEvent({
+      type: "$tab_opened",
+      tabId: "tab-1",
+      workspaceDir: "d:\\AI\\workspace",
+      active: true,
+    });
   }, 150);
   setTimeout(() => emitEvent({ type: "$settings", tabId: "tab-1", ...mockSettings }), 200);
   setTimeout(() => emitEvent({ type: "$sessions", tabId: "tab-1", items: mockSessions }), 350);

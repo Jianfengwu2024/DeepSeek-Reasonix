@@ -29,6 +29,7 @@ import {
   loadApiKey,
   loadEditMode,
   loadEndpoint,
+  loadMaxIterPerTurn,
   loadModel,
   loadReasoningEffort,
   normalizeMcpConfig,
@@ -40,6 +41,7 @@ import { autoResolveVerdict } from "../../core/pause-policy.js";
 import { loadDotenv } from "../../env.js";
 import { t } from "../../i18n/index.js";
 import { CacheFirstLoop, DeepSeekClient, ImmutablePrefix } from "../../index.js";
+import { errorMeta } from "../../loop/errors.js";
 import { McpClient } from "../../mcp/client.js";
 import { preflightStdioSpec } from "../../mcp/preflight.js";
 import { bridgeMcpTools } from "../../mcp/registry.js";
@@ -111,9 +113,9 @@ export async function loadMcpServers(
       process.stderr.write(`${formatMcpLifecycleEvent({ state: "handshake", name: label })}\n`);
       const t0 = Date.now();
       const prefix = resolveMcpPrefix(spec.name, normalizedSpecs.length, globalPrefix);
-      if (spec.transport === "stdio") preflightStdioSpec(spec);
+      if (spec.transport === "stdio") preflightStdioSpec(spec, { cwd: workspaceDir });
       const transport = buildTransportFromSpec(spec, { cwd: workspaceDir });
-      mcp = new McpClient({ transport, workspaceDir });
+      mcp = new McpClient({ transport, workspaceDir, requestTimeoutMs: spec.requestTimeoutMs });
       await mcp.initialize();
       const bridge = await bridgeMcpTools(mcp, {
         registry: tools,
@@ -158,6 +160,7 @@ async function buildSession(opts: {
   budgetUsd?: number;
   mcpSpecs?: string[];
   mcpPrefix?: string;
+  systemAppend?: string;
 }): Promise<Session> {
   const model = opts.modelOverride || loadModel() || DEFAULT_MODEL;
   const toolset = await buildCodeToolset({ rootDir: opts.rootDir });
@@ -171,6 +174,7 @@ async function buildSession(opts: {
   const system = codeSystemPrompt(opts.rootDir, {
     hasSemanticSearch: toolset.semantic.enabled,
     modelId: model,
+    systemAppend: opts.systemAppend,
   });
   const ep = loadEndpoint();
   const client = new DeepSeekClient({ apiKey: ep.apiKey, baseUrl: ep.baseUrl });
@@ -181,6 +185,7 @@ async function buildSession(opts: {
     tools: toolset.tools,
     model,
     budgetUsd: opts.budgetUsd,
+    maxIterPerTurn: loadMaxIterPerTurn(),
     session: `acp-${timestampSuffix()}`,
   });
   return {
@@ -262,6 +267,7 @@ export async function acpCommand(opts: AcpOptions): Promise<void> {
       budgetUsd: opts.budgetUsd,
       mcpSpecs: opts.mcpSpecs,
       mcpPrefix: opts.mcpPrefix,
+      systemAppend: process.env.REASONIX_ACP_SYSTEM_APPEND || undefined,
     });
     sessions.set(session.id, session);
     return { sessionId: session.id };
@@ -309,19 +315,30 @@ export async function acpCommand(opts: AcpOptions): Promise<void> {
         }
       });
     } catch (err) {
-      const message = (err as Error).message;
+      const cause = err instanceof Error ? err : new Error(String(err));
+      const message = cause.message;
+      const { code, phase } = errorMeta(cause);
       server.sendNotification("session/update", {
         sessionId: session.id,
         update: {
           sessionUpdate: "agent_message_chunk",
           content: { type: "text", text: `\n\n[error] ${message}` },
+          metadata: {
+            error: {
+              name: cause.name || "Error",
+              message,
+              code,
+              phase,
+              retryable: false,
+            },
+          },
         },
       } satisfies SessionUpdateParams);
       stopReason = "error";
     } finally {
       session.aborter = null;
     }
-    return { stopReason };
+    return { stopReason, transcriptPath: opts.transcript || null };
   });
 
   server.onNotification<SessionCancelParams>("session/cancel", (params) => {

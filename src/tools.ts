@@ -1,12 +1,15 @@
 import type { PauseGate } from "./core/pause-gate.js";
 import { truncateForModel, truncateForModelByTokens } from "./mcp/registry.js";
+import { sortToolSpecs } from "./memory/runtime.js";
 import { analyzeSchema, flattenSchema, nestArguments } from "./repair/flatten.js";
+import { countTokensBounded } from "./tokenizer.js";
 import {
   type NormalizedToolRateLimitConfig,
   type ToolRateLimitOption,
   ToolRateLimiter,
 } from "./tools/rate-limit.js";
 import type { ReadTracker } from "./tools/read-tracker.js";
+import { saveTruncatedResult, shouldSkipSave } from "./tools/truncated-result-saver.js";
 import type { JSONSchema, ToolSpec } from "./types.js";
 
 export interface ToolCallContext {
@@ -29,6 +32,8 @@ export interface ToolDefinition<A = any, R = any> {
   parallelSafe?: boolean;
   /** Excluded from repeat-loop storm accounting; use only for cheap, state-inspection tools. */
   stormExempt?: boolean;
+  /** When true, skip saving full result to disk on truncation. Use for tools that might leak secrets (get_env) or return trivial data. */
+  skipTruncationSave?: boolean;
   fn: (args: A, ctx?: ToolCallContext) => R | Promise<R>;
 }
 
@@ -169,13 +174,22 @@ export class ToolRegistry {
   }
 
   specs(): ToolSpec[] {
-    return [...this._tools.values()].map((t) => ({
-      type: "function",
-      function: {
-        name: t.name,
-        description: t.description ?? "",
-        parameters: t.flatSchema ?? t.parameters ?? { type: "object", properties: {} },
-      },
+    return sortToolSpecs(
+      [...this._tools.values()].map((t) => ({
+        type: "function",
+        function: {
+          name: t.name,
+          description: t.description ?? "",
+          parameters: t.flatSchema ?? t.parameters ?? { type: "object", properties: {} },
+        },
+      })),
+    );
+  }
+
+  schemaTokenCosts(): Array<{ name: string; tokens: number }> {
+    return this.specs().map((spec) => ({
+      name: spec.function.name,
+      tokens: countTokensBounded(JSON.stringify(spec)),
     }));
   }
 
@@ -190,6 +204,8 @@ export class ToolRegistry {
       confirmationGate?: PauseGate;
       /** Session-scoped read tracker; filesystem tools mark on read/write, edit_file/multi_edit gate on it. */
       readTracker?: ReadTracker;
+      /** Project root directory for saving truncated results. Defaults to process.cwd(). */
+      rootDir?: string;
     } = {},
   ): Promise<string> {
     const tool = this._tools.get(name);
@@ -312,7 +328,22 @@ export class ToolRegistry {
       if (opts.maxResultChars !== undefined) {
         clipped = truncateForModel(clipped, opts.maxResultChars);
       }
-      finalResult = clipped;
+      // If truncated and the tool allows saving, persist the full result
+      // and re-truncate with the save-path note embedded in the marker.
+      if (clipped !== str && !shouldSkipSave(name, tool?.skipTruncationSave)) {
+        const relPath = saveTruncatedResult(str, name, opts.rootDir ?? process.cwd());
+        const note = `Full result saved at: ${relPath}`;
+        let annotated = str;
+        if (opts.maxResultTokens !== undefined) {
+          annotated = truncateForModelByTokens(annotated, opts.maxResultTokens, note);
+        }
+        if (opts.maxResultChars !== undefined) {
+          annotated = truncateForModel(annotated, opts.maxResultChars, note);
+        }
+        finalResult = annotated;
+      } else {
+        finalResult = clipped;
+      }
     } catch (err) {
       const e = err as Error & { toToolResult?: () => unknown };
       // Errors may opt into a richer tool-result shape by implementing
@@ -400,12 +431,22 @@ function plainTextRejectedReason(name: string, result: string): string | null {
     return "edit-gate";
   }
   if (
-    (name === "edit_file" || name === "write_file" || name === "multi_edit") &&
+    (name === "edit_file" ||
+      name === "write_file" ||
+      name === "multi_edit" ||
+      name === "delete_range" ||
+      name === "delete_symbol") &&
     /queued \d+ edits? for review/i.test(result)
   ) {
     return "edit-gate";
   }
-  if ((name === "edit_file" || name === "multi_edit") && /read_file first/i.test(result)) {
+  if (
+    (name === "edit_file" ||
+      name === "multi_edit" ||
+      name === "delete_range" ||
+      name === "delete_symbol") &&
+    /read_file first/i.test(result)
+  ) {
     return "read-before-edit";
   }
   if ((name === "run_command" || name === "run_background") && /\buser denied:/i.test(result)) {
@@ -426,6 +467,8 @@ function rejectionRecoveryHint(reason: string): string {
       return "Switch to read-only exploration, submit or revise the plan, or choose a different tool call.";
     case "engineering-lifecycle-evidence":
       return "Submit completion evidence or revise/checkpoint the plan before marking the step complete.";
+    case "auto-git-rollback":
+      return "Resolve the git checkpoint blocker before retrying the same edit.";
     default:
       return "Choose a different tool call or ask the user how to proceed.";
   }

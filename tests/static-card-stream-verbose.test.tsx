@@ -1,6 +1,5 @@
-/** StaticCardStream must let verbose mode expand already-settled tool cards. */
+/** StaticCardStream keeps append-only history isolated from parent re-renders. */
 
-import { render } from "ink-testing-library";
 import { type ComponentType, type ReactElement, createElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { StaticCardStream } from "../src/cli/ui/layout/StaticCardStream.js";
@@ -8,6 +7,7 @@ import type { ToolCard, UserCard } from "../src/cli/ui/state/cards.js";
 import { AgentStoreProvider } from "../src/cli/ui/state/provider.js";
 import type { SessionInfo } from "../src/cli/ui/state/state.js";
 import { VerboseContext } from "../src/cli/ui/state/verbose-context.js";
+import { render } from "./helpers/ink-test.js";
 
 const staticRenderSpy = vi.hoisted(() => vi.fn());
 
@@ -62,6 +62,21 @@ const CARD: ToolCard = {
   elapsedMs: 410,
 };
 
+const SUCCESS_CARD: ToolCard = {
+  id: "tool-success",
+  ts: 0,
+  kind: "tool",
+  name: "run_command",
+  args: "npm test",
+  output: Array.from(
+    { length: 12 },
+    (_, i) => `success output line ${String(i + 1).padStart(2, "0")}`,
+  ).join("\n"),
+  done: true,
+  exitCode: 0,
+  elapsedMs: 410,
+};
+
 const USER_CARD: UserCard = {
   id: "user-1",
   ts: 0,
@@ -77,6 +92,14 @@ function Harness({ verbose }: { verbose: boolean }): ReactElement {
   );
 }
 
+function SuccessfulToolHarness({ verbose }: { verbose: boolean }): ReactElement {
+  return createElement(
+    AgentStoreProvider,
+    { session: SESSION, initialCards: [SUCCESS_CARD] },
+    createElement(VerboseContext.Provider, { value: verbose }, createElement(StaticCardStream)),
+  );
+}
+
 function ParentUpdateHarness({ revision }: { revision: number }): ReactElement {
   void revision;
   return createElement(
@@ -85,24 +108,6 @@ function ParentUpdateHarness({ revision }: { revision: number }): ReactElement {
     createElement(StaticCardStream),
   );
 }
-
-describe("StaticCardStream verbose mode", () => {
-  it("expands settled tool output after verbose mode is toggled on", () => {
-    const { lastFrame, rerender, unmount } = render(createElement(Harness, { verbose: false }));
-    expect(lastFrame()).toContain("hidden lines");
-
-    rerender(createElement(Harness, { verbose: true }));
-    const expanded = lastFrame() ?? "";
-
-    expect(expanded).toContain("> reasonix-node-assert-fixture@1.0.0 test");
-    expect(expanded).toContain("node:internal/modules/run_main:123");
-    expect(expanded).not.toContain("hidden lines");
-
-    rerender(createElement(Harness, { verbose: false }));
-    expect(lastFrame()).toContain("hidden lines");
-    unmount();
-  });
-});
 
 describe("StaticCardStream render isolation", () => {
   it("does not re-run static history rendering when only the parent updates", () => {
@@ -114,6 +119,21 @@ describe("StaticCardStream render isolation", () => {
     rerender(createElement(ParentUpdateHarness, { revision: 1 }));
 
     expect(staticRenderSpy.mock.calls.length).toBe(renderCountAfterMount);
+    unmount();
+  });
+
+  it("does not retroactively expand settled tool cards after a verbose toggle", () => {
+    staticRenderSpy.mockClear();
+    const { lastFrame, rerender, unmount } = render(
+      createElement(SuccessfulToolHarness, { verbose: false }),
+    );
+    const renderCountAfterMount = staticRenderSpy.mock.calls.length;
+    expect(lastFrame()).not.toContain("success output line 01");
+
+    rerender(createElement(SuccessfulToolHarness, { verbose: true }));
+
+    expect(staticRenderSpy.mock.calls.length).toBe(renderCountAfterMount);
+    expect(lastFrame()).not.toContain("success output line 01");
     unmount();
   });
 });

@@ -13,7 +13,15 @@ import {
 import { ContextManager, TURN_START_FOLD_THRESHOLD } from "./context-manager.js";
 import { InflightSet } from "./core/inflight.js";
 import { t } from "./i18n/index.js";
-import { formatLoopError, is5xxError, probeDeepSeekReachable } from "./loop/errors.js";
+import { dispatchToolCallsChunked } from "./loop/dispatch.js";
+import {
+  errorMeta,
+  formatLoopError,
+  is4xxError,
+  is5xxError,
+  isDeepSeekHost,
+  probeDeepSeekReachable,
+} from "./loop/errors.js";
 import { type ForceSummaryContext, forceSummaryAfterIterLimit } from "./loop/force-summary.js";
 import {
   fixToolCallPairing,
@@ -23,12 +31,14 @@ import {
 } from "./loop/healing.js";
 import { hookWarnings, safeParseToolArgs } from "./loop/hook-events.js";
 import { buildAssistantMessage, buildSyntheticAssistantMessage } from "./loop/messages.js";
+import { stripDroppableReasoningContent } from "./loop/reasoning-retention.js";
 import {
   looksLikeCompleteJson,
   shrinkOversizedToolCallArgsByTokens,
   shrinkOversizedToolResults,
   shrinkOversizedToolResultsByTokens,
 } from "./loop/shrink.js";
+import { streamModelResponse } from "./loop/streaming.js";
 import {
   isThinkingModeModel,
   stripHallucinatedToolMarkup,
@@ -43,19 +53,30 @@ import {
   loadSessionMeta,
   patchSessionMeta,
   rewriteSession,
+  sessionPath,
 } from "./memory/session.js";
 import { type RepairReport, ToolCallRepair } from "./repair/index.js";
-import { SessionStats, type TurnStats } from "./telemetry/stats.js";
+import {
+  type PrefixDiagnosticHashes,
+  appendCacheDiagnostic,
+  buildCacheDiagnostic,
+  latestCacheDiagnostic,
+} from "./telemetry/cache-diagnostics.js";
+import { type CacheDiagnostics, SessionStats, type TurnStats } from "./telemetry/stats.js";
+import { countTokensBounded } from "./tokenizer.js";
 import { ToolRegistry } from "./tools.js";
-import { parseRateLimitedToolResult } from "./tools/rate-limit.js";
 import { ReadTracker } from "./tools/read-tracker.js";
-import type { ChatMessage, ToolCall } from "./types.js";
+import type { ChatMessage, ToolCall, ToolSpec } from "./types.js";
 
 export const MID_TURN_STEER_WRAPPER =
   "[Mid-turn steer queued by the user. Do not treat this as a new task; use it only as additional guidance for the current task after completing the current step.]";
 
 function formatSteerUserMessage(content: string): string {
   return [MID_TURN_STEER_WRAPPER, content].join("\n");
+}
+
+function parseNeedsProEscalation(content: string): boolean {
+  return /^\s*<<<NEEDS_PRO(?::\s*[^>\n]{1,150})?>>>/.test(content);
 }
 
 export {
@@ -81,8 +102,12 @@ export interface CacheFirstLoopOptions {
   model?: string;
   stream?: boolean;
   reasoningEffort?: ReasoningEffort;
+  /** Per-turn output token cap passed as `max_tokens`. Undefined = no cap (server default). */
+  maxOutputTokens?: number;
   /** Soft USD cap — warns at 80%, refuses next turn at 100%. Opt-in (default no cap). */
   budgetUsd?: number;
+  /** Maximum tool-call iterations per turn. Overrides config/env. Default 50. */
+  maxIterPerTurn?: number;
   session?: string;
   /** PreToolUse + PostToolUse only — UserPromptSubmit / Stop live at the App boundary. */
   hooks?: ResolvedHook[];
@@ -99,6 +124,8 @@ export interface ReconfigurableOptions {
   stream?: boolean;
   /** V4 thinking mode only; deepseek-chat ignores. */
   reasoningEffort?: ReasoningEffort;
+  /** Per-turn output token cap. Pass null to clear. */
+  maxOutputTokens?: number | null;
 }
 
 export interface LoopAbortOptions {
@@ -106,14 +133,34 @@ export interface LoopAbortOptions {
   discardCurrentTurn?: boolean;
 }
 
+interface CacheShapeSnapshot {
+  systemHash: string;
+  toolsHash: string;
+  fewShotsHash: string;
+  prefixHash: string;
+  logRewriteVersion: number;
+  toolSchemaTokens: number;
+}
+
+function shrinkMessageForRetention(message: ChatMessage): ChatMessage {
+  if (message.role !== "assistant" || !Array.isArray(message.tool_calls)) return message;
+  return (
+    shrinkOversizedToolCallArgsByTokens([message], DEFAULT_MAX_RESULT_TOKENS).messages[0] ?? message
+  );
+}
+
 export class CacheFirstLoop {
   readonly client: DeepSeekClient;
   readonly prefix: ImmutablePrefix;
   readonly tools: ToolRegistry;
-  readonly log = new AppendOnlyLog();
+  readonly log: AppendOnlyLog;
   readonly scratch = new VolatileScratch();
   readonly stats = new SessionStats();
   readonly repair: ToolCallRepair;
+  /** Hard iteration cap per turn — prevents runaway tool-call loops from
+   *  burning unlimited API budget. The model gets one final force-summary
+   *  call when the cap fires. Override via REASONIX_MAX_ITER env var. */
+  static readonly DEFAULT_MAX_ITER_PER_TURN = 50;
   /** Files the model has read this session; gates edit_file / multi_edit so SEARCH text matches on-disk bytes. Cleared on fold / mechanical truncate (the model's byte-level view of the elided history is gone). In-memory only — naturally empty on resume. */
   readonly readTracker = new ReadTracker();
 
@@ -122,7 +169,10 @@ export class CacheFirstLoop {
   model: string;
   stream: boolean;
   reasoningEffort: ReasoningEffort;
+  maxOutputTokens: number | undefined;
   budgetUsd: number | null;
+  /** Maximum tool-call iterations per turn. Config > env > default (50). */
+  maxIterPerTurn: number;
   /** One-shot 80% warning latch — cleared by setBudget so a bump re-arms at the new boundary. */
   private _budgetWarned = false;
   sessionName: string | null;
@@ -171,6 +221,7 @@ export class CacheFirstLoop {
   private _turnSelfCorrected = false;
   private _foldedThisTurn = false;
   private context!: ContextManager;
+  private _lastCacheShape: CacheShapeSnapshot | null = null;
 
   /** Subscribe API so UI hooks can derive `running` from finally-guaranteed insertions. */
   get inflight(): InflightSet {
@@ -185,8 +236,13 @@ export class CacheFirstLoop {
     this.client = opts.client;
     this.prefix = opts.prefix;
     this.tools = opts.tools ?? new ToolRegistry();
+    this.sessionName = opts.session ?? null;
+    this.log = new AppendOnlyLog({
+      sessionPath: this.sessionName ? sessionPath(this.sessionName) : undefined,
+    });
     this.model = opts.model ?? "deepseek-v4-flash";
     this.reasoningEffort = opts.reasoningEffort ?? "high";
+    this.maxOutputTokens = opts.maxOutputTokens;
     this.budgetUsd =
       typeof opts.budgetUsd === "number" && opts.budgetUsd > 0 ? opts.budgetUsd : null;
 
@@ -194,6 +250,7 @@ export class CacheFirstLoop {
     this.hookCwd = opts.hookCwd ?? process.cwd();
     this.confirmationGate = opts.confirmationGate ?? defaultPauseGate;
     this._rebuildSystem = opts.rebuildSystem ?? null;
+    this.maxIterPerTurn = opts.maxIterPerTurn ?? CacheFirstLoop.DEFAULT_MAX_ITER_PER_TURN;
 
     this._streamPreference = opts.stream ?? true;
     this.stream = this._streamPreference;
@@ -215,16 +272,17 @@ export class CacheFirstLoop {
     });
 
     // Heal-on-load: oversized tool results would 400 the next call before the user types.
-    this.sessionName = opts.session ?? null;
     if (this.sessionName) {
       const prior = loadSessionMessages(this.sessionName);
       const shrunk = healLoadedMessagesByTokens(prior, DEFAULT_MAX_RESULT_TOKENS);
-      // Thinking-mode sessions: API 400s if any historical assistant turn lacks reasoning_content.
+      // Thinking-mode sessions still need tool-call reasoning_content, while stale
+      // plain-turn reasoning can be dropped before it bloats long-session requests.
       const stamped = stampMissingReasoningForThinkingMode(shrunk.messages, this.model);
-      const messages = stamped.messages;
+      const pruned = stripDroppableReasoningContent(stamped.messages);
+      const messages = pruned.messages;
       const healedCount = shrunk.healedCount + stamped.stampedCount;
       const tokensSaved = shrunk.tokensSaved;
-      for (const msg of messages) this.log.append(msg);
+      this.log.initWindow(messages);
       this.resumedMessageCount = messages.length;
       this._turn = messages.reduce((n, m) => (m.role === "assistant" ? n + 1 : n), 0);
       // Carry forward cumulative cost / turn count so the TUI's session
@@ -240,16 +298,18 @@ export class CacheFirstLoop {
           lastPromptTokens: meta.lastPromptTokens,
         });
       }
-      if (healedCount > 0) {
+      if (healedCount > 0 || pruned.prunedCount > 0) {
         // Persist healed log so the same break isn't re-noticed every restart.
         try {
           rewriteSession(this.sessionName, messages);
         } catch {
           /* disk full / perms — skip, in-memory heal still applies */
         }
-        process.stderr.write(
-          `▸ session "${this.sessionName}": healed ${healedCount} entr${healedCount === 1 ? "y" : "ies"}${tokensSaved > 0 ? ` (shrunk ${tokensSaved.toLocaleString()} tokens of oversized tool output)` : " (dropped dangling tool_calls tail)"}. Rewrote session file.\n`,
-        );
+        if (healedCount > 0) {
+          process.stderr.write(
+            `▸ session "${this.sessionName}": healed ${healedCount} entr${healedCount === 1 ? "y" : "ies"}${tokensSaved > 0 ? ` (shrunk ${tokensSaved.toLocaleString()} tokens of oversized tool output/arguments)` : " (dropped dangling tool_calls tail)"}. Rewrote session file.\n`,
+          );
+        }
       }
     } else {
       this.resumedMessageCount = 0;
@@ -285,10 +345,11 @@ export class CacheFirstLoop {
   }
 
   appendAndPersist(message: ChatMessage): void {
-    this.log.append(message);
+    const retained = shrinkMessageForRetention(message);
+    this.log.append(retained);
     if (this.sessionName) {
       try {
-        appendSessionMessage(this.sessionName, message);
+        appendSessionMessage(this.sessionName, retained);
       } catch {
         /* disk full or permission denied shouldn't kill the chat */
       }
@@ -297,11 +358,12 @@ export class CacheFirstLoop {
 
   /** Swap the just-appended assistant entry — used by self-correction to restore the original tool_calls without dropping reasoning_content. */
   private replaceTailAssistantMessage(message: ChatMessage): void {
+    const retained = shrinkMessageForRetention(message);
     const entries = this.log.entries;
     const tail = entries[entries.length - 1];
     if (!tail || tail.role !== "assistant") return;
     const kept = entries.slice(0, -1);
-    kept.push(message);
+    kept.push(retained);
     this.log.compactInPlace(kept);
     if (this.sessionName) {
       try {
@@ -330,6 +392,11 @@ export class CacheFirstLoop {
     this.stats.reset();
     this._turn = 0;
     this._budgetWarned = false;
+    this._lastCacheShape = null;
+    // Drain leftover steer text — otherwise the first step() after /new
+    // injects it as a user message and the next turn leaks prior intent.
+    this._steerQueue.length = 0;
+    this._steerConsumed = false;
     let systemRebuilt = false;
     if (this._rebuildSystem) {
       try {
@@ -356,6 +423,9 @@ export class CacheFirstLoop {
     this.log.compactInPlace([]);
     this.scratch.reset();
     this._inflight.clear();
+    this._lastCacheShape = null;
+    this._steerQueue.length = 0;
+    this._steerConsumed = false;
     this.sessionName = opts.sessionName;
     if (this._rebuildSystem) {
       try {
@@ -374,6 +444,9 @@ export class CacheFirstLoop {
       this.stream = opts.stream;
     }
     if (opts.reasoningEffort !== undefined) this.reasoningEffort = opts.reasoningEffort;
+    if (opts.maxOutputTokens !== undefined) {
+      this.maxOutputTokens = opts.maxOutputTokens ?? undefined;
+    }
   }
 
   /** `null` disables the cap; any change re-arms the 80% warning. */
@@ -451,6 +524,7 @@ export class CacheFirstLoop {
         maxResultTokens: DEFAULT_MAX_RESULT_TOKENS,
         confirmationGate: this.confirmationGate,
         readTracker: this.readTracker,
+        rootDir: this.hookCwd,
       });
 
       const postReport = await runHooks({
@@ -482,24 +556,100 @@ export class CacheFirstLoop {
   }
   private _inflightCounter = 0;
 
+  // Cached result from the last healActiveLogBeforeSend() pass.
+  // Invalidated when the log version changes (append/compactInPlace).
+  private _healedCache: ChatMessage[] | null = null;
+  private _healedVersion = -1;
+
   private buildMessages(): ChatMessage[] {
     const healedMessages = this.healActiveLogBeforeSend();
     return [...this.prefix.toMessages(), ...healedMessages];
   }
 
+  private cacheShapeForRequest(
+    prefixEvidence: PrefixDiagnosticHashes,
+    toolSpecs: readonly ToolSpec[],
+  ): CacheShapeSnapshot {
+    return {
+      systemHash: prefixEvidence.systemHash,
+      toolsHash: prefixEvidence.toolSpecsHash,
+      fewShotsHash: prefixEvidence.fewShotsHash,
+      prefixHash: prefixEvidence.prefixHash,
+      logRewriteVersion: this.log.rewriteVersion,
+      toolSchemaTokens: countTokensBounded(JSON.stringify(toolSpecs)),
+    };
+  }
+
+  private cacheDiagnosticsForUsage(
+    shape: CacheShapeSnapshot,
+    usage: TurnStats["usage"] | null,
+  ): CacheDiagnostics {
+    const prev = this._lastCacheShape;
+    const prefixChangeReasons: CacheDiagnostics["prefixChangeReasons"] = [];
+    if (prev) {
+      if (prev.systemHash !== shape.systemHash) prefixChangeReasons.push("system");
+      if (prev.toolsHash !== shape.toolsHash) prefixChangeReasons.push("tools");
+      if (prev.fewShotsHash !== shape.fewShotsHash) prefixChangeReasons.push("few_shots");
+      if (prev.logRewriteVersion !== shape.logRewriteVersion) {
+        prefixChangeReasons.push("log_rewrite");
+      }
+    }
+    return {
+      prefixHash: shape.prefixHash,
+      prefixChanged: prefixChangeReasons.length > 0,
+      prefixChangeReasons,
+      systemHash: shape.systemHash,
+      toolsHash: shape.toolsHash,
+      fewShotsHash: shape.fewShotsHash,
+      logRewriteVersion: shape.logRewriteVersion,
+      toolSchemaTokens: shape.toolSchemaTokens,
+      promptCacheMissTokens: usage?.promptCacheMissTokens ?? 0,
+      promptCacheHitTokens: usage?.promptCacheHitTokens ?? 0,
+    };
+  }
+
   private healActiveLogBeforeSend(): ChatMessage[] {
-    const current = this.log.toMessages();
+    // Skip the expensive 4-pass healing pipeline when the log hasn't
+    // changed since the last call — the common case between iterations
+    // where no new messages were appended.
+    if (this._healedCache && this._healedVersion === this.log.version) {
+      return this._healedCache;
+    }
+    const current = this.log.toFullHistory();
     const healed = healLoadedMessages(current, DEFAULT_MAX_RESULT_CHARS);
-    if (healed.healedCount === 0) return current;
-    this.log.compactInPlace(healed.messages);
+    const argsShrunk = shrinkOversizedToolCallArgsByTokens(
+      healed.messages,
+      DEFAULT_MAX_RESULT_TOKENS,
+    );
+    const pruned = stripDroppableReasoningContent(argsShrunk.messages);
+    // stripDroppableReasoningContent removes reasoning_content from stale plain
+    // assistant turns. Re-stamp only tool-call turns that need round-trip-safe
+    // reasoning fields for thinking-mode models.
+    const stamped = stampMissingReasoningForThinkingMode(pruned.messages, this.model, {
+      toolCallsOnly: true,
+    });
+    const final = stamped.messages;
+    if (
+      healed.healedCount === 0 &&
+      argsShrunk.healedCount === 0 &&
+      pruned.prunedCount === 0 &&
+      stamped.stampedCount === 0
+    ) {
+      this._healedCache = current;
+      this._healedVersion = this.log.version;
+      return current;
+    }
+    this.log.compactInPlace(final);
+    this._healedCache = final;
+    this._healedVersion = this.log.version;
     if (this.sessionName) {
       try {
-        rewriteSession(this.sessionName, healed.messages);
+        rewriteSession(this.sessionName, final);
       } catch {
         /* disk issue shouldn't block the in-memory heal */
       }
     }
-    return healed.messages;
+    return final;
   }
 
   abort(opts: LoopAbortOptions = {}): void {
@@ -513,7 +663,10 @@ export class CacheFirstLoop {
   }
 
   private discardLogFrom(index: number): void {
-    const preserved = this.log.entries.slice(0, index).map((m) => ({ ...m }));
+    const preserved = this.log
+      .toFullHistory()
+      .slice(0, index)
+      .map((m) => ({ ...m }));
     this.log.compactInPlace(preserved);
     if (this.sessionName) {
       try {
@@ -526,7 +679,7 @@ export class CacheFirstLoop {
 
   /** Drop the last user message + everything after; caller re-sends. Persists to session file. */
   retryLastUser(): string | null {
-    const entries = this.log.entries;
+    const entries = this.log.toFullHistory();
     let lastUserIdx = -1;
     for (let i = entries.length - 1; i >= 0; i--) {
       if (entries[i]!.role === "user") {
@@ -551,7 +704,7 @@ export class CacheFirstLoop {
 
   /** Rewind to the N-th user turn (0-indexed). Drops that turn + everything after. */
   rewindToUserTurn(userTurnIndex: number): string | null {
-    const entries = this.log.entries;
+    const entries = this.log.toFullHistory();
     let count = 0;
     let targetIdx = -1;
     for (let i = 0; i < entries.length; i++) {
@@ -588,14 +741,21 @@ export class CacheFirstLoop {
     if (this.budgetUsd !== null) {
       const spent = this.stats.totalCost;
       if (spent >= this.budgetUsd) {
+        const message = t("loop.budgetExhausted", {
+          spent: spent.toFixed(4),
+          cap: this.budgetUsd.toFixed(2),
+        });
         yield {
           turn: this._turn,
           role: "error",
           content: "",
-          error: t("loop.budgetExhausted", {
-            spent: spent.toFixed(4),
-            cap: this.budgetUsd.toFixed(2),
-          }),
+          error: message,
+          errorDetail: {
+            name: "BudgetExhausted",
+            message,
+            retryable: false,
+            recoverable: false,
+          },
         };
         this._steerQueue.length = 0;
         return;
@@ -612,6 +772,14 @@ export class CacheFirstLoop {
         };
       }
     }
+    const baseModelForTurn = this.model;
+    let restoreModelAfterTurn = false;
+    const restoreModelIfNeeded = () => {
+      if (restoreModelAfterTurn && this.model === "deepseek-v4-pro") {
+        this.model = baseModelForTurn;
+      }
+    };
+
     this._turn++;
     this.scratch.reset();
     // A fresh user turn is a new intent — don't let StormBreaker's
@@ -644,10 +812,10 @@ export class CacheFirstLoop {
     // when the user navigates away before the model responds). A failed
     // first round-trip still leaves the message in the log; the user can
     // /retry without re-typing.
-    const turnStartLogIndex = this.log.length;
+    const turnStartLogIndex = this.log.totalLength;
     this.appendAndPersist({ role: "user", content: userInput });
     const toolSpecs = this.prefix.tools();
-    let rateLimitWarningShown = false;
+    const rateLimitState = { shown: false };
 
     // Turn-start fold: covers cases the post-response check can't see — terminal
     // prior turn (no tool_calls → no decideAfterUsage), session restore from
@@ -665,7 +833,9 @@ export class CacheFirstLoop {
           role: "status",
           content: t("loop.turnStartFoldStatus"),
         };
-        const result = await this.context.fold(this.model, { requireTailBoundary: true });
+        const result = await this.context.fold(this.model, {
+          requireTailBoundary: true,
+        });
         if (result.folded) {
           this._foldedThisTurn = true;
           yield {
@@ -706,11 +876,29 @@ export class CacheFirstLoop {
             content: stoppedMsg,
             forcedSummary: true,
           };
+          restoreModelIfNeeded();
           yield { turn: this._turn, role: "done", content: stoppedMsg };
         } finally {
           this.resetAbortState();
         }
         this._steerQueue.length = 0;
+        return;
+      }
+      // Hard iteration cap — prevents runaway tool-call loops from
+      // consuming unlimited API budget. (#2037 BUG-028)
+      if (iter >= this.maxIterPerTurn) {
+        yield {
+          turn: this._turn,
+          role: "warning",
+          severity: "high",
+          content: t("loop.iterLimitReached", { max: this.maxIterPerTurn }),
+        };
+        try {
+          yield* forceSummaryAfterIterLimit(this.summaryContext(), { reason: "stuck" });
+        } finally {
+          restoreModelIfNeeded();
+          this._steerQueue.length = 0;
+        }
         return;
       }
       // Bridge the silence between the PREVIOUS iter's tool result and
@@ -753,88 +941,31 @@ export class CacheFirstLoop {
       let reasoningContent = "";
       let toolCalls: ToolCall[] = [];
       let usage: TurnStats["usage"] | null = null;
+      let callModel = this.model;
+
+      // Snapshot prefix evidence from the same turn-start tool list sent
+      // to the API so MCP hot-adds during the turn don't rewrite history.
+      const prefixEvidence = this.prefix.diagnosticHashes(toolSpecs);
+      const cacheShape = this.cacheShapeForRequest(prefixEvidence, toolSpecs);
 
       try {
+        callModel = this.model;
         if (this.stream) {
-          const callBuf: Map<number, ToolCall> = new Map();
-          // Indices whose accumulated args have parsed as valid JSON at
-          // least once. Purely informational — we don't dispatch until
-          // the stream ends (that's the eager-dispatch feature we
-          // intentionally punted) but the UI shows "N ready" so the
-          // user sees progress on long multi-tool turns instead of a
-          // stagnant "building tool call" spinner.
-          const readyIndices = new Set<number>();
-          const callModel = this.model;
-          for await (const chunk of this.client.stream({
+          const result = yield* streamModelResponse({
+            client: this.client,
             model: callModel,
             messages,
-            tools: toolSpecs.length ? toolSpecs : undefined,
+            toolSpecs,
             signal,
-            thinking: thinkingModeForModel(callModel),
             reasoningEffort: this.reasoningEffort,
-          })) {
-            // DeepSeek transition chunks carry both reasoning_content and
-            // content; emit reasoning first so consumers can merge
-            // consecutive same-kind segments instead of fragmenting.
-            if (chunk.reasoningDelta) {
-              reasoningContent += chunk.reasoningDelta;
-              yield {
-                turn: this._turn,
-                role: "assistant_delta",
-                content: "",
-                reasoningDelta: chunk.reasoningDelta,
-              };
-            }
-            if (chunk.contentDelta) {
-              assistantContent += chunk.contentDelta;
-              yield {
-                turn: this._turn,
-                role: "assistant_delta",
-                content: chunk.contentDelta,
-              };
-            }
-            if (chunk.toolCallDelta) {
-              const d = chunk.toolCallDelta;
-              const cur = callBuf.get(d.index) ?? {
-                id: d.id,
-                type: "function" as const,
-                function: { name: "", arguments: "" },
-              };
-              if (d.id) cur.id = d.id;
-              if (d.name) cur.function.name = (cur.function.name ?? "") + d.name;
-              if (d.argumentsDelta)
-                cur.function.arguments = (cur.function.arguments ?? "") + d.argumentsDelta;
-              callBuf.set(d.index, cur);
-
-              // Mark this index "ready" once its args first parse as
-              // valid JSON. JSON.parse is sub-millisecond on typical
-              // tool-call payloads; skip the check once already ready.
-              if (
-                !readyIndices.has(d.index) &&
-                cur.function.name &&
-                looksLikeCompleteJson(cur.function.arguments ?? "")
-              ) {
-                readyIndices.add(d.index);
-              }
-
-              // Skip the id-only opener: name is empty until the next chunk.
-              if (cur.function.name) {
-                yield {
-                  turn: this._turn,
-                  role: "tool_call_delta",
-                  content: "",
-                  toolName: cur.function.name,
-                  toolCallArgsChars: (cur.function.arguments ?? "").length,
-                  toolCallIndex: d.index,
-                  toolCallReadyCount: readyIndices.size,
-                };
-              }
-            }
-            if (chunk.usage) usage = chunk.usage;
-          }
-          toolCalls = [...callBuf.values()];
+            maxTokens: this.maxOutputTokens,
+            turn: this._turn,
+          });
+          assistantContent = result.assistantContent;
+          reasoningContent = result.reasoningContent;
+          toolCalls = result.toolCalls;
+          usage = result.usage;
         } else {
-          const callModel = this.model;
           const resp = await this.client.chat({
             model: callModel,
             messages,
@@ -842,6 +973,7 @@ export class CacheFirstLoop {
             signal,
             thinking: thinkingModeForModel(callModel),
             reasoningEffort: this.reasoningEffort,
+            maxTokens: this.maxOutputTokens,
           });
           assistantContent = resp.content;
           reasoningContent = resp.reasoningContent ?? "";
@@ -866,6 +998,7 @@ export class CacheFirstLoop {
           // leave carryAbort locked on the next step().
           if (this._discardAbortRequested) this.discardLogFrom(turnStartLogIndex);
           try {
+            restoreModelIfNeeded();
             yield { turn: this._turn, role: "done", content: "" };
           } finally {
             this.resetAbortState();
@@ -873,24 +1006,69 @@ export class CacheFirstLoop {
           this._steerQueue.length = 0;
           return;
         }
-        const probe = is5xxError(err) ? await probeDeepSeekReachable(this.client) : undefined;
+        const upstreamHost = this.client.baseUrl;
+        const dsHost = isDeepSeekHost(upstreamHost);
+        const probe =
+          is5xxError(err) && dsHost ? await probeDeepSeekReachable(this.client) : undefined;
+        const cause = err instanceof Error ? err : new Error(String(err));
+        const retryable = !is4xxError(cause) && cause.name !== "AbortError";
+        const { code, phase } = errorMeta(cause);
+        restoreModelIfNeeded();
         yield {
           turn: this._turn,
           role: "error",
           content: "",
-          error: formatLoopError(err as Error, probe),
+          error: formatLoopError(err as Error, probe, { upstreamHost }),
+          errorDetail: {
+            name: cause.name,
+            message: cause.message,
+            phase,
+            code,
+            retryable,
+            recoverable: false,
+          },
         };
         this._steerQueue.length = 0;
         return;
       }
 
-      // Attribute under the actual model used (escalated → pro, else
-      // this.model) so cost/usage logs reflect reality.
-      const turnStats = this.stats.record(this._turn, this.model, usage ?? new Usage());
+      if (parseNeedsProEscalation(assistantContent) && callModel !== "deepseek-v4-pro") {
+        restoreModelAfterTurn = true;
+        this.model = "deepseek-v4-pro";
+        continue;
+      }
+
+      // Attribute under the actual model used (escalated → pro, else callModel)
+      // so cost/usage logs reflect reality.
+      const cacheDiagnostics = this.cacheDiagnosticsForUsage(cacheShape, usage);
+      this._lastCacheShape = cacheShape;
+      const turnStats = this.stats.record(
+        this._turn,
+        callModel,
+        usage ?? new Usage(),
+        cacheDiagnostics,
+      );
+      let cacheDiagnostic = buildCacheDiagnostic({
+        turn: this._turn,
+        model: callModel,
+        usage: turnStats.usage,
+        estimatedCostUsd: turnStats.cost,
+        prefix: prefixEvidence,
+        previous: latestCacheDiagnostic(this.stats.cacheDiagnostics),
+      });
 
       // Carry cumulative stats across app restarts.
       if (this.sessionName) {
         try {
+          const meta = loadSessionMeta(this.sessionName);
+          cacheDiagnostic = buildCacheDiagnostic({
+            turn: this._turn,
+            model: callModel,
+            usage: turnStats.usage,
+            estimatedCostUsd: turnStats.cost,
+            prefix: prefixEvidence,
+            previous: latestCacheDiagnostic(meta.cacheDiagnostics),
+          });
           const last =
             this.stats.turns.length > 0 ? this.stats.turns[this.stats.turns.length - 1] : null;
           patchSessionMeta(this.sessionName, {
@@ -899,11 +1077,16 @@ export class CacheFirstLoop {
             cacheMissTokens: this.stats.cumulativeCacheMissTokens,
             totalCompletionTokens: this.stats.cumulativeCompletionTokens,
             lastPromptTokens: last?.usage.promptTokens,
+            cacheDiagnostics: appendCacheDiagnostic(meta.cacheDiagnostics, cacheDiagnostic),
           });
         } catch {
           // Best-effort; don't crash the turn loop on a write failure.
         }
       }
+
+      // Store the per-turn cache diagnostic so the live /cache-miss-report
+      // replays the prefix hashes that were actually in effect at turn time.
+      this.stats.addCacheDiagnostic(cacheDiagnostic);
 
       this.scratch.reasoning = reasoningContent || null;
 
@@ -914,7 +1097,7 @@ export class CacheFirstLoop {
       );
 
       this.appendAndPersist(
-        buildAssistantMessage(assistantContent, repairedCalls, this.model, reasoningContent),
+        buildAssistantMessage(assistantContent, repairedCalls, callModel, reasoningContent),
       );
 
       yield {
@@ -922,6 +1105,7 @@ export class CacheFirstLoop {
         role: "assistant_final",
         content: assistantContent,
         stats: turnStats,
+        cacheDiagnostic,
         repair: report,
       };
 
@@ -935,7 +1119,7 @@ export class CacheFirstLoop {
       if (allSuppressed && !this._turnSelfCorrected) {
         this._turnSelfCorrected = true;
         this.replaceTailAssistantMessage(
-          buildAssistantMessage(assistantContent, toolCalls, this.model, reasoningContent),
+          buildAssistantMessage(assistantContent, toolCalls, callModel, reasoningContent),
         );
         for (const call of toolCalls) {
           this.appendAndPersist({
@@ -973,10 +1157,15 @@ export class CacheFirstLoop {
           continue;
         }
         if (allSuppressed) {
-          yield* forceSummaryAfterIterLimit(this.summaryContext(), { reason: "stuck" });
-          this._steerQueue.length = 0;
+          try {
+            yield* forceSummaryAfterIterLimit(this.summaryContext(), { reason: "stuck" });
+          } finally {
+            restoreModelIfNeeded();
+            this._steerQueue.length = 0;
+          }
           return;
         }
+        restoreModelIfNeeded();
         yield { turn: this._turn, role: "done", content: assistantContent };
         this._steerQueue.length = 0;
         return;
@@ -984,7 +1173,7 @@ export class CacheFirstLoop {
 
       // Context-management decision after each turn's response.
       // ContextManager owns the policy; loop renders the events.
-      const decision = this.context.decideAfterUsage(usage, this.model, this._foldedThisTurn);
+      const decision = this.context.decideAfterUsage(usage, callModel, this._foldedThisTurn);
       if (decision.kind === "fold") {
         this._foldedThisTurn = true;
         const before = decision.promptTokens;
@@ -1026,110 +1215,25 @@ export class CacheFirstLoop {
           }),
         };
         this.context.trimTrailingToolCalls();
-        yield* forceSummaryAfterIterLimit(this.summaryContext(), { reason: "context-guard" });
-        this._steerQueue.length = 0;
+        try {
+          yield* forceSummaryAfterIterLimit(this.summaryContext(), { reason: "context-guard" });
+        } finally {
+          restoreModelIfNeeded();
+          this._steerQueue.length = 0;
+        }
         return;
       }
 
-      const dispatchSerial =
-        (process.env.REASONIX_TOOL_DISPATCH ?? "auto").toLowerCase() === "serial";
-      const parallelMaxParsed = Number.parseInt(process.env.REASONIX_PARALLEL_MAX ?? "", 10);
-      const parallelMax =
-        Number.isFinite(parallelMaxParsed) && parallelMaxParsed >= 1
-          ? Math.min(parallelMaxParsed, 16)
-          : 3;
-
-      let callIdx = 0;
-      while (callIdx < repairedCalls.length) {
-        // Group consecutive parallel-safe calls; an unsafe call breaks
-        // the chunk and runs alone (serial barrier).
-        const chunk: ToolCall[] = [];
-        if (!dispatchSerial) {
-          while (
-            callIdx < repairedCalls.length &&
-            chunk.length < parallelMax &&
-            this.tools.isParallelSafe(repairedCalls[callIdx]?.function?.name ?? "")
-          ) {
-            chunk.push(repairedCalls[callIdx++]!);
-          }
-        }
-        if (chunk.length === 0) {
-          chunk.push(repairedCalls[callIdx++]!);
-        }
-
-        // tool_start announces every call in the chunk BEFORE any
-        // dispatch awaits — TUI shows live indicators for each, and the
-        // gap between assistant_final and the first tool_result yield is
-        // never silent. Pre-add to the inflight set so the spinner is
-        // already correct on the very first card render — runOneToolCall's
-        // own add is then idempotent and its finally is the cleanup contract.
-        for (const call of chunk) {
-          const callId = this.inflightIdFor(call);
-          this._inflight.add(callId);
-          yield {
-            turn: this._turn,
-            role: "tool_start",
-            content: "",
-            toolName: call.function?.name ?? "",
-            toolArgs: call.function?.arguments ?? "{}",
-            callId,
-          };
-        }
-
-        // Race the chunk; collect outcomes in declared order so history
-        // append + tool yields are deterministic regardless of which
-        // call settles first.
-        const settled = await Promise.allSettled(chunk.map((c) => this.runOneToolCall(c, signal)));
-
-        for (let k = 0; k < chunk.length; k++) {
-          const call = chunk[k]!;
-          const name = call.function?.name ?? "";
-          const args = call.function?.arguments ?? "{}";
-          const s = settled[k]!;
-
-          let result: string;
-          let preWarnings: LoopEvent[] = [];
-          let postWarnings: LoopEvent[] = [];
-          if (s.status === "fulfilled") {
-            preWarnings = s.value.preWarnings;
-            postWarnings = s.value.postWarnings;
-            result = s.value.result;
-          } else {
-            const err = s.reason instanceof Error ? s.reason : new Error(String(s.reason));
-            result = JSON.stringify({ error: `${err.name}: ${err.message}` });
-          }
-
-          for (const w of preWarnings) yield w;
-          for (const w of postWarnings) yield w;
-
-          // Keep the structured result in history; the warning is only host-side visibility.
-          const rateLimited = parseRateLimitedToolResult(result);
-          if (rateLimited && !rateLimitWarningShown) {
-            rateLimitWarningShown = true;
-            yield {
-              turn: this._turn,
-              role: "warning",
-              content: rateLimited.message,
-            };
-          }
-
-          this.appendAndPersist({
-            role: "tool",
-            tool_call_id: call.id ?? "",
-            name,
-            content: result,
-          });
-
-          yield {
-            turn: this._turn,
-            role: "tool",
-            content: result,
-            toolName: name,
-            toolArgs: args,
-            callId: this.inflightIdFor(call),
-          };
-        }
-      }
+      yield* dispatchToolCallsChunked(repairedCalls, {
+        turn: this._turn,
+        signal,
+        isParallelSafe: (name) => this.tools.isParallelSafe(name),
+        inflightIdFor: (call) => this.inflightIdFor(call),
+        inflightAdd: (id) => this._inflight.add(id),
+        runOne: (call, sig) => this.runOneToolCall(call, sig),
+        appendAndPersist: (m) => this.appendAndPersist(m),
+        rateLimitState,
+      });
     }
     // Unreachable — the for-loop above is unbounded. The model exits the
     // loop via return statements when it produces no more tool calls,
@@ -1145,6 +1249,8 @@ export class CacheFirstLoop {
       appendAndPersist: (m) => this.appendAndPersist(m),
       recordStats: (model, usage) => this.stats.record(this._turn, model, usage),
       turn: this._turn,
+      model: this.model,
+      maxOutputTokens: this.maxOutputTokens,
     };
   }
 

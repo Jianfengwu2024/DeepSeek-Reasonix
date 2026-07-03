@@ -20,6 +20,7 @@ const usage: UsageStats = {
   lastCallCacheHit: null,
   lastCallCacheMiss: null,
   reservedTokens: 0,
+  liveLogTokens: 0,
 };
 
 const settings: Settings = {
@@ -41,6 +42,8 @@ function renderPanel() {
       mcpBridged={false}
       sessionFiles={[{ path: "src/new-file.ts", status: "m" }]}
       memory={[]}
+      memoryDetail={null}
+      onReadMemory={() => {}}
     />,
   );
 }
@@ -68,5 +71,62 @@ describe("ContextPanel files", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open file: src/new-file.ts" }));
 
     await waitFor(() => expect(openPath).toHaveBeenCalledWith("/repo/src/new-file.ts"));
+  });
+
+  it("renders live log tokens even before final usage arrives", () => {
+    render(
+      <ContextPanel
+        settings={settings}
+        usage={{ ...usage, reservedTokens: 50, liveLogTokens: 100 }}
+        mcpSpecs={[]}
+        mcpBridged={false}
+        sessionFiles={[]}
+        memory={[]}
+        memoryDetail={null}
+        onReadMemory={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("150 / 1,000,000")).toBeTruthy();
+    expect(screen.getByText("100")).toBeTruthy();
+  });
+
+  it("re-applies the requested tab when activeTabNonce changes", () => {
+    const { rerender } = render(
+      <ContextPanel
+        settings={settings}
+        usage={usage}
+        mcpSpecs={[]}
+        mcpBridged={false}
+        sessionFiles={[]}
+        memory={[]}
+        memoryDetail={null}
+        activeTab="tools"
+        activeTabNonce={1}
+        onReadMemory={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Tools").getAttribute("data-active")).toBe("true");
+
+    fireEvent.click(screen.getByText("Memory"));
+    expect(screen.getByText("Memory").getAttribute("data-active")).toBe("true");
+
+    rerender(
+      <ContextPanel
+        settings={settings}
+        usage={usage}
+        mcpSpecs={[]}
+        mcpBridged={false}
+        sessionFiles={[]}
+        memory={[]}
+        memoryDetail={null}
+        activeTab="tools"
+        activeTabNonce={2}
+        onReadMemory={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Tools").getAttribute("data-active")).toBe("true");
   });
 });

@@ -1,6 +1,9 @@
 import {
+  loadBaiduApiKey,
+  loadBraveApiKey,
   loadExaApiKey,
   loadMetasoApiKey,
+  loadOllamaApiKey,
   loadPerplexityApiKey,
   loadTavilyApiKey,
   readConfig,
@@ -17,11 +20,15 @@ export const handlers: Record<string, SlashHandler> = {
     if (
       !engine ||
       (engine !== "bing" &&
+        engine !== "bing-intl" &&
         engine !== "searxng" &&
         engine !== "metaso" &&
+        engine !== "baidu" &&
         engine !== "tavily" &&
         engine !== "perplexity" &&
-        engine !== "exa")
+        engine !== "exa" &&
+        engine !== "brave" &&
+        engine !== "ollama")
     ) {
       return {
         info: [
@@ -30,12 +37,16 @@ export const handlers: Record<string, SlashHandler> = {
           "",
           t("handlers.webSearchEngine.usageHeader"),
           t("handlers.webSearchEngine.usageBing"),
+          t("handlers.webSearchEngine.usageBingIntl"),
           t("handlers.webSearchEngine.usageSearxng"),
           t("handlers.webSearchEngine.usageSearxngUrl"),
           t("handlers.webSearchEngine.usageMetaso"),
+          t("handlers.webSearchEngine.usageBaidu"),
           t("handlers.webSearchEngine.usageTavily"),
           t("handlers.webSearchEngine.usagePerplexity"),
           t("handlers.webSearchEngine.usageExa"),
+          t("handlers.webSearchEngine.usageOllama"),
+          t("handlers.webSearchEngine.usageBrave"),
           "",
           t("handlers.webSearchEngine.alias"),
           "",
@@ -47,16 +58,35 @@ export const handlers: Record<string, SlashHandler> = {
 
     const cfg = readConfig();
 
-    const apiKeyEngines = new Set(["tavily", "perplexity", "exa", "metaso"]);
+    const apiKeyEngines = new Set([
+      "tavily",
+      "perplexity",
+      "exa",
+      "metaso",
+      "baidu",
+      "ollama",
+      "brave",
+    ]);
     if (apiKeyEngines.has(engine)) {
-      const loadKey =
-        engine === "tavily"
-          ? loadTavilyApiKey
-          : engine === "perplexity"
-            ? loadPerplexityApiKey
-            : engine === "exa"
-              ? loadExaApiKey
-              : loadMetasoApiKey;
+      const KEY_LOADERS: Record<string, () => string | undefined> = {
+        tavily: loadTavilyApiKey,
+        perplexity: loadPerplexityApiKey,
+        exa: loadExaApiKey,
+        ollama: loadOllamaApiKey,
+        brave: loadBraveApiKey,
+        metaso: loadMetasoApiKey,
+        baidu: loadBaiduApiKey,
+      };
+      const ENV_VARS: Record<string, string> = {
+        tavily: "TAVILY_API_KEY",
+        perplexity: "PERPLEXITY_API_KEY",
+        exa: "EXA_API_KEY",
+        ollama: "OLLAMA_API_KEY",
+        brave: "BRAVE_SEARCH_API_KEY or BRAVE_API_KEY",
+        metaso: "METASO_API_KEY",
+        baidu: "BAIDU_API_KEY or QIANFAN_API_KEY",
+      };
+      const loadKey = KEY_LOADERS[engine] ?? loadMetasoApiKey;
 
       if (args[1]) {
         cfg.webSearchEngine = engine;
@@ -74,7 +104,7 @@ export const handlers: Record<string, SlashHandler> = {
         return { info: t("handlers.webSearchEngine.confirmed", { engine, detail: "" }) };
       }
 
-      const envVar = `${engine.toUpperCase()}_API_KEY`;
+      const envVar = ENV_VARS[engine] ?? `${engine.toUpperCase()}_API_KEY`;
       return { info: t("handlers.webSearchEngine.keyNeeded", { engine, envVar }) };
     }
 
@@ -85,18 +115,6 @@ export const handlers: Record<string, SlashHandler> = {
     }
     writeConfig(cfg);
 
-    const note =
-      engine === "searxng"
-        ? t("handlers.webSearchEngine.switchedSearxngNote", { endpoint: webSearchEndpoint() })
-        : engine === "metaso"
-          ? t("handlers.webSearchEngine.switchedMetasoNote")
-          : engine === "tavily"
-            ? t("handlers.webSearchEngine.switchedTavilyNote")
-            : engine === "perplexity"
-              ? t("handlers.webSearchEngine.switchedPerplexityNote")
-              : engine === "exa"
-                ? t("handlers.webSearchEngine.switchedExaNote")
-                : "";
     const detail =
       engine === "searxng"
         ? t("handlers.webSearchEngine.confirmedDetail", { endpoint: webSearchEndpoint() })

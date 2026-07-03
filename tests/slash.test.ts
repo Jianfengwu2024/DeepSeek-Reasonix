@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ import {
   suggestSlashCommands,
 } from "../src/cli/ui/slash.js";
 import { DeepSeekClient, Usage } from "../src/client.js";
-import { loadTheme } from "../src/config.js";
+import { loadTheme, readConfig } from "../src/config.js";
 import {
   getLanguage,
   notifyLanguageChange,
@@ -20,6 +20,10 @@ import {
 } from "../src/i18n/index.js";
 import { CacheFirstLoop } from "../src/loop.js";
 import { ImmutablePrefix } from "../src/memory/runtime.js";
+import {
+  buildCacheDiagnostic,
+  prefixDiagnosticHashes,
+} from "../src/telemetry/cache-diagnostics.js";
 import { VERSION } from "../src/version.js";
 
 function makeLoop() {
@@ -159,17 +163,123 @@ describe("handleSlash", () => {
 
   it("/model switches the model", () => {
     const loop = makeLoop();
-    handleSlash("model", ["deepseek-reasoner"], loop);
-    expect(loop.model).toBe("deepseek-reasoner");
+    const tempDir = mkdtempSync(join(tmpdir(), "reasonix-slash-model-basic-"));
+    const tempConfig = join(tempDir, "config.json");
+    try {
+      handleSlash("model", ["deepseek-reasoner"], loop, { configPath: tempConfig });
+      expect(loop.model).toBe("deepseek-reasoner");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("/model soft-warns when id is not in the fetched catalog but still switches", () => {
-    const loop = makeLoop();
-    const r = handleSlash("model", ["deepseek-made-up"], loop, {
-      models: ["deepseek-chat", "deepseek-reasoner"],
-    });
-    expect(loop.model).toBe("deepseek-made-up");
-    expect(r.info).toMatch(/not in the fetched catalog/);
+    const tempDir = mkdtempSync(join(tmpdir(), "reasonix-slash-model-warn-"));
+    const tempConfig = join(tempDir, "config.json");
+    try {
+      const loop = makeLoop();
+      const r = handleSlash("model", ["deepseek-made-up"], loop, {
+        models: ["deepseek-chat", "deepseek-reasoner"],
+        configPath: tempConfig,
+      });
+      expect(loop.model).toBe("deepseek-made-up");
+      expect(r.info).toMatch(/not in the fetched catalog/);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("/model persists to the provided configPath instead of the user's global config", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "reasonix-slash-model-"));
+    const tempConfig = join(tempDir, "config.json");
+    try {
+      const loop = makeLoop();
+      const r = handleSlash("model", ["deepseek-made-up"], loop, {
+        models: ["deepseek-chat", "deepseek-reasoner"],
+        configPath: tempConfig,
+      });
+      expect(loop.model).toBe("deepseek-made-up");
+      expect(r.info).toMatch(/not in the fetched catalog/);
+      const saved = JSON.parse(readFileSync(tempConfig, "utf8"));
+      expect(saved.model).toBe("deepseek-made-up");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("/search-engine accepts baidu and saves an inline API key", () => {
+    const tempHome = mkdtempSync(join(tmpdir(), "reasonix-slash-search-engine-"));
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    try {
+      process.env.HOME = tempHome;
+      process.env.USERPROFILE = tempHome;
+      const result = handleSlash("search-engine", ["baidu", "test-baidu-key"], makeLoop());
+      expect(result.info).toContain("baidu");
+      const configPath = join(tempHome, ".reasonix", "config.json");
+      expect(readConfig(configPath)).toMatchObject({
+        webSearchEngine: "baidu",
+        baiduApiKey: "test-baidu-key",
+      });
+    } finally {
+      if (originalHome === undefined) {
+        // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalUserProfile === undefined) {
+        // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+        delete process.env.USERPROFILE;
+      } else {
+        process.env.USERPROFILE = originalUserProfile;
+      }
+      if (existsSync(tempHome)) rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("/search-engine baidu without a key points at both supported env vars", () => {
+    const tempHome = mkdtempSync(join(tmpdir(), "reasonix-slash-search-engine-"));
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    const originalBaidu = process.env.BAIDU_API_KEY;
+    const originalQianfan = process.env.QIANFAN_API_KEY;
+    try {
+      process.env.HOME = tempHome;
+      process.env.USERPROFILE = tempHome;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.BAIDU_API_KEY;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.QIANFAN_API_KEY;
+      const result = handleSlash("search-engine", ["baidu"], makeLoop());
+      expect(result.info).toContain("BAIDU_API_KEY or QIANFAN_API_KEY");
+    } finally {
+      if (originalHome === undefined) {
+        // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalUserProfile === undefined) {
+        // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+        delete process.env.USERPROFILE;
+      } else {
+        process.env.USERPROFILE = originalUserProfile;
+      }
+      if (originalBaidu === undefined) {
+        // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+        delete process.env.BAIDU_API_KEY;
+      } else {
+        process.env.BAIDU_API_KEY = originalBaidu;
+      }
+      if (originalQianfan === undefined) {
+        // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+        delete process.env.QIANFAN_API_KEY;
+      } else {
+        process.env.QIANFAN_API_KEY = originalQianfan;
+      }
+      if (existsSync(tempHome)) rmSync(tempHome, { recursive: true, force: true });
+    }
   });
 
   it("/model with no arg opens the unified picker (#371)", () => {
@@ -247,6 +357,33 @@ describe("handleSlash", () => {
     expect(r.info).toMatch(/usage/);
   });
 
+  it("/effort rejects `max` on non-DeepSeek endpoints (#1794)", () => {
+    const client = new DeepSeekClient({
+      apiKey: "sk-test",
+      baseUrl: "http://localhost:8080/v1",
+      fetch: vi.fn() as unknown as typeof fetch,
+    });
+    const loop = new CacheFirstLoop({ client, prefix: new ImmutablePrefix({ system: "s" }) });
+    const r = handleSlash("effort", ["max"], loop);
+    expect(r.info).toMatch(/usage/);
+    expect(r.info).not.toMatch(/\bmax\b/);
+    expect(loop.reasoningEffort).not.toBe("max");
+  });
+
+  it("/effort status on non-DeepSeek endpoint omits `max` from the list (#1794)", () => {
+    const client = new DeepSeekClient({
+      apiKey: "sk-test",
+      baseUrl: "http://localhost:8080/v1",
+      fetch: vi.fn() as unknown as typeof fetch,
+    });
+    const loop = new CacheFirstLoop({ client, prefix: new ImmutablePrefix({ system: "s" }) });
+    const r = handleSlash("effort", [], loop);
+    expect(r.info).toMatch(/low/);
+    expect(r.info).toMatch(/medium/);
+    expect(r.info).toMatch(/high/);
+    expect(r.info).not.toMatch(/\bmax\b/);
+  });
+
   it("/help mentions sessions", () => {
     const r = handleSlash("help", [], makeLoop());
     expect(r.info).toMatch(/\/sessions/);
@@ -295,6 +432,22 @@ describe("handleSlash", () => {
       codeUndo: () => "▸ restored 2 file(s)",
     });
     expect(r.info).toMatch(/restored 2 file/);
+  });
+
+  it("/undo records reverted edits in model context", () => {
+    const loop = makeLoop();
+    const r = handleSlash("undo", [], loop, {
+      codeUndo: () => ({
+        info: "▸ undo: reverted demo.txt from batch #1",
+        contextEvent: { batchId: 1, source: "auto", paths: ["demo.txt"] },
+      }),
+    });
+
+    expect(r.info).toContain("reverted demo.txt");
+    expect(loop.log.entries.at(-1)).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("The user ran /undo and reverted edit batch #1"),
+    });
   });
 
   it("/help mentions /undo and /commit", () => {
@@ -548,10 +701,18 @@ describe("handleSlash", () => {
     // Case-insensitive.
     expect(suggestSlashCommands("HE").map((s) => s.cmd)).toEqual(["help"]);
     // Empty prefix returns the full non-advanced release list, including code commands.
-    expect(suggestSlashCommands("", true)).toHaveLength(43);
+    expect(suggestSlashCommands("", true)).toHaveLength(49);
     expect(suggestSlashCommands("", true).map((s) => s.cmd)).toContain("logs");
     expect(suggestSlashCommands("", true).map((s) => s.cmd)).toContain("language");
+    expect(suggestSlashCommands("", true).map((s) => s.cmd)).toContain("weixin");
     expect(suggestSlashCommands("lan").map((s) => s.cmd)).toContain("language");
+  });
+
+  it("resolves Telegram-safe slash aliases", () => {
+    expect(parseSlash("/search_engine bing")).toEqual({
+      cmd: "search-engine",
+      args: ["bing"],
+    });
   });
 
   describe("/btw — issue #725", () => {
@@ -614,6 +775,33 @@ describe("handleSlash", () => {
     it("is surfaced by suggestSlashCommands", () => {
       const names = suggestSlashCommands("sta").map((s) => s.cmd);
       expect(names).toContain("stats");
+    });
+  });
+
+  describe("/cache-miss-report", () => {
+    it("renders a live cache report when no session meta exists", () => {
+      const loop = makeLoop();
+      const turnStats = loop.stats.record(1, loop.model, new Usage(100, 20, 120, 80, 20));
+      const diagnostic = buildCacheDiagnostic({
+        turn: 1,
+        model: loop.model,
+        usage: turnStats.usage,
+        estimatedCostUsd: turnStats.cost,
+        prefix: prefixDiagnosticHashes({ system: "s", toolSpecs: [], fewShots: [] }),
+        previous: null,
+      });
+      loop.stats.addCacheDiagnostic(diagnostic);
+
+      const r = handleSlash("cache-miss-report", [], loop);
+
+      expect(r.info).toContain("cache miss report");
+      expect(r.info).toContain("DeepSeek does not return a cache-miss reason");
+      expect(r.info).toContain("input 100");
+    });
+
+    it("is surfaced by suggestSlashCommands", () => {
+      const names = suggestSlashCommands("cache").map((s) => s.cmd);
+      expect(names).toContain("cache-miss-report");
     });
   });
 
@@ -1453,7 +1641,7 @@ describe("handleSlash", () => {
 
     it("persists auto so env can resolve the active theme", () => {
       const r = handleSlash("theme", ["auto"], makeLoop());
-      expect(r.info).toMatch(/active on next launch: dark/);
+      expect(r.info).toMatch(/active on next launch: graphite/);
       expect(loadTheme()).toBe("auto");
     });
 
@@ -1487,6 +1675,12 @@ describe("handleSlash", () => {
       expect(r.info).toBe("Language switched to English.");
     });
 
+    it("switches to German", () => {
+      const r = handleSlash("language", ["de"], makeLoop());
+      expect(getLanguage()).toBe("de");
+      expect(r.info).toBe("Sprache auf Deutsch umgestellt.");
+    });
+
     it("returns error for unsupported language", () => {
       const r = handleSlash("language", ["fr"], makeLoop());
       expect(r.info).toMatch(/Unsupported/);
@@ -1498,6 +1692,21 @@ describe("handleSlash", () => {
       const r = handleSlash("lang", ["zh-CN"], makeLoop());
       expect(getLanguage()).toBe("zh-CN");
       expect(r.info).toBe("语言已切换为简体中文。");
+    });
+
+    it("/skill list localizes built-in skill descriptions in Chinese", () => {
+      setLanguageRuntime("zh-CN");
+      const r = handleSlash("skill", ["list"], makeLoop(), { codeRoot: process.cwd() });
+      expect(r.info).toMatch(/用户技能/);
+      expect(r.info).toMatch(/\(builtin\)\s+qq/);
+      expect(r.info).not.toContain("Guide QQ channel setup and troubleshooting");
+    });
+
+    it("/skill qq resolves the builtin qq skill and reports localized run info in Chinese", () => {
+      setLanguageRuntime("zh-CN");
+      const r = handleSlash("skill", ["qq"], makeLoop(), { codeRoot: process.cwd() });
+      expect(r.info).toBe("▸ 正在运行技能：qq");
+      expect(r.resubmit).toContain("# Skill: qq");
     });
 
     it("fires onLanguageChange listeners", () => {

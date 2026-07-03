@@ -4,19 +4,25 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type DesktopOpenTab,
+  addGlobalShellAllowed,
   addProjectPathAllowed,
   addProjectShellAllowed,
+  clearGlobalShellAllowed,
   clearProjectPathAllowed,
   clearProjectShellAllowed,
   editModeHintShown,
   isPlausibleKey,
   loadApiKey,
+  loadBaiduApiKey,
   loadBaseUrl,
+  loadBraveApiKey,
+  loadContextTokens,
   loadDesktopOpenTabs,
   loadEditMode,
   loadEndpoint,
   loadEngineeringLifecycleMode,
   loadFilesystemOutlineThresholdBytes,
+  loadGlobalShellAllowed,
   loadIndexConfig,
   loadIndexUserConfig,
   loadModel,
@@ -36,6 +42,7 @@ import {
   readConfig,
   redactKey,
   redactSemanticEmbeddingConfig,
+  removeGlobalShellAllowed,
   removeProjectPathAllowed,
   removeProjectShellAllowed,
   resolveSemanticEmbeddingConfig,
@@ -61,6 +68,7 @@ describe("config", () => {
   const originalEnv = process.env.DEEPSEEK_API_KEY;
   const originalSearch = process.env.REASONIX_SEARCH;
   const originalBaseUrl = process.env.DEEPSEEK_BASE_URL;
+  const originalApiBaseUrl = process.env.DEEPSEEK_API_BASE_URL;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "reasonix-test-"));
@@ -71,6 +79,8 @@ describe("config", () => {
     delete process.env.REASONIX_SEARCH;
     // biome-ignore lint/performance/noDelete: same reason
     delete process.env.DEEPSEEK_BASE_URL;
+    // biome-ignore lint/performance/noDelete: same reason
+    delete process.env.DEEPSEEK_API_BASE_URL;
   });
 
   afterEach(() => {
@@ -92,6 +102,12 @@ describe("config", () => {
       delete process.env.DEEPSEEK_BASE_URL;
     } else {
       process.env.DEEPSEEK_BASE_URL = originalBaseUrl;
+    }
+    if (originalApiBaseUrl === undefined) {
+      // biome-ignore lint/performance/noDelete: same reason
+      delete process.env.DEEPSEEK_API_BASE_URL;
+    } else {
+      process.env.DEEPSEEK_API_BASE_URL = originalApiBaseUrl;
     }
   });
 
@@ -125,6 +141,16 @@ describe("config", () => {
   it("loadApiKey falls back to config file when env unset", () => {
     saveApiKey("sk-fromfile1234567890ab", path);
     expect(loadApiKey(path)).toBe("sk-fromfile1234567890ab");
+  });
+
+  it("saveApiKey overrides a stale env var so an explicit UI save takes effect immediately", () => {
+    // Repro: user has DEEPSEEK_API_KEY=<old> in User-level env / .env / shell rc.
+    // Without the env update inside saveApiKey, loadEndpoint's fallback branch
+    // keeps returning the stale env, so the desktop UI save looks like a no-op.
+    process.env.DEEPSEEK_API_KEY = "sk-staleenv00000000000000";
+    saveApiKey("sk-freshfromui00000000000", path);
+    expect(loadApiKey(path)).toBe("sk-freshfromui00000000000");
+    expect(process.env.DEEPSEEK_API_KEY).toBe("sk-freshfromui00000000000");
   });
 
   it("loadApiKey returns undefined when nothing set", () => {
@@ -163,6 +189,17 @@ describe("config", () => {
   it("loadBaseUrl falls back to config when env unset", () => {
     saveBaseUrl("https://self-hosted.example.com", path);
     expect(loadBaseUrl(path)).toBe("https://self-hosted.example.com");
+  });
+
+  it("loadBaseUrl accepts DEEPSEEK_API_BASE_URL as an alias (#1876)", () => {
+    process.env.DEEPSEEK_API_BASE_URL = "https://nginx-proxy.internal/v1";
+    expect(loadBaseUrl(path)).toBe("https://nginx-proxy.internal/v1");
+  });
+
+  it("loadBaseUrl: DEEPSEEK_BASE_URL wins over the alias when both are set", () => {
+    process.env.DEEPSEEK_BASE_URL = "https://canonical.example.com";
+    process.env.DEEPSEEK_API_BASE_URL = "https://alias.example.com";
+    expect(loadBaseUrl(path)).toBe("https://canonical.example.com");
   });
 
   it("loadBaseUrl returns undefined when nothing set", () => {
@@ -212,8 +249,12 @@ describe("config", () => {
   it("loadEndpoint: env tuple wins when env sets baseUrl", () => {
     process.env.DEEPSEEK_BASE_URL = "https://env-proxy.example.com";
     process.env.DEEPSEEK_API_KEY = "sk-env-tuple-token-abc";
-    saveBaseUrl("https://config-only.example.com", path);
-    saveApiKey("sk-config-token-xyz1234", path);
+    // Write config directly — saveApiKey would mutate env as part of the desktop-UI
+    // contract; here we want to test loadEndpoint's read precedence in isolation.
+    writeConfig(
+      { baseUrl: "https://config-only.example.com", apiKey: "sk-config-token-xyz1234" },
+      path,
+    );
     try {
       const ep = loadEndpoint(path);
       expect(ep.baseUrl).toBe("https://env-proxy.example.com");
@@ -226,9 +267,9 @@ describe("config", () => {
 
   it("loadEndpoint: default endpoint pairs env apiKey > config apiKey", () => {
     // Neither source sets baseUrl → default endpoint. Standard 12-factor
-    // env > config for the apiKey, unchanged from pre-fix behavior.
+    // env > config for the apiKey on the read path.
     process.env.DEEPSEEK_API_KEY = "sk-env-default-token-abc";
-    saveApiKey("sk-config-token-xyz1234", path);
+    writeConfig({ apiKey: "sk-config-token-xyz1234" }, path);
     const ep = loadEndpoint(path);
     expect(ep.baseUrl).toBeUndefined();
     expect(ep.apiKey).toBe("sk-env-default-token-abc");
@@ -284,6 +325,14 @@ describe("config", () => {
     });
 
     writeConfig({}, path);
+    expect(loadProxyConfig(path)).toEqual({});
+  });
+
+  it("loads proxy.url and trims it; ignores blank values (#1868)", () => {
+    writeConfig({ proxy: { url: "  http://127.0.0.1:7897  " } }, path);
+    expect(loadProxyConfig(path)).toEqual({ url: "http://127.0.0.1:7897" });
+
+    writeConfig({ proxy: { url: "   " } }, path);
     expect(loadProxyConfig(path)).toEqual({});
   });
 
@@ -474,6 +523,31 @@ describe("config", () => {
     expect(clearProjectShellAllowed("/empty", path)).toBe(0);
   });
 
+  it("global shell allowlist CRUD mirrors project (load/add/dedup/remove/clear)", () => {
+    expect(loadGlobalShellAllowed(path)).toEqual([]);
+    addGlobalShellAllowed("npm install", path);
+    addGlobalShellAllowed("git commit", path);
+    addGlobalShellAllowed("npm install", path); // dedup
+    addGlobalShellAllowed("   ", path); // ignored
+    expect(loadGlobalShellAllowed(path)).toEqual(["npm install", "git commit"]);
+    expect(removeGlobalShellAllowed("npm install", path)).toBe(true);
+    expect(removeGlobalShellAllowed("npm install", path)).toBe(false);
+    expect(loadGlobalShellAllowed(path)).toEqual(["git commit"]);
+    expect(clearGlobalShellAllowed(path)).toBe(1);
+    expect(loadGlobalShellAllowed(path)).toEqual([]);
+    expect(clearGlobalShellAllowed(path)).toBe(0);
+  });
+
+  it("global allowlist is independent of any project's allowlist", () => {
+    addGlobalShellAllowed("brew install", path);
+    addProjectShellAllowed("/a", "npm install", path);
+    expect(loadGlobalShellAllowed(path)).toEqual(["brew install"]);
+    expect(loadProjectShellAllowed("/a", path)).toEqual(["npm install"]);
+    // Clearing the project list leaves the global list intact.
+    clearProjectShellAllowed("/a", path);
+    expect(loadGlobalShellAllowed(path)).toEqual(["brew install"]);
+  });
+
   it("pathAllowed CRUD mirrors shellAllowed (load/add/dedup/remove/clear)", () => {
     expect(loadProjectPathAllowed("/a", path)).toEqual([]);
     addProjectPathAllowed("/a", "/Users/foo/Documents", path);
@@ -651,10 +725,10 @@ describe("config", () => {
   });
 
   it("resolveThemePreference lets env override auto but not registered config themes", () => {
-    expect(resolveThemePreference("auto", "light")).toBe("light");
+    expect(resolveThemePreference("auto", "light")).toBe("porcelain");
     expect(resolveThemePreference(undefined, "midnight")).toBe("midnight");
-    expect(resolveThemePreference("dark", "light")).toBe("dark");
-    expect(resolveThemePreference("auto", "unknown")).toBe("dark");
+    expect(resolveThemePreference("dark", "light")).toBe("graphite");
+    expect(resolveThemePreference("auto", "unknown")).toBe("graphite");
   });
 
   it("saveTheme doesn't clobber other persisted fields", () => {
@@ -826,7 +900,18 @@ describe("config", () => {
 
   describe("webSearchEngine", () => {
     it("preserves each known engine end-to-end (no silent tavily→default fall-through, #1309)", () => {
-      for (const engine of ["bing", "searxng", "metaso", "tavily"] as const) {
+      for (const engine of [
+        "bing",
+        "bing-intl",
+        "searxng",
+        "metaso",
+        "baidu",
+        "tavily",
+        "perplexity",
+        "exa",
+        "brave",
+        "ollama",
+      ] as const) {
         writeConfig({ webSearchEngine: engine }, path);
         expect(webSearchEngine(path)).toBe(engine);
       }
@@ -847,6 +932,145 @@ describe("config", () => {
     });
   });
 
+  describe("loadBaiduApiKey", () => {
+    it("returns BAIDU_API_KEY env var before QIANFAN_API_KEY and config", () => {
+      const origBaidu = process.env.BAIDU_API_KEY;
+      const origQianfan = process.env.QIANFAN_API_KEY;
+      process.env.BAIDU_API_KEY = "baidu-env";
+      process.env.QIANFAN_API_KEY = "qianfan-env";
+      try {
+        writeConfig({ baiduApiKey: "cfg-baidu" }, path);
+        expect(loadBaiduApiKey(path)).toBe("baidu-env");
+      } finally {
+        if (origBaidu === undefined) {
+          // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+          delete process.env.BAIDU_API_KEY;
+        } else {
+          process.env.BAIDU_API_KEY = origBaidu;
+        }
+        if (origQianfan === undefined) {
+          // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+          delete process.env.QIANFAN_API_KEY;
+        } else {
+          process.env.QIANFAN_API_KEY = origQianfan;
+        }
+      }
+    });
+
+    it("falls back to QIANFAN_API_KEY when BAIDU_API_KEY is unset", () => {
+      const origBaidu = process.env.BAIDU_API_KEY;
+      const origQianfan = process.env.QIANFAN_API_KEY;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.BAIDU_API_KEY;
+      process.env.QIANFAN_API_KEY = "qianfan-env";
+      try {
+        expect(loadBaiduApiKey(path)).toBe("qianfan-env");
+      } finally {
+        if (origBaidu !== undefined) process.env.BAIDU_API_KEY = origBaidu;
+        if (origQianfan === undefined) {
+          // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+          delete process.env.QIANFAN_API_KEY;
+        } else {
+          process.env.QIANFAN_API_KEY = origQianfan;
+        }
+      }
+    });
+
+    it("falls back to config.baiduApiKey when env vars are unset", () => {
+      const origBaidu = process.env.BAIDU_API_KEY;
+      const origQianfan = process.env.QIANFAN_API_KEY;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.BAIDU_API_KEY;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.QIANFAN_API_KEY;
+      try {
+        writeConfig({ baiduApiKey: "cfg-baidu" }, path);
+        expect(loadBaiduApiKey(path)).toBe("cfg-baidu");
+      } finally {
+        if (origBaidu !== undefined) process.env.BAIDU_API_KEY = origBaidu;
+        if (origQianfan !== undefined) process.env.QIANFAN_API_KEY = origQianfan;
+      }
+    });
+
+    it("returns undefined when no Baidu key is configured", () => {
+      const origBaidu = process.env.BAIDU_API_KEY;
+      const origQianfan = process.env.QIANFAN_API_KEY;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.BAIDU_API_KEY;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.QIANFAN_API_KEY;
+      try {
+        writeConfig({ baiduApiKey: undefined }, path);
+        expect(loadBaiduApiKey(path)).toBeUndefined();
+      } finally {
+        if (origBaidu !== undefined) process.env.BAIDU_API_KEY = origBaidu;
+        if (origQianfan !== undefined) process.env.QIANFAN_API_KEY = origQianfan;
+      }
+    });
+  });
+
+  describe("loadBraveApiKey", () => {
+    it("returns BRAVE_SEARCH_API_KEY env var when set", () => {
+      const orig = process.env.BRAVE_SEARCH_API_KEY;
+      process.env.BRAVE_SEARCH_API_KEY = "bsk-123";
+      try {
+        expect(loadBraveApiKey(path)).toBe("bsk-123");
+      } finally {
+        // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+        if (orig === undefined) delete process.env.BRAVE_SEARCH_API_KEY;
+        else process.env.BRAVE_SEARCH_API_KEY = orig;
+      }
+    });
+
+    it("falls back to BRAVE_API_KEY when BRAVE_SEARCH_API_KEY is unset", () => {
+      const origLong = process.env.BRAVE_SEARCH_API_KEY;
+      const origShort = process.env.BRAVE_API_KEY;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.BRAVE_SEARCH_API_KEY;
+      process.env.BRAVE_API_KEY = "bak-456";
+      try {
+        expect(loadBraveApiKey(path)).toBe("bak-456");
+      } finally {
+        if (origLong !== undefined) process.env.BRAVE_SEARCH_API_KEY = origLong;
+        // biome-ignore lint/performance/noDelete: same reason
+        if (origShort === undefined) delete process.env.BRAVE_API_KEY;
+        else process.env.BRAVE_API_KEY = origShort;
+      }
+    });
+
+    it("falls back to config.braveApiKey when no env vars are set", () => {
+      const origLong = process.env.BRAVE_SEARCH_API_KEY;
+      const origShort = process.env.BRAVE_API_KEY;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.BRAVE_SEARCH_API_KEY;
+      // biome-ignore lint/performance/noDelete: same reason
+      delete process.env.BRAVE_API_KEY;
+      try {
+        writeConfig({ braveApiKey: "cfg-brave" }, path);
+        expect(loadBraveApiKey(path)).toBe("cfg-brave");
+      } finally {
+        if (origLong !== undefined) process.env.BRAVE_SEARCH_API_KEY = origLong;
+        if (origShort !== undefined) process.env.BRAVE_API_KEY = origShort;
+      }
+    });
+
+    it("returns undefined when nothing is set", () => {
+      const origLong = process.env.BRAVE_SEARCH_API_KEY;
+      const origShort = process.env.BRAVE_API_KEY;
+      // biome-ignore lint/performance/noDelete: env var must be absent, not "undefined"
+      delete process.env.BRAVE_SEARCH_API_KEY;
+      // biome-ignore lint/performance/noDelete: same reason
+      delete process.env.BRAVE_API_KEY;
+      try {
+        writeConfig({ braveApiKey: undefined }, path);
+        expect(loadBraveApiKey(path)).toBeUndefined();
+      } finally {
+        if (origLong !== undefined) process.env.BRAVE_SEARCH_API_KEY = origLong;
+        if (origShort !== undefined) process.env.BRAVE_API_KEY = origShort;
+      }
+    });
+  });
+
   describe("subagentModels", () => {
     it("round-trips flash/pro entries", () => {
       saveSubagentModels({ explore: "pro", review: "flash" }, path);
@@ -858,7 +1082,6 @@ describe("config", () => {
         {
           subagentModels: {
             explore: "pro",
-            // biome-ignore lint/suspicious/noExplicitAny: invalid input we want to test the loader's filter
             bogus: "fast" as any,
           },
         },
@@ -872,6 +1095,38 @@ describe("config", () => {
       saveSubagentModels({}, path);
       expect(loadSubagentModels(path)).toEqual({});
       expect(readConfig(path).subagentModels).toBeUndefined();
+    });
+  });
+
+  describe("contextTokens", () => {
+    it("returns empty when nothing is set", () => {
+      expect(loadContextTokens(path)).toEqual({});
+    });
+
+    it("round-trips per-model token caps", () => {
+      writeConfig({ contextTokens: { mimo: 1_000_000, "qwen-72b": 131_072 } }, path);
+      expect(loadContextTokens(path)).toEqual({ mimo: 1_000_000, "qwen-72b": 131_072 });
+    });
+
+    it("drops non-positive and non-finite values", () => {
+      writeConfig(
+        {
+          contextTokens: {
+            mimo: 1_000_000,
+            bad1: -1,
+            bad2: 0,
+            bad3: Number.POSITIVE_INFINITY,
+            bad4: "nope" as any,
+          },
+        },
+        path,
+      );
+      expect(loadContextTokens(path)).toEqual({ mimo: 1_000_000 });
+    });
+
+    it("floors fractional values", () => {
+      writeConfig({ contextTokens: { mimo: 999_999.7 } }, path);
+      expect(loadContextTokens(path)).toEqual({ mimo: 999_999 });
     });
   });
 });

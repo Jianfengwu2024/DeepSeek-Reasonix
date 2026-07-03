@@ -1,7 +1,7 @@
-import { render } from "ink-testing-library";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguageRuntime } from "../src/i18n/index.js";
+import { render } from "./helpers/ink-test.js";
 const { useQQChannel } = await import("../src/qq/use-qq-channel.js");
 
 type QQConfigState = {
@@ -145,6 +145,24 @@ describe("QQ first-connect onboarding", () => {
     expect(api.parseSubmit("/cancel")).toMatchObject({ handled: true, fromQQ: false });
     await expect(pending).rejects.toThrow("QQ setup cancelled.");
     expect(log.pushInfo).toHaveBeenLastCalledWith("QQ setup cancelled.");
+    expect(startMock).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it("does not treat slash-like input as credentials during staged first-time setup", async () => {
+    const log = {
+      pushInfo: vi.fn(),
+      pushWarning: vi.fn(),
+    };
+    const { api, unmount } = mountHarness(log);
+
+    void api.connect([]);
+    expect(api.parseSubmit("/help")).toMatchObject({ handled: true, fromQQ: false });
+    expect(log.pushInfo).toHaveBeenLastCalledWith(
+      "QQ setup: enter your QQ Open Platform App ID, then press Enter. Type /cancel to abort.",
+    );
+    expect(saveQQConfigMock).not.toHaveBeenCalled();
     expect(startMock).not.toHaveBeenCalled();
 
     unmount();
