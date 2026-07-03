@@ -3,6 +3,106 @@
 All notable changes to Reasonix. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.53.2] — 2026-05-27
+
+**TUI crash fix — `useBoxMetrics` no longer trips React's max-update-depth.**
+The hook ran `useEffect` with no dep array and called `setSize` inside,
+so any Box whose content shape depended on its own measurement could
+oscillate within a single React commit batch and crash with "Maximum
+update depth exceeded" on chat startup (reported in #1986
+follow-up). Measurement is now deferred off the commit batch via
+`setTimeout(0)` — each measure starts a fresh root update instead of
+chaining inside the depth counter. Oscillating call sites still don't
+converge to a single value (the underlying anti-pattern in the caller
+remains), but the user no longer sees a crash.
+
+## [0.53.1] — 2026-05-27
+
+**Install fix — `npx reasonix` no longer crashes on `EUNSUPPORTEDPROTOCOL`.**
+The 0.52.0 refactor that inlined Ink as a workspace package (#1947)
+left `"ink": "workspace:*"` in runtime `dependencies`. tsup already
+bundles ink into `dist/`, so the runtime never resolves it — but npm
+on consumer machines parses the declaration and rejects the
+unresolvable `workspace:` protocol. Removed from runtime deps; the
+bundled ink in `dist/` is the implementation. 0.53.0 is deprecated
+on npm.
+
+## [0.53.0] — 2026-05-27
+
+**Force-summary respects the active model.** Context-guard and stuck-state
+recovery were calling `client.chat({ model: "deepseek-v4-flash" })`
+regardless of the user's configured model (#1979). Third-party
+DeepSeek-compatible endpoints (mimo, self-hosted, Azure forks) that
+don't expose flash returned 400 on every recovery — the session looked
+like it lost context (the messages were still there) and the user had
+no way back without `/clear`. Force-summary now uses `this.model` with
+`thinking: "disabled"` to keep reasoning tokens off the bill even when
+the active model is pro.
+
+**Web search — Brave backend.** `web_search` now supports the Brave
+Search API as an alternative backend (#1916), alongside the existing
+Bing / Tavily / Ollama-cloud paths. Configurable per-instance.
+
+**Desktop — workspace switcher.** Sidebar exposes a workspace
+switcher (#1908) so multiple project roots can be juggled without
+restarting the app. Bundled-app version surfacing for desktop is
+unified through the same sync pipeline as the CLI.
+
+**Desktop — fixes.**
+- Per-tab hook firing for Pre/PostToolUse, UserPromptSubmit, Stop
+  (#1984) — hooks were leaking across tabs in multi-session windows
+- Clear the pending assistant on error so the spinner stops (#1985,
+  fixes #1660)
+- `/skill` and `/skills` slash commands wired through (#1978, fixes
+  #1969)
+- Context token meter refreshes after each turn (#1964)
+- Preserve session context across abort (#1938)
+- `\[ \]` and `\( \)` math delimiters now render in markdown (#1923)
+- Windows file opening normalizes path separators (#1914)
+- Settings allow clearing base URL and editor fields (#1905)
+
+**Dashboard / web.**
+- Dashboard session refresh no longer skips updates (#1917)
+- "New Chat" label stays on one line (#1924)
+- Server-snapshot helpers fully typed (#1961)
+
+**Config / auth.** `saveApiKey` now overrides a stale `DEEPSEEK_API_KEY`
+env var so the UI save takes effect immediately (#1982) — previously
+the env shadow won and the user had to relaunch.
+
+**QQ adapter.** `/qq` defaults to markdown replies (#1941); the
+previous plain-text default lost code blocks and lists.
+
+**Networking / fetch.** `web_fetch` falls back to DNS-over-HTTPS when
+the system resolver returns RFC1918 / link-local addresses (#1944) —
+some captive portals and split-horizon DNS configs hand back fake
+internal IPs and the fetch then connects to the wrong host. CLI
+`doctor` accepts a custom `/models` endpoint instead of hard-coding
+DeepSeek's (#1972).
+
+**Truncation / encoding.**
+- Slice boundaries align to UTF-16 codepoints so multi-code-unit
+  characters can't be split mid-surrogate (#1976, includes #1970)
+- Truncated-result-saver falls back to `~/.reasonix` when `rootDir`
+  resolves to the filesystem root (#1974)
+- Lone surrogates are sanitized in chat payloads before serialization
+  (#1939)
+
+**TUI — CardStream measure loop.** Break the
+measure→render→measure feedback loop that could pin CPU on resize
+(#1958).
+
+**Errors / ACP.** Structured `errorDetail` propagates through loop,
+transcript, and ACP wire format (#1965 + follow-up) so external
+clients see the same fault classification the CLI does.
+
+**Internals.** Inline the ink runtime as a workspace package (#1947) —
+last step of the `@esengine/ink` in-tree work started in 0.52.0.
+
+**Misc.**
+- Generated-script shell `cwd` guidance fixed (#1937)
+- AtomGit star badge in README (#1954)
+
 ## [0.52.0] — 2026-05-26
 
 **Ink renderer in-tree as `@esengine/ink`.** The vendored Ink fork now
