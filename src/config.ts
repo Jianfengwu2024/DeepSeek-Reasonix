@@ -1,8 +1,10 @@
 /** Library reads only DEEPSEEK_API_KEY from env; the CLI bridges config.json → env var. */
 
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { z } from "zod";
 import { type ThemeName, isThemeName, resolveThemeName } from "./cli/ui/theme/tokens.js";
 import type { LanguageCode } from "./i18n/types.js";
 import {
@@ -12,14 +14,33 @@ import {
 } from "./index/config.js";
 import { type McpServerSpec, parseMcpSpec } from "./mcp/spec.js";
 import { normalizeQQAllowlist, normalizeQQOpenId } from "./qq/access.js";
+import {
+  type NormalizedToolRateLimitConfig,
+  type ToolRateLimitConfig,
+  normalizeToolRateLimitConfig,
+} from "./tools/rate-limit.js";
 
-/** Legacy `fast|smart|max` kept for back-compat with existing config.json files. */
-export type PresetName = "auto" | "flash" | "pro" | "fast" | "smart" | "max";
+/** Single trust dial: review queues edits + gates shell; auto applies + gates shell; yolo skips both gates; plan blocks every non-readonly tool (write_file / edit_file / multi_edit / run_command) at dispatch. */
+export type EditMode = "review" | "auto" | "yolo" | "plan";
 
-/** Single trust dial: review queues edits + gates shell; auto applies + gates shell; yolo skips both gates. */
-export type EditMode = "review" | "auto" | "yolo";
+export const DEFAULT_MODEL = "deepseek-v4-flash";
 
-export type ReasoningEffort = "high" | "max";
+/** Models the official api.deepseek.com endpoint currently accepts. v3-era
+ *  `deepseek-chat`/`deepseek-reasoner` are gone — sending them produces a 400. */
+export const SUPPORTED_OFFICIAL_MODELS: readonly string[] = [
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+];
+
+export type ReasoningEffort = "low" | "medium" | "high" | "max";
+
+export const REASONING_EFFORT_VALUES: readonly ReasoningEffort[] = ["low", "medium", "high", "max"];
+
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return value === "low" || value === "medium" || value === "high" || value === "max";
+}
+
+export type EngineeringLifecycleMode = "off" | "strict";
 
 export type EmbeddingProvider = "ollama" | "openai-compat";
 
@@ -138,14 +159,25 @@ export interface PricingOverride {
 }
 
 export interface RateLimitConfig {
+  /** Client-side self-throttle in requests/minute — paces outbound chat calls with a min-interval timer. NOT a DeepSeek-enforced limit: DeepSeek's actual cap is concurrency, not RPM (500 for v4-pro, 2500 for v4-flash, account-wide), surfaced as HTTP 429. Set this only to be a polite neighbor on shared infra; single-user CLI rarely needs it. */
   rpm?: number;
+}
+
+export interface ProxyConfig {
+  /** Skip proxy detection entirely — equivalent to launching with `--no-proxy`. */
+  disabled?: boolean;
+  /** Additional NO_PROXY patterns (curl syntax). Additive on top of env NO_PROXY and the default DeepSeek-bypass whitelist. */
+  noProxy?: string[];
+  /** When false, route api.deepseek.com / *.deepseek.com through the proxy too (issue #1497 — corporate firewalls that block direct egress). Default true preserves the clash/v2ray US-exit-IP 403 fix. Env `REASONIX_PROXY_DEEPSEEK_DIRECT` overrides. */
+  bypassDeepSeekDirect?: boolean;
 }
 
 export interface ReasonixConfig {
   apiKey?: string;
   baseUrl?: string;
   lang?: LanguageCode;
-  preset?: PresetName;
+  /** Persisted DeepSeek model id — `/model <id>` and the dashboard model picker write through this. */
+  model?: string;
   editMode?: EditMode;
   editModeHintShown?: boolean;
   mouseClipboardHintShown?: boolean;
@@ -172,21 +204,38 @@ export interface ReasonixConfig {
   session?: string | null;
   setupCompleted?: boolean;
   search?: boolean;
-  /** Web search engine backend: "mojeek" (default, scrapes Mojeek), "searxng" (self-hosted SearXNG), "metaso" (Metaso API), or "tavily" (LLM-friendly API, free tier). */
-  webSearchEngine?: "mojeek" | "searxng" | "metaso" | "tavily";
+  /** Web search engine backend: "bing" (default, scrapes cn.bing.com), "searxng" (self-hosted SearXNG), "metaso" (Metaso API), "tavily" (LLM-friendly API, free tier), "perplexity" (Perplexity AI), or "exa" (Exa API). */
+  webSearchEngine?: "bing" | "searxng" | "metaso" | "tavily" | "perplexity" | "exa";
   /** Base URL for SearXNG instance (default http://localhost:8080). */
   webSearchEndpoint?: string;
-  /** Metaso API key. Falls back to METASO_API_KEY env var, then a built-in default. */
+  /** Metaso API key. Falls back to METASO_API_KEY env var. */
   metasoApiKey?: string;
   /** Tavily API key. Falls back to TAVILY_API_KEY env var. No baked-in default — free tier is 1000/mo per account, sharing would burn out. */
   tavilyApiKey?: string;
+  /** Perplexity API key. Falls back to PERPLEXITY_API_KEY env var. Get one at https://perplexity.ai/settings/api */
+  perplexityApiKey?: string;
+  /** Exa API key. Falls back to EXA_API_KEY env var. Free 1000/mo signup at https://exa.ai */
+  exaApiKey?: string;
+
+  /** TUI mouse-wheel scrolling via SGR mouse tracking. Default true. Set false to fall back to native terminal drag-select for copy (then wheel is terminal-dependent — most terminals translate wheel→arrow in alt-screen, some don't). */
+  mouseTracking?: boolean;
+  /** Rows scrolled per single SGR mouse-wheel report. Default 1 — most terminals emit 2-5 reports per physical notch, so 1 already produces 2-5 rows per notch (#1419). Bump to 3-5 only if your terminal emits one report per notch and scrolling feels slow (#1494). Clamped to [1, 10]. */
+  mouseWheelRows?: number;
   dashboard?: {
+    /** Whether the embedded dashboard auto-starts on launch. Default true. Set false to disable without passing --no-dashboard each time. */
+    enabled?: boolean;
     /** Pin the embedded dashboard to a fixed port — required for stable SSH tunnels. 0/absent → ephemeral. */
     port?: number;
     /** Bind address (#968). Defaults to 127.0.0.1 (loopback only). Set to 0.0.0.0 / :: / a LAN IP to expose to other devices; the URL token is then the only auth, so keep it secret. */
     host?: string;
     /** Stable URL token (#968). If unset, a fresh token is minted each boot. Min 16 chars enforced at load time. */
     token?: string;
+  };
+  /** Thread-area visibility toggles. */
+  thread?: {
+    /** When false, suppresses the quiet inline dividers for fold / abort / rate-limit
+     *  warnings (severity="high" from the kernel). Default true. */
+    showSystemEvents?: boolean;
   };
   /** Per-field visibility toggles for the bottom status row. All default to true (visible). */
   statusBar?: {
@@ -201,6 +250,8 @@ export interface ReasonixConfig {
   projects?: {
     [absoluteRootDir: string]: {
       shellAllowed?: string[];
+      /** Project-scoped hooks are arbitrary shell commands; load only after explicit trust. */
+      hooksTrusted?: boolean;
       /** Absolute directory prefixes the user pre-approved for outside-sandbox file access (#684). */
       pathAllowed?: string[];
     };
@@ -218,12 +269,27 @@ export interface ReasonixConfig {
   skills?: {
     paths?: string[];
   };
+  /** Per-skill model override for `runAs: subagent` skills, keyed by skill name. Empty / missing entry → spawn site's default. */
+  subagentModels?: Record<string, "flash" | "pro">;
+  /** Enable the `java_source` tool for finding and decompiling Java class source. Default off. */
+  javaSource?: boolean;
   /** User-declared extensions to the built-in memory types (#709). Unknown types round-trip even without a declaration; declaring one lets you attach a default priority + lifecycle. */
   memory?: {
     customTypes?: CustomMemoryTypeConfig[];
   };
   pricingOverride?: Record<string, PricingOverride>;
+  /** Per-app proxy override. Layered on top of HTTPS_PROXY / NO_PROXY env vars + the default DeepSeek-bypass whitelist. */
+  proxy?: ProxyConfig;
   rateLimit?: RateLimitConfig;
+  toolRateLimit?: ToolRateLimitConfig;
+  /** Host-enforced engineering lifecycle. Defaults to off so opt-outs pay zero prefix cost. */
+  engineeringLifecycle?: {
+    mode?: EngineeringLifecycleMode;
+  };
+  filesystem?: {
+    /** read_file flips to outline mode for files above this. Default 64 KiB — keeps the cache prefix slim while covering ~99% of source files. Raise to 524288 (512 KiB) for the pre-0.46.0 "trust the cache" behavior. */
+    outlineThresholdBytes?: number;
+  };
   /** QQ Bot configuration */
   qq?: QQBotConfig;
   /** Optional TriadMind architecture-governance integration for code mode. */
@@ -290,19 +356,33 @@ export function memoryTypeDefaults(
   return out;
 }
 
-const DEFAULT_METASO_API_KEY = "mk-E384C1DD5E8501BB7EFE27C949AFDE5B";
-
-export function loadMetasoApiKey(path: string = defaultConfigPath()): string {
-  if (process.env.METASO_API_KEY) return process.env.METASO_API_KEY;
+export function loadMetasoApiKey(path: string = defaultConfigPath()): string | undefined {
+  if (process.env.METASO_API_KEY) return process.env.METASO_API_KEY.trim();
   const cfg = readConfig(path).metasoApiKey;
   if (cfg && typeof cfg === "string" && cfg.trim()) return cfg.trim();
-  return DEFAULT_METASO_API_KEY;
+  return undefined;
 }
 
 /** Tavily API key — env > config > undefined. Returning undefined means the caller must error out with a clear "go get one at tavily.com" message; we deliberately ship no default because the free 1000/mo quota wouldn't survive being shared. */
 export function loadTavilyApiKey(path: string = defaultConfigPath()): string | undefined {
   if (process.env.TAVILY_API_KEY) return process.env.TAVILY_API_KEY.trim();
   const cfg = readConfig(path).tavilyApiKey;
+  if (cfg && typeof cfg === "string" && cfg.trim()) return cfg.trim();
+  return undefined;
+}
+
+/** Perplexity API key — env > config > undefined. Get one at https://perplexity.ai/settings/api */
+export function loadPerplexityApiKey(path: string = defaultConfigPath()): string | undefined {
+  if (process.env.PERPLEXITY_API_KEY) return process.env.PERPLEXITY_API_KEY.trim();
+  const cfg = readConfig(path).perplexityApiKey;
+  if (cfg && typeof cfg === "string" && cfg.trim()) return cfg.trim();
+  return undefined;
+}
+
+/** Exa API key — env > config > undefined. Free 1000/mo signup at https://exa.ai */
+export function loadExaApiKey(path: string = defaultConfigPath()): string | undefined {
+  if (process.env.EXA_API_KEY) return process.env.EXA_API_KEY.trim();
+  const cfg = readConfig(path).exaApiKey;
   if (cfg && typeof cfg === "string" && cfg.trim()) return cfg.trim();
   return undefined;
 }
@@ -316,25 +396,124 @@ export function defaultConfigPath(): string {
   return join(homedir(), ".reasonix", "config.json");
 }
 
+const STRING_ARRAY_FIELDS: Array<readonly string[]> = [
+  ["mcp"],
+  ["mcpDisabled"],
+  ["recentWorkspaces"],
+  ["skills", "paths"],
+];
+
+const stringArraySchema = z.array(z.string());
+
+function sanitizeStringArrayField(
+  cfg: Record<string, unknown>,
+  segments: readonly string[],
+  filePath: string,
+): void {
+  if (segments.length === 0) return;
+  let parent: Record<string, unknown> = cfg;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i] as string;
+    const next = parent[seg];
+    if (!next || typeof next !== "object" || Array.isArray(next)) return;
+    parent = next as Record<string, unknown>;
+  }
+  const leaf = segments[segments.length - 1] as string;
+  const value = parent[leaf];
+  if (value === undefined) return;
+  const fieldName = segments.join(".");
+  if (!Array.isArray(value)) {
+    console.warn(`reasonix: config "${filePath}" field "${fieldName}" is not an array — ignoring`);
+    delete parent[leaf];
+    return;
+  }
+  const parsed = stringArraySchema.safeParse(value);
+  if (parsed.success) return;
+  const filtered = value.filter((x): x is string => typeof x === "string");
+  console.warn(
+    `reasonix: config "${filePath}" field "${fieldName}" had ${value.length - filtered.length} non-string item(s) — dropped`,
+  );
+  parent[leaf] = filtered;
+}
+
 export function readConfig(path: string = defaultConfigPath()): ReasonixConfig {
   try {
-    const raw = readFileSync(path, "utf8");
+    // Strip the UTF-8 BOM if a foreign writer left one in — Windows
+    // PowerShell 5's `Set-Content -Encoding UTF8` and several text
+    // editors emit `EF BB BF` at the head of the file. `JSON.parse`
+    // refuses BOM-prefixed input and throws, which used to fall
+    // through to `return {}` and silently nuke every saved field on
+    // the next read-modify-write.
+    const raw = readFileSync(path, "utf8").replace(/^\uFEFF/, "");
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") return parsed as ReasonixConfig;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const cfg = parsed as Record<string, unknown>;
+      for (const segments of STRING_ARRAY_FIELDS) {
+        sanitizeStringArrayField(cfg, segments, path);
+      }
+      return cfg as ReasonixConfig;
+    }
   } catch {
     /* missing or malformed → empty config */
   }
   return {};
 }
 
+/** Whether the dashboard auto-starts. Default true; only false when explicitly set in config. */
+export function loadDashboardEnabled(
+  noConfig = false,
+  path: string = defaultConfigPath(),
+): boolean {
+  if (noConfig) return true;
+  const v = readConfig(path).dashboard?.enabled;
+  return v !== false;
+}
+
+/** Get-or-mint a 32-byte hex dashboard token, persisting on first call so subsequent CLI boots reuse it (URLs survive restarts). Returns the existing token if it's already ≥16 chars. */
+export function ensureDashboardToken(path: string = defaultConfigPath()): string {
+  const cfg = readConfig(path);
+  const existing = cfg.dashboard?.token?.trim();
+  if (existing && existing.length >= 16) return existing;
+  const minted = randomBytes(32).toString("hex");
+  const next: ReasonixConfig = { ...cfg, dashboard: { ...cfg.dashboard, token: minted } };
+  writeConfig(next, path);
+  return minted;
+}
+
+/** Persist the actual port the server bound to so the next boot reuses it (and falls back to ephemeral if it's taken). */
+export function saveDashboardPort(port: number, path: string = defaultConfigPath()): void {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return;
+  const cfg = readConfig(path);
+  if (cfg.dashboard?.port === port) return;
+  const next: ReasonixConfig = { ...cfg, dashboard: { ...cfg.dashboard, port } };
+  writeConfig(next, path);
+}
+
+/** Wipe the persisted dashboard token — next boot mints a fresh one. Used by `/dashboard reset-token`. */
+export function clearDashboardToken(path: string = defaultConfigPath()): void {
+  const cfg = readConfig(path);
+  if (!cfg.dashboard?.token) return;
+  const { token: _drop, ...rest } = cfg.dashboard;
+  const next: ReasonixConfig = { ...cfg, dashboard: rest };
+  writeConfig(next, path);
+}
+
 export function writeConfig(cfg: ReasonixConfig, path: string = defaultConfigPath()): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(cfg, null, 2), "utf8");
+  // Atomic — write to a sibling tmp then rename. A torn write (process
+  // killed mid-write, or another reader catching the file before
+  // writeFileSync finished) used to leave a 0-byte or truncated
+  // config.json, which readConfig would then parse as `{}` and the next
+  // saveX would silently overwrite every other field with that empty
+  // baseline (issue #1535).
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(cfg, null, 2), "utf8");
   try {
-    chmodSync(path, 0o600);
+    chmodSync(tmp, 0o600);
   } catch {
     /* ignore on platforms without chmod */
   }
+  renameSync(tmp, path);
 }
 
 /** Resolve the language from config file. */
@@ -474,16 +653,37 @@ export function saveLanguage(lang: LanguageCode, path: string = defaultConfigPat
   writeConfig(cfg, path);
 }
 
-/** Resolve the API key from env var first, then the config file. */
-export function loadApiKey(path: string = defaultConfigPath()): string | undefined {
-  if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY;
-  return readConfig(path).apiKey;
+export interface ResolvedEndpoint {
+  baseUrl: string | undefined;
+  apiKey: string | undefined;
 }
 
-/** env > config > undefined. Client falls back to api.deepseek.com when undefined. */
+// (baseUrl, apiKey) is a tuple: whichever source defines baseUrl owns apiKey too,
+// so a stale env DEEPSEEK_API_KEY doesn't bleed into a custom config baseUrl (#1631).
+export function loadEndpoint(path: string = defaultConfigPath()): ResolvedEndpoint {
+  if (process.env.DEEPSEEK_BASE_URL) {
+    return { baseUrl: process.env.DEEPSEEK_BASE_URL, apiKey: process.env.DEEPSEEK_API_KEY };
+  }
+  const cfg = readConfig(path);
+  if (cfg.baseUrl) {
+    return { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey };
+  }
+  return { baseUrl: undefined, apiKey: process.env.DEEPSEEK_API_KEY ?? cfg.apiKey };
+}
+
+export function loadApiKey(path: string = defaultConfigPath()): string | undefined {
+  return loadEndpoint(path).apiKey;
+}
+
 export function loadBaseUrl(path: string = defaultConfigPath()): string | undefined {
-  if (process.env.DEEPSEEK_BASE_URL) return process.env.DEEPSEEK_BASE_URL;
-  return readConfig(path).baseUrl;
+  return loadEndpoint(path).baseUrl;
+}
+
+// Mirrors the resolved tuple into env so subprocess constructions see the same pair.
+export function bridgeEndpointEnv(path: string = defaultConfigPath()): void {
+  const ep = loadEndpoint(path);
+  if (ep.apiKey) process.env.DEEPSEEK_API_KEY = ep.apiKey;
+  if (ep.baseUrl) process.env.DEEPSEEK_BASE_URL = ep.baseUrl;
 }
 
 function isNonNegativeNumber(value: unknown): value is number {
@@ -506,6 +706,23 @@ export function loadPricingOverride(
     if (Object.keys(pricing).length > 0) result[model] = pricing;
   }
   return result;
+}
+
+export function loadProxyConfig(path: string = defaultConfigPath()): ProxyConfig {
+  const cfg = readConfig(path).proxy;
+  if (!cfg || typeof cfg !== "object") return {};
+  const out: ProxyConfig = {};
+  if (cfg.disabled === true) out.disabled = true;
+  if (Array.isArray(cfg.noProxy)) {
+    const entries = cfg.noProxy.filter(
+      (p): p is string => typeof p === "string" && p.trim() !== "",
+    );
+    if (entries.length > 0) out.noProxy = entries;
+  }
+  if (typeof cfg.bypassDeepSeekDirect === "boolean") {
+    out.bypassDeepSeekDirect = cfg.bypassDeepSeekDirect;
+  }
+  return out;
 }
 
 export function loadRateLimit(path: string = defaultConfigPath()): RateLimitConfig | undefined {
@@ -555,6 +772,18 @@ export function saveTriadMindConfig(
   cfg.triadmind = Object.values(next).some((value) => value !== undefined) ? next : undefined;
   writeConfig(cfg, path);
   return next;
+}
+
+export function loadMouseWheelRows(path: string = defaultConfigPath()): number | undefined {
+  const raw = readConfig(path).mouseWheelRows;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1) return undefined;
+  return Math.min(raw, 10);
+}
+
+export function loadToolRateLimit(
+  path: string = defaultConfigPath(),
+): false | NormalizedToolRateLimitConfig {
+  return normalizeToolRateLimitConfig(readConfig(path).toolRateLimit);
 }
 
 export function saveBaseUrl(url: string, path: string = defaultConfigPath()): void {
@@ -643,6 +872,31 @@ export function saveSkillPaths(
   return normalized;
 }
 
+export function loadSubagentModels(
+  path: string = defaultConfigPath(),
+): Record<string, "flash" | "pro"> {
+  const raw = readConfig(path).subagentModels;
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, "flash" | "pro"> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    if (value === "flash" || value === "pro") out[name] = value;
+  }
+  return out;
+}
+
+export function saveSubagentModels(
+  map: Record<string, "flash" | "pro">,
+  path: string = defaultConfigPath(),
+): void {
+  const cfg = readConfig(path);
+  const out: Record<string, "flash" | "pro"> = {};
+  for (const [name, value] of Object.entries(map)) {
+    if (value === "flash" || value === "pro") out[name] = value;
+  }
+  cfg.subagentModels = Object.keys(out).length > 0 ? out : undefined;
+  writeConfig(cfg, path);
+}
+
 export function addSkillPath(
   skillPath: string,
   baseDir: string = process.cwd(),
@@ -702,13 +956,26 @@ export function searchEnabled(path: string = defaultConfigPath()): boolean {
   return true;
 }
 
+export function loadJavaSourceEnabled(path: string = defaultConfigPath()): boolean {
+  const env = process.env.REASONIX_JAVA_SOURCE;
+  if (env === "1" || env === "true") return true;
+  const cfg = readConfig(path).javaSource;
+  return cfg === true;
+}
+
 export function webSearchEngine(
   path: string = defaultConfigPath(),
-): "mojeek" | "searxng" | "metaso" {
+): "bing" | "searxng" | "metaso" | "tavily" | "perplexity" | "exa" {
   const cfg = readConfig(path).webSearchEngine;
   if (cfg === "searxng") return "searxng";
   if (cfg === "metaso") return "metaso";
-  return "mojeek";
+  if (cfg === "tavily") return "tavily";
+  if (cfg === "perplexity") return "perplexity";
+  if (cfg === "exa") return "exa";
+  // Any other value (including legacy "mojeek" from configs predating the
+  // engine swap) falls through to bing. Read-only — we never rewrite the
+  // user's config, so `/search-engine mojeek` later still rejects loudly.
+  return "bing";
 }
 
 export function webSearchEndpoint(path: string = defaultConfigPath()): string {
@@ -800,6 +1067,22 @@ export function clearProjectShellAllowed(
   return existing.length;
 }
 
+export function projectHooksTrusted(rootDir: string, path: string = defaultConfigPath()): boolean {
+  const cfg = readConfig(path);
+  const key = findProjectKey(cfg, rootDir);
+  return key !== undefined && cfg.projects?.[key]?.hooksTrusted === true;
+}
+
+export function trustProjectHooks(rootDir: string, path: string = defaultConfigPath()): void {
+  const cfg = readConfig(path);
+  if (!cfg.projects) cfg.projects = {};
+  const key = findProjectKey(cfg, rootDir) ?? rootDir;
+  if (!cfg.projects[key]) cfg.projects[key] = {};
+  if (cfg.projects[key].hooksTrusted === true) return;
+  cfg.projects[key].hooksTrusted = true;
+  writeConfig(cfg, path);
+}
+
 export function loadProjectPathAllowed(
   rootDir: string,
   path: string = defaultConfigPath(),
@@ -866,7 +1149,7 @@ export function clearProjectPathAllowed(
 /** Unknown values fall back to "review" so hand-edited bad config gets the safe default. */
 export function loadEditMode(path: string = defaultConfigPath()): EditMode {
   const v = readConfig(path).editMode;
-  if (v === "auto" || v === "yolo") return v;
+  if (v === "auto" || v === "yolo" || v === "plan") return v;
   return "review";
 }
 
@@ -875,6 +1158,24 @@ export function saveEditMode(mode: EditMode, path: string = defaultConfigPath())
   const cfg = readConfig(path);
   cfg.editMode = mode;
   writeConfig(cfg, path);
+}
+
+/** Unknown values fall back to "off" so bad config keeps the zero-cost default. */
+export function loadEngineeringLifecycleMode(
+  path: string = defaultConfigPath(),
+): EngineeringLifecycleMode {
+  const v = readConfig(path).engineeringLifecycle?.mode;
+  if (v === "off" || v === "strict") return v;
+  return "off";
+}
+
+/** Bytes above which `read_file` flips to outline mode. Returns `undefined` so callers can apply the registered default; non-positive / non-numeric config values fall through to the default too. */
+export function loadFilesystemOutlineThresholdBytes(
+  path: string = defaultConfigPath(),
+): number | undefined {
+  const v = readConfig(path).filesystem?.outlineThresholdBytes;
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return undefined;
+  return Math.floor(v);
 }
 
 /** True when the onboarding tip for the review/AUTO gate has been shown. */
@@ -887,10 +1188,10 @@ export function mouseClipboardHintShown(path: string = defaultConfigPath()): boo
   return readConfig(path).mouseClipboardHintShown === true;
 }
 
-/** Unknown / missing fall back to "max" so hand-edited bad config can't silently override the default. */
+/** Unknown / missing fall back to "high" — the only value every OpenAI-compatible endpoint accepts (vLLM rejects "max"). */
 export function loadReasoningEffort(path: string = defaultConfigPath()): ReasoningEffort {
   const v = readConfig(path).reasoningEffort;
-  return v === "high" ? "high" : "max";
+  return isReasoningEffort(v) ? v : "high";
 }
 
 export function loadTheme(path: string = defaultConfigPath()): ThemeName | "auto" | undefined {
@@ -924,6 +1225,25 @@ export function saveReasoningEffort(
   writeConfig(cfg, path);
 }
 
+export function loadModel(path: string = defaultConfigPath()): string {
+  const cfg = readConfig(path);
+  const raw = cfg.model;
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (!trimmed) return DEFAULT_MODEL;
+  // Custom-endpoint owners pick their own model namespace; trust them.
+  const customEndpoint = cfg.baseUrl?.trim() || process.env.DEEPSEEK_BASE_URL;
+  if (customEndpoint) return trimmed;
+  return SUPPORTED_OFFICIAL_MODELS.includes(trimmed) ? trimmed : DEFAULT_MODEL;
+}
+
+export function saveModel(model: string, path: string = defaultConfigPath()): void {
+  const trimmed = model.trim();
+  if (!trimmed) return;
+  const cfg = readConfig(path);
+  cfg.model = trimmed;
+  writeConfig(cfg, path);
+}
+
 export function loadWorkspaceDir(path: string = defaultConfigPath()): string | undefined {
   const v = readConfig(path).workspaceDir;
   return typeof v === "string" && v.trim() ? v : undefined;
@@ -947,6 +1267,18 @@ export function saveEditor(editor: string, path: string = defaultConfigPath()): 
   const trimmed = editor.trim();
   if (trimmed) cfg.editor = trimmed;
   else cfg.editor = undefined;
+  writeConfig(cfg, path);
+}
+
+/** Default true — quiet inline dividers (fold / abort / rate-limit) are valuable
+ *  for transparency; users opt out only if they want a fully clean thread. */
+export function loadShowSystemEvents(path: string = defaultConfigPath()): boolean {
+  return readConfig(path).thread?.showSystemEvents !== false;
+}
+
+export function saveShowSystemEvents(on: boolean, path: string = defaultConfigPath()): void {
+  const cfg = readConfig(path);
+  cfg.thread = { ...(cfg.thread ?? {}), showSystemEvents: on };
   writeConfig(cfg, path);
 }
 
@@ -1010,17 +1342,6 @@ export function saveDesktopOpenTabs(
       return e;
     });
   cfg.desktopOpenTabs = cleaned.length === 0 ? undefined : cleaned;
-  writeConfig(cfg, path);
-}
-
-export function loadPreset(path: string = defaultConfigPath()): PresetName | undefined {
-  return readConfig(path).preset;
-}
-
-/** Persist preset so `/preset pro` (or `/model deepseek-v4-pro`) sticks across relaunches. */
-export function savePreset(preset: PresetName, path: string = defaultConfigPath()): void {
-  const cfg = readConfig(path);
-  cfg.preset = preset;
   writeConfig(cfg, path);
 }
 

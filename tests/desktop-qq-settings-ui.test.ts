@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { setLang } from "../desktop/src/i18n";
+import { setLang, t } from "../desktop/src/i18n";
 import {
   type QQDesktopSettingsState,
   describeQQRowSummary,
@@ -13,7 +13,7 @@ const DISCONNECTED: QQDesktopSettingsState = {
   sandbox: true,
   enabled: false,
   configured: false,
-  connected: false,
+  runtimeState: "disconnected",
   access: "open (unbound)",
 };
 
@@ -35,7 +35,7 @@ describe("desktop QQ settings view model", () => {
         sandbox: true,
         enabled: false,
         configured: true,
-        connected: false,
+        runtimeState: "disconnected",
         access: "owner abcd...mnop",
       }),
     ).toBe("App ID 123456... · Sandbox · Owner abcd...mnop");
@@ -44,5 +44,39 @@ describe("desktop QQ settings view model", () => {
   it("localizes the disconnected label in zh-CN", () => {
     setLang("zh-CN");
     expect(getQQStatusLabel(DISCONNECTED)).toBe("已断开");
+  });
+
+  it("uses the connected label when runtime state is connected", () => {
+    setLang("en");
+    expect(
+      getQQStatusLabel({
+        ...DISCONNECTED,
+        appId: "x",
+        appSecret: "y",
+        configured: true,
+        enabled: true,
+        runtimeState: "connected",
+      }),
+    ).toBe("Connected");
+  });
+
+  it("uses the connecting label when runtime state is connecting", () => {
+    setLang("en");
+    expect(
+      getQQStatusLabel({
+        ...DISCONNECTED,
+        appId: "x",
+        appSecret: "y",
+        configured: true,
+        runtimeState: "connecting",
+      }),
+    ).toBe("Connecting");
+  });
+
+  it("exposes the new QQ settings copy in zh-CN", () => {
+    setLang("zh-CN");
+    expect(t("settings.qqTitle")).toBe("QQ机器人集成");
+    expect(t("settings.qqConfigureHint")).toBe("注册 QQ 机器人以接收和回复消息。");
+    expect(t("settings.qqApplyAction")).toBe("去申请");
   });
 });

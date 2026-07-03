@@ -14,15 +14,23 @@ import {
   loadBaseUrl,
   loadDesktopOpenTabs,
   loadEditMode,
+  loadEndpoint,
+  loadEngineeringLifecycleMode,
+  loadFilesystemOutlineThresholdBytes,
   loadIndexConfig,
   loadIndexUserConfig,
+  loadModel,
+  loadMouseWheelRows,
   loadPricingOverride,
   loadProjectPathAllowed,
   loadProjectShellAllowed,
+  loadProxyConfig,
   loadRateLimit,
   loadReasoningEffort,
   loadSemanticEmbeddingUserConfig,
+  loadSubagentModels,
   loadTheme,
+  loadToolRateLimit,
   loadTriadMindMode,
   markEditModeHintShown,
   readConfig,
@@ -39,9 +47,11 @@ import {
   saveIndexConfig,
   saveReasoningEffort,
   saveSemanticEmbeddingConfig,
+  saveSubagentModels,
   saveTheme,
   saveTriadMindConfig,
   searchEnabled,
+  webSearchEngine,
   writeConfig,
 } from "../src/config.js";
 
@@ -92,6 +102,13 @@ describe("config", () => {
   it("writeConfig + readConfig round-trip", () => {
     writeConfig({ apiKey: "sk-test123abcdefghijkl" }, path);
     expect(readConfig(path).apiKey).toBe("sk-test123abcdefghijkl");
+  });
+
+  it("writeConfig leaves no `.tmp` sibling behind on success", () => {
+    writeConfig({ apiKey: "sk-test123abcdefghijkl", reasoningEffort: "high" }, path);
+    const tmp = `${path}.${process.pid}.tmp`;
+    expect(existsSync(tmp)).toBe(false);
+    expect(existsSync(path)).toBe(true);
   });
 
   it("saveApiKey trims whitespace", () => {
@@ -158,6 +175,75 @@ describe("config", () => {
     expect(loadBaseUrl(path)).toBeUndefined();
   });
 
+  it("loadEndpoint: config tuple wins when config sets baseUrl (#1631)", () => {
+    // Bug scenario: user has a global env DEEPSEEK_API_KEY for the default
+    // endpoint, then edits config to use a custom proxy with its own apiKey.
+    // Per-field env-first would pair the stale env key with the custom URL →
+    // auth fails. Tuple semantics keep them paired by source.
+    process.env.DEEPSEEK_API_KEY = "sk-stale-from-shell-rc-abc";
+    saveBaseUrl("https://new-api.example.com/v1", path);
+    saveApiKey("sk-new-api-token-xyz1234", path);
+    const ep = loadEndpoint(path);
+    expect(ep.baseUrl).toBe("https://new-api.example.com/v1");
+    expect(ep.apiKey).toBe("sk-new-api-token-xyz1234");
+  });
+
+  it("loadModel falls back to default when persisted id is unsupported on the official endpoint", () => {
+    // Regression: v3-era `deepseek-chat`/`deepseek-reasoner` lingering in
+    // config — or any other unsupported id — would be sent verbatim and
+    // make the first chat request 400 with "supported API model names are
+    // deepseek-v4-pro or deepseek-v4-flash, but you passed …".
+    writeConfig({ model: "deepseek-chat" }, path);
+    expect(loadModel(path)).toBe("deepseek-v4-flash");
+    writeConfig({ model: "deepseek-made-up" }, path);
+    expect(loadModel(path)).toBe("deepseek-v4-flash");
+  });
+
+  it("loadModel passes through any persisted id when a custom baseUrl is set", () => {
+    writeConfig({ model: "my-self-hosted-7b", baseUrl: "https://self.example.com" }, path);
+    expect(loadModel(path)).toBe("my-self-hosted-7b");
+  });
+
+  it("loadModel keeps a supported v4 id on the official endpoint", () => {
+    writeConfig({ model: "deepseek-v4-pro" }, path);
+    expect(loadModel(path)).toBe("deepseek-v4-pro");
+  });
+
+  it("loadEndpoint: env tuple wins when env sets baseUrl", () => {
+    process.env.DEEPSEEK_BASE_URL = "https://env-proxy.example.com";
+    process.env.DEEPSEEK_API_KEY = "sk-env-tuple-token-abc";
+    saveBaseUrl("https://config-only.example.com", path);
+    saveApiKey("sk-config-token-xyz1234", path);
+    try {
+      const ep = loadEndpoint(path);
+      expect(ep.baseUrl).toBe("https://env-proxy.example.com");
+      expect(ep.apiKey).toBe("sk-env-tuple-token-abc");
+    } finally {
+      // biome-ignore lint/performance/noDelete: restore exact env state
+      delete process.env.DEEPSEEK_BASE_URL;
+    }
+  });
+
+  it("loadEndpoint: default endpoint pairs env apiKey > config apiKey", () => {
+    // Neither source sets baseUrl → default endpoint. Standard 12-factor
+    // env > config for the apiKey, unchanged from pre-fix behavior.
+    process.env.DEEPSEEK_API_KEY = "sk-env-default-token-abc";
+    saveApiKey("sk-config-token-xyz1234", path);
+    const ep = loadEndpoint(path);
+    expect(ep.baseUrl).toBeUndefined();
+    expect(ep.apiKey).toBe("sk-env-default-token-abc");
+  });
+
+  it("loadEndpoint: config baseUrl with no config apiKey returns undefined apiKey", () => {
+    // Surfaces a clean "no key" error rather than silently using the stale
+    // env key with the wrong endpoint.
+    process.env.DEEPSEEK_API_KEY = "sk-stale-from-shell-rc-abc";
+    saveBaseUrl("https://new-api.example.com/v1", path);
+    const ep = loadEndpoint(path);
+    expect(ep.baseUrl).toBe("https://new-api.example.com/v1");
+    expect(ep.apiKey).toBeUndefined();
+  });
+
   it("loads pricingOverride with valid non-negative fields", () => {
     writeConfig(
       {
@@ -182,17 +268,101 @@ describe("config", () => {
     expect(loadRateLimit(path)).toBeUndefined();
   });
 
+  it("loads proxy.disabled + proxy.noProxy[] when present, drops blank entries", () => {
+    writeConfig(
+      {
+        proxy: {
+          disabled: true,
+          noProxy: ["internal.corp.example", "", "  ", ".workspace.lan"],
+        },
+      },
+      path,
+    );
+    expect(loadProxyConfig(path)).toEqual({
+      disabled: true,
+      noProxy: ["internal.corp.example", ".workspace.lan"],
+    });
+
+    writeConfig({}, path);
+    expect(loadProxyConfig(path)).toEqual({});
+  });
+
+  it("loads toolRateLimit with defaults and opt-out", () => {
+    writeConfig(
+      {
+        toolRateLimit: {
+          aggregate: { maxCalls: 5, windowSeconds: 10 },
+          tools: {
+            run_command: { maxCalls: 2, windowSeconds: 3 },
+            run_background: false,
+          },
+        },
+      },
+      path,
+    );
+    expect(loadToolRateLimit(path)).toMatchObject({
+      aggregate: { maxCalls: 5, windowSeconds: 10 },
+      tools: {
+        run_command: { maxCalls: 2, windowSeconds: 3 },
+        run_background: false,
+      },
+    });
+
+    writeConfig({ toolRateLimit: { enabled: false } }, path);
+    expect(loadToolRateLimit(path)).toBe(false);
+
+    writeConfig({ toolRateLimit: { aggregate: { maxCalls: 0, windowSeconds: 1.5 } } }, path);
+    expect(loadToolRateLimit(path)).toMatchObject({
+      aggregate: { maxCalls: 200, windowSeconds: 60 },
+    });
+  });
+
+  it("loads mouseWheelRows when set, clamps to [1,10], drops invalid (#1494)", () => {
+    writeConfig({ mouseWheelRows: 3 }, path);
+    expect(loadMouseWheelRows(path)).toBe(3);
+
+    writeConfig({ mouseWheelRows: 99 }, path);
+    expect(loadMouseWheelRows(path)).toBe(10);
+
+    writeConfig({ mouseWheelRows: 0 }, path);
+    expect(loadMouseWheelRows(path)).toBeUndefined();
+
+    writeConfig({ mouseWheelRows: -1 }, path);
+    expect(loadMouseWheelRows(path)).toBeUndefined();
+
+    writeConfig({ mouseWheelRows: 2.5 }, path);
+    expect(loadMouseWheelRows(path)).toBeUndefined();
+
+    writeConfig({ mouseWheelRows: "3" as unknown as number }, path);
+    expect(loadMouseWheelRows(path)).toBeUndefined();
+
+    writeConfig({}, path);
+    expect(loadMouseWheelRows(path)).toBeUndefined();
+  });
+
+  it("loads proxy.bypassDeepSeekDirect when set (#1497)", () => {
+    writeConfig({ proxy: { bypassDeepSeekDirect: false } }, path);
+    expect(loadProxyConfig(path)).toEqual({ bypassDeepSeekDirect: false });
+
+    writeConfig({ proxy: { bypassDeepSeekDirect: true } }, path);
+    expect(loadProxyConfig(path)).toEqual({ bypassDeepSeekDirect: true });
+
+    writeConfig({ proxy: { bypassDeepSeekDirect: "yes" } as never }, path);
+    expect(loadProxyConfig(path)).toEqual({});
+  });
+
   it("redactKey hides the middle", () => {
     expect(redactKey("sk-1234567890abcdefghij")).toBe("sk-123…ghij");
     expect(redactKey("short")).toBe("****");
     expect(redactKey("")).toBe("");
   });
 
-  it("round-trips the full ReasonixConfig (preset, mcp, session, setupCompleted)", () => {
+  it("round-trips the full ReasonixConfig (model, effort, mcp, session, setupCompleted)", () => {
     writeConfig(
       {
         apiKey: "sk-test123abcdefghijkl",
-        preset: "smart",
+        model: "deepseek-v4-pro",
+        reasoningEffort: "medium",
         mcp: [
           "filesystem=npx -y @modelcontextprotocol/server-filesystem /tmp/safe",
           "memory=npx -y @modelcontextprotocol/server-memory",
@@ -203,7 +373,8 @@ describe("config", () => {
       path,
     );
     const loaded = readConfig(path);
-    expect(loaded.preset).toBe("smart");
+    expect(loaded.model).toBe("deepseek-v4-pro");
+    expect(loaded.reasoningEffort).toBe("medium");
     expect(loaded.mcp).toHaveLength(2);
     expect(loaded.session).toBe("work");
     expect(loaded.setupCompleted).toBe(true);
@@ -374,19 +545,55 @@ describe("config", () => {
     expect(loadEditMode(path)).toBe("review");
   });
 
-  it("loadReasoningEffort defaults to 'max' when unset", () => {
-    expect(loadReasoningEffort(path)).toBe("max");
+  it("loadEngineeringLifecycleMode defaults to 'off' when unset", () => {
+    expect(loadEngineeringLifecycleMode(path)).toBe("off");
   });
 
-  it("saveReasoningEffort + loadReasoningEffort round-trip 'high'", () => {
-    saveReasoningEffort("high", path);
+  it("loadEngineeringLifecycleMode accepts off and strict", () => {
+    writeConfig({ engineeringLifecycle: { mode: "off" } }, path);
+    expect(loadEngineeringLifecycleMode(path)).toBe("off");
+    writeConfig({ engineeringLifecycle: { mode: "strict" } }, path);
+    expect(loadEngineeringLifecycleMode(path)).toBe("strict");
+  });
+
+  it("loadEngineeringLifecycleMode coerces unknown values back to 'off'", () => {
+    writeConfig({ engineeringLifecycle: { mode: "garbage" as any } }, path);
+    expect(loadEngineeringLifecycleMode(path)).toBe("off");
+  });
+
+  it("loadFilesystemOutlineThresholdBytes returns undefined when unset (caller applies default)", () => {
+    expect(loadFilesystemOutlineThresholdBytes(path)).toBeUndefined();
+  });
+
+  it("loadFilesystemOutlineThresholdBytes accepts a positive integer", () => {
+    writeConfig({ filesystem: { outlineThresholdBytes: 524288 } }, path);
+    expect(loadFilesystemOutlineThresholdBytes(path)).toBe(524288);
+  });
+
+  it("loadFilesystemOutlineThresholdBytes ignores non-positive / non-numeric values", () => {
+    writeConfig({ filesystem: { outlineThresholdBytes: 0 } }, path);
+    expect(loadFilesystemOutlineThresholdBytes(path)).toBeUndefined();
+    writeConfig({ filesystem: { outlineThresholdBytes: -1 } }, path);
+    expect(loadFilesystemOutlineThresholdBytes(path)).toBeUndefined();
+    writeConfig({ filesystem: { outlineThresholdBytes: "big" as any } }, path);
+    expect(loadFilesystemOutlineThresholdBytes(path)).toBeUndefined();
+  });
+
+  it("loadReasoningEffort defaults to 'high' when unset (safe for vLLM / Azure)", () => {
     expect(loadReasoningEffort(path)).toBe("high");
-    expect(readConfig(path).reasoningEffort).toBe("high");
   });
 
-  it("loadReasoningEffort coerces unknown values back to 'max'", () => {
+  it("saveReasoningEffort + loadReasoningEffort round-trip every supported value", () => {
+    for (const e of ["low", "medium", "high", "max"] as const) {
+      saveReasoningEffort(e, path);
+      expect(loadReasoningEffort(path)).toBe(e);
+      expect(readConfig(path).reasoningEffort).toBe(e);
+    }
+  });
+
+  it("loadReasoningEffort coerces unknown values back to the safe default", () => {
     writeConfig({ reasoningEffort: "turbo" as any }, path);
-    expect(loadReasoningEffort(path)).toBe("max");
+    expect(loadReasoningEffort(path)).toBe("high");
   });
 
   it("loadTriadMindMode defaults disabled and normalizes known modes", () => {
@@ -423,9 +630,9 @@ describe("config", () => {
   });
 
   it("saveTheme + loadTheme round-trip a registered theme", () => {
-    saveTheme("tokyo-night", path);
-    expect(loadTheme(path)).toBe("tokyo-night");
-    expect(readConfig(path).theme).toBe("tokyo-night");
+    saveTheme("midnight", path);
+    expect(loadTheme(path)).toBe("midnight");
+    expect(readConfig(path).theme).toBe("midnight");
   });
 
   it("saveTheme + loadTheme round-trip auto", () => {
@@ -444,17 +651,17 @@ describe("config", () => {
   });
 
   it("resolveThemePreference lets env override auto but not registered config themes", () => {
-    expect(resolveThemePreference("auto", "github-light")).toBe("github-light");
-    expect(resolveThemePreference(undefined, "tokyo-night")).toBe("tokyo-night");
-    expect(resolveThemePreference("github-dark", "github-light")).toBe("github-dark");
-    expect(resolveThemePreference("auto", "unknown")).toBe("default");
+    expect(resolveThemePreference("auto", "light")).toBe("light");
+    expect(resolveThemePreference(undefined, "midnight")).toBe("midnight");
+    expect(resolveThemePreference("dark", "light")).toBe("dark");
+    expect(resolveThemePreference("auto", "unknown")).toBe("dark");
   });
 
   it("saveTheme doesn't clobber other persisted fields", () => {
     saveEditMode("auto", path);
-    saveTheme("github-light", path);
+    saveTheme("light", path);
     expect(loadEditMode(path)).toBe("auto");
-    expect(loadTheme(path)).toBe("github-light");
+    expect(loadTheme(path)).toBe("light");
   });
 
   it("editModeHintShown defaults to false and toggles on markEditModeHintShown", () => {
@@ -614,6 +821,57 @@ describe("config", () => {
       saveDesktopOpenTabs([{ dir: "/a" }, { dir: "/b" }, { dir: "/c" }], path);
       saveDesktopOpenTabs([{ dir: "/c" }, { dir: "/a" }, { dir: "/b" }], path);
       expect(loadDesktopOpenTabs(path)).toEqual([{ dir: "/c" }, { dir: "/a" }, { dir: "/b" }]);
+    });
+  });
+
+  describe("webSearchEngine", () => {
+    it("preserves each known engine end-to-end (no silent tavily→default fall-through, #1309)", () => {
+      for (const engine of ["bing", "searxng", "metaso", "tavily"] as const) {
+        writeConfig({ webSearchEngine: engine }, path);
+        expect(webSearchEngine(path)).toBe(engine);
+      }
+    });
+
+    it("defaults to bing when unset or unknown", () => {
+      expect(webSearchEngine(path)).toBe("bing");
+      writeConfig({ webSearchEngine: "garbage" as unknown as "bing" }, path);
+      expect(webSearchEngine(path)).toBe("bing");
+    });
+
+    it('legacy "mojeek" config value reads back as bing (read-only migration)', () => {
+      // Old configs predating the bing-default swap still have "mojeek" on disk.
+      // Loader maps unknown values to bing; user's config file isn't rewritten,
+      // so an explicit `/search-engine mojeek` later still rejects loudly.
+      writeConfig({ webSearchEngine: "mojeek" as unknown as "bing" }, path);
+      expect(webSearchEngine(path)).toBe("bing");
+    });
+  });
+
+  describe("subagentModels", () => {
+    it("round-trips flash/pro entries", () => {
+      saveSubagentModels({ explore: "pro", review: "flash" }, path);
+      expect(loadSubagentModels(path)).toEqual({ explore: "pro", review: "flash" });
+    });
+
+    it("drops unknown values without touching valid entries", () => {
+      writeConfig(
+        {
+          subagentModels: {
+            explore: "pro",
+            // biome-ignore lint/suspicious/noExplicitAny: invalid input we want to test the loader's filter
+            bogus: "fast" as any,
+          },
+        },
+        path,
+      );
+      expect(loadSubagentModels(path)).toEqual({ explore: "pro" });
+    });
+
+    it("clearing all entries removes the field from config", () => {
+      saveSubagentModels({ explore: "pro" }, path);
+      saveSubagentModels({}, path);
+      expect(loadSubagentModels(path)).toEqual({});
+      expect(readConfig(path).subagentModels).toBeUndefined();
     });
   });
 });

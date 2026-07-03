@@ -69,18 +69,19 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   },
 
   {
-    cmd: "preset",
-    group: "setup",
-    argsHint: "<auto|flash|pro>",
-    summary: "model bundle — auto escalates flash → pro, flash/pro lock. Bare opens picker.",
-    argCompleter: ["auto", "flash", "pro"],
-  },
-  {
     cmd: "model",
     group: "setup",
     argsHint: "<id>",
     summary: "switch DeepSeek model id. Bare opens picker.",
     argCompleter: "models",
+  },
+  {
+    cmd: "effort",
+    group: "setup",
+    argsHint: "<low|medium|high|max>",
+    summary:
+      "reasoning_effort cap — high is the safe default (vLLM/Azure compatible); max is a DeepSeek extension.",
+    argCompleter: ["low", "medium", "high", "max"],
   },
   {
     cmd: "language",
@@ -93,18 +94,9 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   {
     cmd: "theme",
     group: "setup",
-    argsHint: "[auto|default|dark|light|tokyo-night|github-dark|github-light|high-contrast]",
+    argsHint: "[auto|dark|light|midnight|deep-blue|high-contrast]",
     summary: "show or persist the terminal theme preference. Bare opens picker.",
-    argCompleter: [
-      "auto",
-      "default",
-      "dark",
-      "light",
-      "tokyo-night",
-      "github-dark",
-      "github-light",
-      "high-contrast",
-    ],
+    argCompleter: ["auto", "dark", "light", "midnight", "deep-blue", "high-contrast"],
   },
 
   { cmd: "status", group: "info", summary: "current model, flags, context, session" },
@@ -137,14 +129,14 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
     summary: "keyboard + mouse + copy/paste reference",
   },
   {
-    cmd: "copy",
-    group: "chat",
-    summary: "vim/tmux-style copy mode — j/k navigate, v select, y yank to clipboard",
-  },
-  {
     cmd: "feedback",
     group: "info",
     summary: "open a GitHub issue with diagnostic info copied to clipboard",
+  },
+  {
+    cmd: "about",
+    group: "info",
+    summary: "project info — version, website, repo, license",
   },
 
   { cmd: "sessions", group: "session", summary: "list saved sessions (current marked with ▸)" },
@@ -252,19 +244,19 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   {
     cmd: "mode",
     group: "code",
-    argsHint: "[review|auto|yolo]",
+    argsHint: "[review|auto|yolo|plan]",
     summary:
-      "edit-gate: review (queue) · auto (apply+undo) · yolo (apply+auto-shell). Shift+Tab cycles.",
+      "edit-gate: review (queue) · auto (apply+undo) · yolo (apply+auto-shell) · plan (read-only). Shift+Tab cycles.",
     contextual: "code",
-    argCompleter: ["review", "auto", "yolo"],
+    argCompleter: ["review", "auto", "yolo", "plan"],
   },
   {
     cmd: "plan",
     group: "code",
-    argsHint: "[on|off]",
-    summary: "toggle read-only plan mode (writes bounced until submit_plan + approval)",
+    argsHint: "[on|off|strict]",
+    summary: "toggle read-only plan mode / strict lifecycle rails",
     contextual: "code",
-    argCompleter: ["on", "off"],
+    argCompleter: ["on", "off", "strict"],
   },
   {
     cmd: "checkpoint",
@@ -334,13 +326,6 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   },
 
   {
-    cmd: "pro",
-    group: "advanced",
-    argsHint: "[off]",
-    summary: "arm v4-pro for the NEXT turn only (one-shot · auto-disarms after turn)",
-    argCompleter: ["off"],
-  },
-  {
     cmd: "budget",
     group: "advanced",
     argsHint: "[usd|off]",
@@ -351,10 +336,10 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   {
     cmd: "search-engine",
     group: "advanced",
-    argsHint: "<mojeek|searxng|metaso> [<endpoint>]",
+    argsHint: "<bing|searxng|metaso|tavily|perplexity|exa> [<key>]",
     summary:
-      "switch web search backend — mojeek (default, no deps), searxng (self-hosted), or metaso (free quota 100/d)",
-    argCompleter: ["mojeek", "searxng", "metaso"],
+      "switch web search backend — bing (default, works from CN without proxy), searxng (self-hosted), metaso (free 100/d), tavily (free 1000/mo), perplexity (AI-native), or exa (AI-native). Provider with no key prompts inline config.",
+    argCompleter: ["bing", "searxng", "metaso", "tavily", "perplexity", "exa"],
     aliases: ["se"],
   },
   {
@@ -472,6 +457,8 @@ export function detectSlashArgContext(input: string, codeMode = false): SlashArg
 
 export function parseSlash(text: string): { cmd: string; args: string[] } | null {
   if (!text.startsWith("/")) return null;
+  // "//" is a line comment, not a slash command
+  if (text.startsWith("//")) return null;
   const parts = text.slice(1).trim().split(/\s+/);
   const cmd = parts[0]?.toLowerCase() ?? "";
   if (!cmd) return null;

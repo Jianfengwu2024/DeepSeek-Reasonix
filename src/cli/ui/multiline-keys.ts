@@ -1,4 +1,4 @@
-/** Pure keystroke→action reducer; ↑/↓ NOOP (chat-scroll), Ctrl+P/N do per-line cursor + history. */
+/** Pure keystroke→action reducer; ↑/↓ and Ctrl+P/N do per-line cursor + history. */
 
 export interface MultilineKey {
   input: string;
@@ -28,7 +28,7 @@ export interface MultilineAction {
   /** When `true`, fire `onSubmit(submitValue ?? value)`. */
   submit: boolean;
   submitValue?: string;
-  /** Set on Ctrl+P / Ctrl+N when no in-buffer cursor move applies — parent recalls prompt history. */
+  /** Set on ↑/↓ / Ctrl+N when no in-buffer cursor move applies — parent recalls prompt history. */
   historyHandoff?: "prev" | "next";
   /** Reducer is pure — hands raw paste to PromptInput which allocates a sentinel and inserts that. */
   pasteRequest?: { content: string };
@@ -66,8 +66,8 @@ export function processMultilineKey(
   }
 
   // PageUp/PageDown jump to start/end of the WHOLE buffer — useful
-  // after pasting a 500-line blob. Per-line motion lives on Ctrl+P /
-  // Ctrl+N now (↑/↓ are owned by chat scroll at the App level).
+  // after pasting a 500-line blob. Per-line motion lives on ↑/↓ (and
+  // their Ctrl+P / Ctrl+N readline aliases).
   if (key.pageUp) {
     return cursor === 0 ? NOOP : { next: null, cursor: 0, submit: false };
   }
@@ -75,18 +75,17 @@ export function processMultilineKey(
     return cursor === value.length ? NOOP : { next: null, cursor: value.length, submit: false };
   }
 
-  // ↑/↓ belong to chat-scroll at the App level. Ctrl+P / Ctrl+N take
-  // over what ↑/↓ used to do here:
+  // ↑/↓ (and Ctrl+N readline alias):
   //   • multi-line buffer → cursor up/down within the buffer
-  //   • single-line / empty → hand off to prompt history (readline parity)
-  if (key.ctrl && key.input === "p") {
+  //   • single-line / empty / already at top-or-bottom line → hand off to prompt history
+  if (key.upArrow) {
     if (value.includes("\n")) {
       const moved = moveCursorUp(value, cursor);
       if (moved !== cursor) return { next: null, cursor: moved, submit: false };
     }
     return { ...NOOP, historyHandoff: "prev" };
   }
-  if (key.ctrl && key.input === "n") {
+  if (key.downArrow || (key.ctrl && key.input === "n")) {
     if (value.includes("\n")) {
       const moved = moveCursorDown(value, cursor);
       if (moved !== cursor) return { next: null, cursor: moved, submit: false };
@@ -99,9 +98,6 @@ export function processMultilineKey(
   }
   if (key.rightArrow) {
     return { next: null, cursor: Math.min(value.length, cursor + 1), submit: false };
-  }
-  if (key.upArrow || key.downArrow) {
-    return NOOP;
   }
 
   // Emacs-style line jumps. Home/End come through our own stdin reader
@@ -191,7 +187,8 @@ export function processMultilineKey(
   }
 
   if (key.return) {
-    if (key.shift || key.meta) return insertAt(value, cursor, "\n");
+    // Shift+Enter / Ctrl+Enter / Alt+Enter → 换行
+    if (key.shift || key.ctrl || key.meta) return insertAt(value, cursor, "\n");
     // Bash-style line continuation: trailing '\' + Enter (only when the
     // cursor sits at end-of-buffer, so a stray '\' mid-line doesn't
     // trigger it).

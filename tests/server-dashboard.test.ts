@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { addProjectShellAllowed, loadProjectShellAllowed } from "../src/config.js";
+import { addProjectShellAllowed, loadProjectShellAllowed, readConfig } from "../src/config.js";
 import type { DashboardContext } from "../src/server/context.js";
 import {
   type DashboardServerHandle,
@@ -755,12 +755,21 @@ describe("dashboard server: v0.13 panels", () => {
   let cfgPath: string;
   let usagePath: string;
   let handle: DashboardServerHandle | null = null;
+  let savedHome: string | undefined;
+  let savedUserProfile: string | undefined;
   const TOKEN = "d".repeat(64);
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "reasonix-dash-v013-"));
     cfgPath = join(dir, "config.json");
     usagePath = join(dir, "usage.jsonl");
+    // Handlers like /api/health still walk `homedir()/.reasonix/{sessions,memory,semantic}`,
+    // so without redirecting HOME the test reads the dev's real history. On a machine
+    // with ~20k sessions the readdir + per-file statSync chain blows past the 5s default.
+    savedHome = process.env.HOME;
+    savedUserProfile = process.env.USERPROFILE;
+    process.env.HOME = dir;
+    process.env.USERPROFILE = dir;
     handle = await startDashboardServer(
       {
         mode: "attached",
@@ -774,6 +783,12 @@ describe("dashboard server: v0.13 panels", () => {
   afterEach(async () => {
     await handle?.close();
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+    // biome-ignore lint/performance/noDelete: env-var "= undefined" stringifies, must really unset
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    // biome-ignore lint/performance/noDelete: env-var "= undefined" stringifies, must really unset
+    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedUserProfile;
   });
 
   it("GET /api/health returns disk + version + jobs shape", async () => {
@@ -1099,14 +1114,12 @@ describe("dashboard server: D-1 settings + auto-loop surface", () => {
     return handle.url.split("?")[0]!;
   }
 
-  it("POST /api/settings routes proNext / budgetUsd / model to live callbacks", async () => {
+  it("POST /api/settings routes budgetUsd / model to live callbacks", async () => {
     const calls: Record<string, unknown[]> = {
-      proNext: [],
       budgetUsd: [],
       model: [],
     };
     const base = await boot({
-      setProNextLive: (v) => calls.proNext!.push(v),
       setBudgetUsdLive: (v) => calls.budgetUsd!.push(v),
       applyModelLive: (v) => calls.model!.push(v),
     });
@@ -1114,13 +1127,45 @@ describe("dashboard server: D-1 settings + auto-loop surface", () => {
       method: "POST",
       token: TOKEN,
       tokenInHeader: true,
-      body: { proNext: true, budgetUsd: 2.5, model: "deepseek-v4-pro" },
+      body: { budgetUsd: 2.5, model: "deepseek-v4-pro" },
     });
     expect(r.status).toBe(200);
-    expect(r.body.changed).toEqual(expect.arrayContaining(["proNext", "budgetUsd", "model"]));
-    expect(calls.proNext).toEqual([true]);
+    expect(r.body.changed).toEqual(expect.arrayContaining(["budgetUsd", "model"]));
     expect(calls.budgetUsd).toEqual([2.5]);
     expect(calls.model).toEqual(["deepseek-v4-pro"]);
+  });
+
+  it("POST /api/settings persists and applies editMode", async () => {
+    const editModeCalls: unknown[] = [];
+    const base = await boot({
+      getEditMode: () => "review",
+      setEditMode: (mode) => {
+        editModeCalls.push(mode);
+        return mode;
+      },
+    });
+    const r = await call(`${base}api/settings`, {
+      method: "POST",
+      token: TOKEN,
+      tokenInHeader: true,
+      body: { editMode: "auto" },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.changed).toContain("editMode");
+    expect(readConfig(cfgPath).editMode).toBe("auto");
+    expect(editModeCalls).toEqual(["auto"]);
+  });
+
+  it("POST /api/settings rejects invalid editMode", async () => {
+    const base = await boot();
+    const r = await call(`${base}api/settings`, {
+      method: "POST",
+      token: TOKEN,
+      tokenInHeader: true,
+      body: { editMode: "danger" },
+    });
+    expect(r.status).toBe(400);
+    expect(readConfig(cfgPath).editMode).toBeUndefined();
   });
 
   it("POST /api/settings rejects non-positive budgetUsd", async () => {

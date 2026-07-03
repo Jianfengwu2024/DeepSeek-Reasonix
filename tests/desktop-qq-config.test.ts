@@ -40,7 +40,7 @@ describe("desktop QQ settings helpers", () => {
       sandbox: true,
       enabled: true,
       configured: true,
-      connected: true,
+      runtimeState: "disconnected",
       appIdPreview: "123456...",
       access: "owner abcdef...mnop",
     });

@@ -2,11 +2,21 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import {
+  isPermissionGranted as isNotificationPermissionGranted,
+  requestPermission as requestNotificationPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { type Update, check } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { CommandPalette, Toast, buildCommands, useCommandPalette } from "./CommandPalette";
 import { WorkspaceProvider } from "./Markdown";
+import {
+  nextAbortDraftCandidate,
+  restoreAbortedDraft,
+  type AbortDraftSource,
+} from "./abort-draft";
 import { getLang, setLang, t, useLang } from "./i18n";
 import { I } from "./icons";
 import {
@@ -18,8 +28,13 @@ import {
   type FontScale,
   THEME,
   type Theme,
+  type ThemeStyle,
+  defaultStyleForTheme,
   isFontFamily,
   isFontScale,
+  isTheme,
+  isThemeStyle,
+  themeForStyle,
 } from "./theme";
 import type {
   CheckpointVerdict,
@@ -47,6 +62,12 @@ import { Shortcut, localizeShortcutText, shortcutText } from "./ui/shortcut";
 import { Splash, shouldShowSplash } from "./ui/splash";
 import { StatusBar } from "./ui/statusbar";
 import {
+  dispatchDesktopNotifications,
+  deriveDesktopNotifications,
+  shouldShowCompletionToast,
+  type ApprovalSnapshot,
+} from "./notifications";
+import {
   ActivePlanTaskCard,
   AssistantMsg,
   CheckpointApprovalCard,
@@ -60,9 +81,29 @@ import {
   UserMsg,
 } from "./ui/thread";
 import { WorkdirPop } from "./ui/workdir-pop";
+import { parseEditResult } from "./ui/cards";
+import { useAutoCollapse } from "./ui/useAutoCollapse";
+import { useResizable } from "./ui/useResizable";
 import { useAutoScroll } from "./ui/useAutoScroll";
 import { useDisableTextAssist } from "./ui/useDisableTextAssist";
 import { openUrl } from "@tauri-apps/plugin-opener";
+
+const RIGHT_SIDEBAR_COLLAPSE_WIDTH = 1120;
+const LEFT_SIDEBAR_COLLAPSE_WIDTH = 760;
+
+const RESPONSIVE_STAGE = {
+  WIDE: "wide",
+  COMPACT: "compact",
+  NARROW: "narrow",
+} as const;
+
+type ResponsiveStage = (typeof RESPONSIVE_STAGE)[keyof typeof RESPONSIVE_STAGE];
+
+function responsiveStage(width: number): ResponsiveStage {
+  if (width < LEFT_SIDEBAR_COLLAPSE_WIDTH) return RESPONSIVE_STAGE.NARROW;
+  if (width < RIGHT_SIDEBAR_COLLAPSE_WIDTH) return RESPONSIVE_STAGE.COMPACT;
+  return RESPONSIVE_STAGE.WIDE;
+}
 
 export type AssistantSegment =
   | { kind: "text"; text: string }
@@ -92,12 +133,14 @@ export type ChatMessage =
       pending: boolean;
     }
   | { kind: "status"; text: string }
-  | { kind: "error"; message: string };
+  | { kind: "warning"; id: string; text: string; severity: "low" | "high" }
+  | { kind: "error"; message: string; id: string; recoverable?: boolean };
 
 export type PendingConfirm = {
   id: number;
   kind: "run_command" | "run_background";
   command: string;
+  prompt: import("@reasonix/core-utils").ApprovalPrompt;
 };
 
 export type PendingPathAccess = {
@@ -107,6 +150,7 @@ export type PendingPathAccess = {
   toolName: string;
   sandboxRoot: string;
   allowPrefix: string;
+  prompt: import("@reasonix/core-utils").ApprovalPrompt;
 };
 
 export type PendingChoice = {
@@ -175,16 +219,18 @@ export type SessionInfo = {
 };
 
 export type Settings = {
-  reasoningEffort: "high" | "max";
-  editMode: "review" | "auto" | "yolo";
+  reasoningEffort: "low" | "medium" | "high" | "max";
+  editMode: "review" | "auto" | "yolo" | "plan";
   budgetUsd: number | null;
   baseUrl?: string;
   apiKeyPrefix?: string;
   workspaceDir: string;
   recentWorkspaces: string[];
   model: string;
-  preset: "auto" | "flash" | "pro";
   editor?: string;
+  webSearchEngine?: "bing" | "searxng" | "metaso" | "tavily" | "perplexity" | "exa";
+  subagentModels?: Record<string, "flash" | "pro">;
+  showSystemEvents?: boolean;
   version: string;
 };
 
@@ -265,11 +311,13 @@ type Action =
   | { t: "resolve_checkpoint"; id: number; verdict: CheckpointVerdict }
   | { t: "resolve_revision"; id: number; verdict: RevisionVerdict }
   | { t: "dismiss_plan" }
+  | { t: "dismiss_error"; id: string }
   | { t: "mention_results"; results: MentionResults }
   | { t: "mention_preview"; preview: MentionPreviewState }
   | { t: "enqueue_send"; text: string }
   | { t: "dequeue_send"; index: number }
-  | { t: "shift_queued_send" };
+  | { t: "shift_queued_send" }
+  | { t: "push_status"; text: string };
 
 function fallbackSkillDesc(skill: SkillInfo): string {
   const scope =
@@ -285,27 +333,33 @@ function fallbackSkillDesc(skill: SkillInfo): string {
   return t("app.skill.generic", { scope, runAs });
 }
 
-function reduce(state: State, action: Action): State {
+function nextMessageTurn(messages: ChatMessage[]): number {
+  const lastTurn = messages.reduce((max, m) => {
+    if (m.kind === "user" || m.kind === "assistant") return Math.max(max, m.turn);
+    return max;
+  }, 0);
+  return lastTurn + 1;
+}
+
+let _errSeq = 0;
+function nextErrorId(): string {
+  _errSeq += 1;
+  return `err-${Date.now().toString(36)}-${_errSeq}`;
+}
+
+export function reduce(state: State, action: Action): State {
   switch (action.t) {
     case "send_user": {
-      const lastTurn = state.messages.reduce((max, m) => {
-        if (m.kind === "user" || m.kind === "assistant") return Math.max(max, m.turn);
-        return max;
-      }, 0);
       return {
         ...state,
         busy: true,
         messages: [
           ...state.messages,
-          { kind: "user", text: action.text, clientId: action.clientId, turn: lastTurn + 1 },
+          { kind: "user", text: action.text, clientId: action.clientId, turn: nextMessageTurn(state.messages) },
         ],
       };
     }
     case "start_skill": {
-      const lastTurn = state.messages.reduce((max, m) => {
-        if (m.kind === "user" || m.kind === "assistant") return Math.max(max, m.turn);
-        return max;
-      }, 0);
       const argsLine = action.args ? ` ${action.args}` : "";
       return {
         ...state,
@@ -317,7 +371,7 @@ function reduce(state: State, action: Action): State {
             kind: "user",
             text: `/${action.skill.name}${argsLine}`,
             clientId: action.clientId,
-            turn: lastTurn + 1,
+            turn: nextMessageTurn(state.messages),
             skill: action.skill,
           },
         ],
@@ -332,7 +386,11 @@ function reduce(state: State, action: Action): State {
         queuedSends: [],
         messages: [
           ...state.messages,
-          { kind: "error", message: `reasonix exited (code ${action.code ?? "?"})` },
+          {
+            kind: "error",
+            message: `reasonix exited (code ${action.code ?? "?"})`,
+            id: nextErrorId(),
+          },
         ],
       };
     case "incoming":
@@ -442,6 +500,13 @@ function reduce(state: State, action: Action): State {
     }
     case "dismiss_plan":
       return { ...state, activePlan: null };
+    case "dismiss_error":
+      return {
+        ...state,
+        messages: state.messages.filter(
+          (m) => !(m.kind === "error" && m.id === action.id),
+        ),
+      };
     case "mention_results":
       return { ...state, mentionResults: action.results };
     case "mention_preview":
@@ -455,11 +520,90 @@ function reduce(state: State, action: Action): State {
       };
     case "shift_queued_send":
       return { ...state, queuedSends: state.queuedSends.slice(1) };
+    case "push_status":
+      return { ...state, messages: [...state.messages, { kind: "status", text: action.text }] };
   }
 }
 
 const READING_TOOLS = new Set(["read_file"]);
 const MODIFYING_TOOLS = new Set(["edit_file", "write_file"]);
+
+type FileStat = { filename: string; added: number; removed: number };
+type FileStats = { entries: FileStat[]; totalAdded: number; totalRemoved: number };
+
+function countFileStats(segments: AssistantSegment[]): FileStats | null {
+  const entries: FileStat[] = [];
+  for (const s of segments) {
+    if (s.kind !== "tool" || !s.result || s.ok === false) continue;
+    if (s.name === "edit_file" || s.name === "multi_edit") {
+      for (const f of parseEditResult(s.result)) {
+        let added = 0;
+        let removed = 0;
+        for (const ln of f.lines) {
+          if (ln.t === "add") added++;
+          else if (ln.t === "rm") removed++;
+        }
+        entries.push({ filename: f.filename, added, removed });
+      }
+    } else if (s.name === "write_file") {
+      let lines = 0;
+      try {
+        const parsed = JSON.parse(s.args);
+        if (typeof parsed.content === "string") {
+          lines = parsed.content.split("\n").length;
+        }
+      } catch {
+        /* args unparseable */
+      }
+      let filename = "";
+      try {
+        filename = JSON.parse(s.args)?.path ?? "";
+      } catch {
+        /* ignore */
+      }
+      entries.push({ filename, added: lines, removed: 0 });
+    }
+  }
+  if (entries.length === 0) return null;
+  const totalAdded = entries.reduce((s, e) => s + e.added, 0);
+  const totalRemoved = entries.reduce((s, e) => s + e.removed, 0);
+  return { entries, totalAdded, totalRemoved };
+}
+
+function DiffStats({ stats }: { stats: FileStats }) {
+  const [open, setOpen] = useState(false);
+  const total = stats.entries.length;
+  return (
+    <div className="diff-stats">
+      <button
+        type="button"
+        className="diff-stats-head"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="ico">
+          <I.diff size={11} />
+        </span>
+        <span>
+          {total} {total === 1 ? "file" : "files"} changed · +{stats.totalAdded} / −{stats.totalRemoved} {stats.totalRemoved === 1 ? "line" : "lines"}
+        </span>
+        <span className="chev">{open ? <I.chev size={10} /> : <I.chevR size={10} />}</span>
+      </button>
+      {open ? (
+        <div className="diff-stats-body">
+          {stats.entries.map((e) => (
+            <div key={e.filename} className="diff-stats-row">
+              <span className="fn">{e.filename}</span>
+              <span className="counts">
+                <span className="add">+{e.added}</span>
+                {e.removed > 0 ? <span className="rm"> / −{e.removed}</span> : null}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function extractToolFiles(name: string, args: string): SessionFile[] {
   try {
@@ -535,20 +679,52 @@ function appendTextSegment(
   return [...segments, { kind, text }];
 }
 
-function applyIncoming(state: State, ev: IncomingEvent): State {
+export function applyIncoming(state: State, ev: IncomingEvent): State {
   switch (ev.type) {
+    case "user.message": {
+      return {
+        ...state,
+        busy: true,
+        messages: [
+          ...state.messages,
+          {
+            kind: "user",
+            text: ev.text,
+            clientId: `remote-${ev.id}`,
+            turn: ev.turn > 0 ? ev.turn : nextMessageTurn(state.messages),
+          },
+        ],
+      };
+    }
     case "$ready":
       return { ...state, ready: true, needsSetup: false };
     case "$needs_setup":
       return { ...state, needsSetup: true, ready: false };
     case "$turn_complete":
-      return { ...state, busy: false, activeSkill: null };
+      // Clear pause-gate-tied modals too. By the time the loop emits
+      // $turn_complete, anything still in these arrays is orphaned — the
+      // tool call that opened it has either resolved (so it's gone already)
+      // or the turn was aborted (so the model isn't coming back for it).
+      // Without this, an Esc/abort during plan approval leaves the plan
+      // card rendered AFTER state.messages forever; the queued user input
+      // that drains next then appears above the zombie card (#1456).
+      return {
+        ...state,
+        busy: false,
+        activeSkill: null,
+        pendingConfirms: [],
+        pendingPathAccess: [],
+        pendingChoices: [],
+        pendingPlans: [],
+        pendingCheckpoints: [],
+        pendingRevisions: [],
+      };
     case "$confirm_required":
       return {
         ...state,
         pendingConfirms: [
           ...state.pendingConfirms,
-          { id: ev.id, kind: ev.kind, command: ev.command },
+          { id: ev.id, kind: ev.kind, command: ev.command, prompt: ev.prompt! },
         ],
       };
     case "$path_access_required":
@@ -563,6 +739,7 @@ function applyIncoming(state: State, ev: IncomingEvent): State {
             toolName: ev.toolName,
             sandboxRoot: ev.sandboxRoot,
             allowPrefix: ev.allowPrefix,
+            prompt: ev.prompt!,
           },
         ],
       };
@@ -648,8 +825,16 @@ function applyIncoming(state: State, ev: IncomingEvent): State {
       };
     case "$skills":
       return { ...state, skills: ev.items };
-    case "$ctx_breakdown":
-      return { ...state, usage: { ...state.usage, reservedTokens: ev.reservedTokens } };
+    case "$ctx_breakdown": {
+      const next: UsageStats = { ...state.usage, reservedTokens: ev.reservedTokens };
+      if (typeof ev.logTokens === "number") {
+        next.cacheHitTokens = 0;
+        next.cacheMissTokens = ev.logTokens;
+        next.lastCallCacheHit = 0;
+        next.lastCallCacheMiss = ev.logTokens;
+      }
+      return { ...state, usage: next };
+    }
     case "$memory":
       return { ...state, memory: ev.entries };
     case "$jobs":
@@ -672,7 +857,8 @@ function applyIncoming(state: State, ev: IncomingEvent): State {
           sandbox: ev.sandbox,
           enabled: ev.enabled,
           configured: ev.configured,
-          connected: ev.connected,
+          runtimeState: ev.runtimeState,
+          lastError: ev.lastError,
           appIdPreview: ev.appIdPreview,
           access: ev.access,
         },
@@ -703,8 +889,10 @@ function applyIncoming(state: State, ev: IncomingEvent): State {
           workspaceDir: ev.workspaceDir,
           recentWorkspaces: ev.recentWorkspaces,
           model: ev.model,
-          preset: ev.preset,
           editor: ev.editor,
+          webSearchEngine: ev.webSearchEngine,
+          subagentModels: ev.subagentModels,
+          showSystemEvents: ev.showSystemEvents,
           version: ev.version,
         },
       };
@@ -758,6 +946,7 @@ function applyIncoming(state: State, ev: IncomingEvent): State {
           ...zeroUsage(),
           totalCostUsd: ev.carryover.totalCostUsd,
           totalPromptTokens: ev.carryover.cacheHitTokens + ev.carryover.cacheMissTokens,
+          totalCompletionTokens: ev.carryover.totalCompletionTokens ?? 0,
           cacheHitTokens: ev.carryover.cacheHitTokens,
           cacheMissTokens: ev.carryover.cacheMissTokens,
         },
@@ -782,18 +971,30 @@ function applyIncoming(state: State, ev: IncomingEvent): State {
               `Session "${ev.name}" loaded with no messages (${sizeNote}). ` +
               `The file ~/.reasonix/sessions/${ev.name}.jsonl exists but couldn't be parsed — ` +
               `start a new chat or restore from .jsonl.bak if you have one.`,
+            id: nextErrorId(),
           },
         ],
       };
     }
     case "$error":
-    case "error":
+    case "error": {
+      // Kernel-level errors carry a `recoverable` flag — true for
+      // storm-repair / repeat-loop warnings the loop already worked
+      // around, false for hard failures. The desktop renders both as
+      // dismissable cards but uses softer tone for the recoverable
+      // ones so a session full of self-repaired loops doesn't look
+      // like everything's on fire (#1456-followup).
+      const recoverable = ev.type === "error" ? ev.recoverable : false;
       return {
         ...state,
         busy: false,
         activeSkill: null,
-        messages: [...state.messages, { kind: "error", message: ev.message }],
+        messages: [
+          ...state.messages,
+          { kind: "error", message: ev.message, id: nextErrorId(), recoverable },
+        ],
       };
+    }
     case "model.turn.started":
       if (state.messages.some((m) => m.kind === "assistant" && m.turn === ev.turn)) {
         return { ...state, model: ev.model };
@@ -923,6 +1124,7 @@ function applyIncoming(state: State, ev: IncomingEvent): State {
     case "$btw_result":
       return {
         ...state,
+        busy: false,
         messages: [
           ...state.messages,
           { kind: "status", text: `≫ btw\n${ev.answer}` },
@@ -930,6 +1132,21 @@ function applyIncoming(state: State, ev: IncomingEvent): State {
       };
     case "status":
       return state;
+    case "warning":
+      // High-severity only — eventize already drops "low". Inline divider only.
+      if (ev.severity !== "high") return state;
+      return {
+        ...state,
+        messages: [
+          ...state.messages,
+          {
+            kind: "warning",
+            id: `w-${ev.id}`,
+            text: ev.text,
+            severity: ev.severity,
+          },
+        ],
+      };
     default:
       return state;
   }
@@ -981,6 +1198,7 @@ interface TabRuntimeProps {
   currency: "CNY" | "USD";
   pendingUpdate: Update | null;
   updateStatus: "idle" | "installing" | "error";
+  updateProgress: { downloaded: number; total: number | null } | null;
   installUpdate: () => void;
   dismissUpdate: () => void;
   registerDispatch: (tabId: string, d: TabDispatcher | null) => void;
@@ -988,14 +1206,23 @@ interface TabRuntimeProps {
   onCloseTab: () => void;
   canCloseTab: boolean;
   theme: Theme;
+  themeStyle: ThemeStyle;
   onSetTheme: (theme: Theme) => void;
+  onSetThemeStyle: (style: ThemeStyle) => void;
   onToggleTheme: () => void;
   fontScale: FontScale;
   onSetFontScale: (scale: FontScale) => void;
   fontFamily: FontFamily;
   onSetFontFamily: (family: FontFamily) => void;
+  customFontFamily: string;
+  onSetCustomFontFamily: (family: string) => void;
   sideCollapsed: boolean;
   ctxCollapsed: boolean;
+  sideWidth: number;
+  ctxWidth: number;
+  threadMaxWidth: number;
+  onSideResizeDown: (e: React.MouseEvent) => void;
+  onCtxResizeDown: (e: React.MouseEvent) => void;
   onToggleSide: () => void;
   onToggleCtx: () => void;
   onToggleCurrency: () => void;
@@ -1010,6 +1237,7 @@ function TabRuntime({
   currency,
   pendingUpdate,
   updateStatus,
+  updateProgress,
   installUpdate,
   dismissUpdate,
   registerDispatch,
@@ -1017,14 +1245,23 @@ function TabRuntime({
   onCloseTab,
   canCloseTab,
   theme,
+  themeStyle,
   onSetTheme,
+  onSetThemeStyle,
   onToggleTheme,
   fontScale,
   onSetFontScale,
   fontFamily,
   onSetFontFamily,
+  customFontFamily,
+  onSetCustomFontFamily,
   sideCollapsed,
   ctxCollapsed,
+  sideWidth,
+  ctxWidth,
+  threadMaxWidth,
+  onSideResizeDown,
+  onCtxResizeDown,
   onToggleSide,
   onToggleCtx,
   onToggleCurrency,
@@ -1077,6 +1314,27 @@ function TabRuntime({
   const [settingsPage, setSettingsPage] = useState<SettingsPageId>("general");
   const [jobsOpen, setJobsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const previousApprovalSnapshotRef = useRef<ApprovalSnapshot>({
+    confirms: [],
+    pathAccess: [],
+    choices: [],
+    plans: [],
+    checkpoints: [],
+    revisions: [],
+  });
+  const wasBusyRef = useRef(false);
+  const busyStartedAtRef = useRef<number | null>(null);
+  const abortDraftRef = useRef<string | null>(null);
+  const clearAbortDraft = useCallback(() => {
+    abortDraftRef.current = nextAbortDraftCandidate(abortDraftRef.current, { type: "clear" });
+  }, []);
+  const recordAbortDraft = useCallback((source: AbortDraftSource, text: string) => {
+    abortDraftRef.current = nextAbortDraftCandidate(abortDraftRef.current, {
+      type: "record",
+      source,
+      text,
+    });
+  }, []);
   const openSettingsAt = useCallback((page: SettingsPageId = "general") => {
     setSettingsPage(page);
     setSettingsOpen(true);
@@ -1135,9 +1393,10 @@ function TabRuntime({
     [sendRpc],
   );
   const newChat = useCallback(() => {
+    clearAbortDraft();
     sendRpc({ cmd: "new_chat" });
     dispatch({ t: "clear" });
-  }, [sendRpc]);
+  }, [clearAbortDraft, sendRpc]);
 
   const pickWorkspace = useCallback(async () => {
     try {
@@ -1148,12 +1407,13 @@ function TabRuntime({
         defaultPath: state.settings?.workspaceDir,
       });
       if (typeof picked === "string" && picked.length > 0) {
+        clearAbortDraft();
         saveSettings({ workspaceDir: picked });
       }
     } catch (err) {
       console.error("pickWorkspace failed", err);
     }
-  }, [saveSettings, state.settings?.workspaceDir]);
+  }, [clearAbortDraft, saveSettings, state.settings?.workspaceDir]);
 
   const flashToast = useCallback(
     (msg: string, opts?: { yolo?: boolean; duration?: number }) => {
@@ -1232,11 +1492,23 @@ function TabRuntime({
       const text = (override ?? draft).trim();
       if (!text || !state.ready || state.busy) return;
 
-      // /btw <question> — route to side-question RPC instead of user_input
+      // /btw <question> — route to side-question RPC instead of user_input.
+      // Empty payload used to silently swallow the keystroke (#1370); surface
+      // the usage hint as a status message so the user knows what's expected.
+      // The full /btw line is echoed via send_user so the typed text appears
+      // immediately and busy=true gives a thinking indicator while the side
+      // call runs (#1470).
       const btwMatch = /^\/btw(?:\s+([\s\S]+))?$/.exec(text);
       if (btwMatch) {
         const question = btwMatch[1]?.trim() ?? "";
-        if (!question) return;
+        if (!question) {
+          dispatch({ t: "push_status", text: t("app.btwUsage") });
+          if (!override) setDraft("/btw ");
+          return;
+        }
+        const clientId = `btw-${Date.now()}`;
+        recordAbortDraft("btw", text);
+        dispatch({ t: "send_user", text, clientId });
         sendRpc({ cmd: "btw", text: question });
         if (!override) setDraft("");
         return;
@@ -1249,6 +1521,7 @@ function TabRuntime({
         if (skill) {
           const clientId = `skill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           const trimmedArgs = args?.trim() ?? "";
+          recordAbortDraft("skill_run", text);
           dispatch({ t: "start_skill", skill: { name: skill.name, runAs: skill.runAs }, args: trimmedArgs, clientId });
           sendRpc({ cmd: "skill_run", name: skill.name, args: trimmedArgs || undefined });
           if (!override) setDraft("");
@@ -1256,14 +1529,32 @@ function TabRuntime({
         }
       }
       const clientId = `c-${Date.now()}`;
+      recordAbortDraft("user_input", text);
       dispatch({ t: "send_user", text, clientId });
       sendRpc({ cmd: "user_input", text });
       if (!override) setDraft("");
     },
-    [draft, state.ready, state.busy, state.skills, sendRpc],
+    [draft, state.ready, state.busy, state.skills, sendRpc, recordAbortDraft],
   );
 
-  const abort = useCallback(() => sendRpc({ cmd: "abort" }), [sendRpc]);
+  const abort = useCallback(() => {
+    const restored = restoreAbortedDraft(draft, abortDraftRef.current);
+    clearAbortDraft();
+    if (restored !== null) {
+      setDraft(restored);
+      composerRef.current?.focus();
+    }
+    sendRpc({ cmd: "abort" });
+  }, [clearAbortDraft, draft, sendRpc]);
+
+  useEffect(() => {
+    if (!state.busy) clearAbortDraft();
+  }, [clearAbortDraft, state.busy]);
+
+  const clearConversation = useCallback(() => {
+    clearAbortDraft();
+    dispatch({ t: "clear" });
+  }, [clearAbortDraft]);
 
   // When /retry returns the last user text, set it as the composer draft
   useEffect(() => {
@@ -1275,6 +1566,11 @@ function TabRuntime({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.retryNonce]);
 
+  const onEditUserMsg = useCallback((t: string) => {
+    setDraft(t);
+    composerRef.current?.focus();
+  }, []);
+
   useEffect(() => {
     if (state.busy || !state.ready || state.queuedSends.length === 0) return;
     const next = state.queuedSends[0];
@@ -1282,6 +1578,70 @@ function TabRuntime({
     dispatch({ t: "shift_queued_send" });
     send(next);
   }, [state.busy, state.ready, state.queuedSends, send]);
+
+  useEffect(() => {
+    const currentSnapshot: ApprovalSnapshot = {
+      confirms: state.pendingConfirms.map((c) => ({ id: c.id, command: c.command })),
+      pathAccess: state.pendingPathAccess.map((p) => ({ id: p.id, path: p.path, intent: p.intent })),
+      choices: state.pendingChoices.map((c) => ({ id: c.id, question: c.question })),
+      plans: state.pendingPlans.map((p) => ({ id: p.id, summary: p.summary, plan: p.plan })),
+      checkpoints: state.pendingCheckpoints.map((c) => ({ id: c.id, title: c.title, result: c.result })),
+      revisions: state.pendingRevisions.map((r) => ({ id: r.id, summary: r.summary, reason: r.reason })),
+    };
+    const previousSnapshot = previousApprovalSnapshotRef.current;
+    const wasBusy = wasBusyRef.current;
+    const busyDurationMs = wasBusy && !state.busy && busyStartedAtRef.current
+      ? Date.now() - busyStartedAtRef.current
+      : 0;
+
+    if (state.busy && busyStartedAtRef.current === null) {
+      busyStartedAtRef.current = Date.now();
+    } else if (!state.busy) {
+      busyStartedAtRef.current = null;
+    }
+
+    previousApprovalSnapshotRef.current = currentSnapshot;
+    wasBusyRef.current = state.busy;
+
+    void getCurrentWindow()
+      .isFocused()
+      .catch(() => true)
+      .then((focused) => {
+        if (
+          shouldShowCompletionToast({
+            wasBusy,
+            isBusy: state.busy,
+            busyDurationMs,
+            focused,
+          })
+        ) {
+          flashToast(t("app.toast.taskComplete"), { duration: 2400 });
+        }
+        const notifications = deriveDesktopNotifications({
+          previous: previousSnapshot,
+          current: currentSnapshot,
+          wasBusy,
+          isBusy: state.busy,
+          busyDurationMs,
+          focused,
+        });
+        void dispatchDesktopNotifications(notifications, {
+          isFocused: async () => focused,
+          isPermissionGranted: isNotificationPermissionGranted,
+          requestPermission: requestNotificationPermission,
+          sendNotification,
+        });
+      });
+  }, [
+    flashToast,
+    state.busy,
+    state.pendingChoices,
+    state.pendingCheckpoints,
+    state.pendingConfirms,
+    state.pendingPathAccess,
+    state.pendingPlans,
+    state.pendingRevisions,
+  ]);
 
   const resolveConfirm = useCallback(
     (id: number, response: ConfirmationChoice) => {
@@ -1403,6 +1763,11 @@ function TabRuntime({
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "a" || e.key === "A")) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag !== "INPUT" && tag !== "TEXTAREA") e.preventDefault();
+        return;
+      }
       if (mod && (e.key === "l" || e.key === "L")) {
         e.preventDefault();
         composerRef.current?.focus();
@@ -1423,13 +1788,25 @@ function TabRuntime({
       } else if (e.key === "Escape" && state.busy) {
         const target = e.target as HTMLElement | null;
         if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
+        // A modal is open — let its own Esc handler close it (#1670).
+        if (settingsOpen || aboutOpen || jobsOpen || wdOpen) return;
         e.preventDefault();
         abort();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, state.busy, abort, newChat, settingsOpen, openSettingsAt]);
+  }, [
+    active,
+    state.busy,
+    abort,
+    newChat,
+    settingsOpen,
+    aboutOpen,
+    jobsOpen,
+    wdOpen,
+    openSettingsAt,
+  ]);
 
   const commands = buildCommands({
     newChat: () => {
@@ -1437,7 +1814,7 @@ function TabRuntime({
       flashToast(t("app.toast.newSession"));
     },
     clearChat: () => {
-      dispatch({ t: "clear" });
+      clearConversation();
       flashToast(t("app.toast.cleared"));
     },
     focusComposer: () => composerRef.current?.focus(),
@@ -1481,7 +1858,7 @@ function TabRuntime({
       },
     },
     { cmd: "/new", desc: t("app.cmd.newSession"), run: () => newChat(), kb: shortcutText(["mod", "N"]) },
-    { cmd: "/clear", desc: t("app.cmd.clearChat"), run: () => dispatch({ t: "clear" }) },
+    { cmd: "/clear", desc: t("app.cmd.clearChat"), run: () => clearConversation() },
     { cmd: "/abort", desc: t("app.cmd.abort"), run: () => abort(), kb: "esc" },
     {
       cmd: "/copy",
@@ -1556,6 +1933,7 @@ function TabRuntime({
       desc: s.description?.trim() || fallbackSkillDesc(s),
       insertOnly: true,
       run: () => {
+        recordAbortDraft("skill_run", `/${s.name}`);
         dispatch({
           t: "start_skill",
           skill: { name: s.name, runAs: s.runAs },
@@ -1571,14 +1949,16 @@ function TabRuntime({
     ? state.settings.workspaceDir.split(/[\\/]/).pop() || "workspace"
     : "Reasonix";
   const session = (() => {
+    if (state.currentSession) {
+      const s = state.sessions.find((x) => x.name === state.currentSession);
+      if (s?.summary?.trim()) return s.summary.trim();
+    }
     const firstUser = state.messages.find((m) => m.kind === "user");
     if (firstUser && firstUser.kind === "user") {
       const cleaned = firstUser.text.replace(/\s+/g, " ").trim();
       if (cleaned) return cleaned.length > 60 ? `${cleaned.slice(0, 60)}…` : cleaned;
     }
     if (state.currentSession) {
-      const s = state.sessions.find((x) => x.name === state.currentSession);
-      if (s?.summary?.trim()) return s.summary.trim();
       const m = state.currentSession.match(/^desktop-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/);
       if (m)
         return t("app.session.format", {
@@ -1634,9 +2014,15 @@ function TabRuntime({
       <div
         className="app"
         data-theme={theme}
+        data-theme-style={themeStyle}
         data-side-collapsed={sideCollapsed}
         data-ctx-collapsed={ctxCollapsed}
-        style={{ display: active ? undefined : "none" }}
+        style={{
+          display: active ? undefined : "none",
+          ["--side-width" as string]: sideCollapsed ? "0px" : `${sideWidth}px`,
+          ["--ctx-width" as string]: ctxCollapsed ? "0px" : `${ctxWidth}px`,
+          ["--thread-max-width" as string]: `${threadMaxWidth}px`,
+        }}
       >
         <TitleBar
           session={session}
@@ -1649,7 +2035,7 @@ function TabRuntime({
           onOpenSettings={() => openSettingsAt("general")}
           onCopy={conversationCopy}
           onExport={exportConversation}
-          onClear={() => dispatch({ t: "clear" })}
+          onClear={clearConversation}
           hasMessages={state.messages.length > 0}
         />
 
@@ -1671,13 +2057,26 @@ function TabRuntime({
           sessions={state.sessions}
           activeName={state.currentSession}
           onNewChat={newChat}
-          onLoadSession={(name) => sendRpc({ cmd: "session_load", name })}
+          onLoadSession={(name) => {
+            clearAbortDraft();
+            sendRpc({ cmd: "session_load", name });
+          }}
           onDeleteSession={(name) => sendRpc({ cmd: "session_delete", name })}
+          onRenameSession={(name, title) => sendRpc({ cmd: "session_rename", name, title })}
           onOpenSettings={() => openSettingsAt("general")}
           onOpenRules={() => openSettingsAt("rules")}
           onOpenCommands={() => palette.setOpen(true)}
           onOpenAbout={() => setAboutOpen(true)}
         />
+
+        {!sideCollapsed ? (
+          <div
+            className="resize-handle"
+            data-side="left"
+            data-dragging={undefined}
+            onMouseDown={onSideResizeDown}
+          />
+        ) : null}
 
         <main className="main" style={{ position: "relative" }}>
           {state.needsSetup ? (
@@ -1710,6 +2109,7 @@ function TabRuntime({
                       version={pendingUpdate.version}
                       currentVersion={pendingUpdate.currentVersion}
                       status={updateStatus}
+                      progress={updateProgress}
                       onInstall={installUpdate}
                       onDismiss={dismissUpdate}
                     />
@@ -1751,41 +2151,72 @@ function TabRuntime({
                       return (
                         <div key={`u-${i}`}>
                           {needsDivider ? <TurnDivider label={dividerLabel} /> : null}
-                          <UserMsg text={m.text} skill={m.skill} />
+                          <UserMsg text={m.text} skill={m.skill} onEdit={onEditUserMsg} />
                         </div>
                       );
                     }
                     if (m.kind === "assistant") {
+                      const stats = !m.pending ? countFileStats(m.segments) : null;
                       return (
-                        <AssistantMsg
-                          key={`a-${m.turn}`}
-                          segments={m.segments}
-                          pending={m.pending}
-                          model={state.model}
-                          onApproveConfirm={onApproveConfirm}
-                          onRejectConfirm={onRejectConfirm}
-                          onAlwaysAllowConfirm={onAlwaysAllowConfirm}
-                          pendingConfirms={state.pendingConfirms}
-                        />
+                        <div key={`a-${m.turn}`}>
+                          <AssistantMsg
+                            segments={m.segments}
+                            pending={m.pending}
+                            model={state.model}
+                            onApproveConfirm={onApproveConfirm}
+                            onRejectConfirm={onRejectConfirm}
+                            onAlwaysAllowConfirm={onAlwaysAllowConfirm}
+                            pendingConfirms={state.pendingConfirms}
+                          />
+                          {stats ? <DiffStats stats={stats} /> : null}
+                        </div>
                       );
                     }
                     if (m.kind === "error") {
+                      const toneVar = m.recoverable ? "var(--tone-warn)" : "var(--tone-err)";
+                      const bgVar = m.recoverable
+                        ? "var(--warn-soft, var(--danger-soft))"
+                        : "var(--danger-soft)";
+                      const labelKey = m.recoverable ? "app.warningLabel" : "app.errorLabel";
                       return (
                         <div
-                          key={`e-${i}`}
+                          key={m.id}
                           className="warn-card"
-                          style={{
-                            borderColor: "var(--tone-err)",
-                            background: "var(--danger-soft)",
-                          }}
+                          style={{ borderColor: toneVar, background: bgVar, position: "relative" }}
                         >
-                          <span className="ico" style={{ color: "var(--tone-err)" }}>
+                          <span className="ico" style={{ color: toneVar }}>
                             <I.warning size={16} />
                           </span>
-                          <div>
-                            <div className="tt">{t("app.errorLabel")}</div>
+                          <div style={{ flex: 1 }}>
+                            <div className="tt">{t(labelKey)}</div>
                             <div className="ds">{m.message}</div>
                           </div>
+                          <button
+                            type="button"
+                            className="warn-card-dismiss"
+                            title={t("app.dismissError")}
+                            onClick={() => dispatch({ t: "dismiss_error", id: m.id })}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: toneVar,
+                              cursor: "pointer",
+                              padding: "4px",
+                              alignSelf: "flex-start",
+                            }}
+                          >
+                            <I.x size={14} />
+                          </button>
+                        </div>
+                      );
+                    }
+                    if (m.kind === "warning") {
+                      if (state.settings?.showSystemEvents === false) return null;
+                      return (
+                        <div key={m.id} className="sys-event-row" title={m.text}>
+                          <span className="line" />
+                          <span className="label">{m.text}</span>
+                          <span className="line" />
                         </div>
                       );
                     }
@@ -1822,7 +2253,7 @@ function TabRuntime({
                   {state.pendingConfirms.map((c) => (
                     <ConfirmApprovalCard
                       key={`cc-${c.id}`}
-                      c={c}
+                      prompt={c.prompt}
                       onAllow={() => resolveConfirm(c.id, { type: "run_once" })}
                       onAlwaysAllow={(prefix) =>
                         resolveConfirm(c.id, { type: "always_allow", prefix })
@@ -1833,7 +2264,7 @@ function TabRuntime({
                   {state.pendingPathAccess.map((p) => (
                     <PathAccessApprovalCard
                       key={`pa-${p.id}`}
-                      p={p}
+                      prompt={p.prompt}
                       onAllow={() => resolvePathAccess(p.id, { type: "run_once" })}
                       onAlwaysAllow={(prefix) =>
                         resolvePathAccess(p.id, { type: "always_allow", prefix })
@@ -1891,11 +2322,15 @@ function TabRuntime({
                 }
                 busyElapsedMs={elapsed}
                 textareaRef={composerRef}
-                preset={state.settings?.preset ?? "auto"}
                 modelLabel={state.settings?.model ?? "deepseek-v4-flash"}
-                onPresetChange={(preset) => {
-                  saveSettings({ preset });
-                  flashToast(t("app.toast.modelSwitched", { model: preset.toUpperCase() }));
+                reasoningEffort={state.settings?.reasoningEffort ?? "high"}
+                onModelChange={(model) => {
+                  saveSettings({ model });
+                  flashToast(t("app.toast.modelSwitched", { model }));
+                }}
+                onEffortChange={(reasoningEffort) => {
+                  saveSettings({ reasoningEffort });
+                  flashToast(t("app.toast.effortSwitched", { effort: reasoningEffort }));
                 }}
                 editMode={state.settings?.editMode ?? "review"}
                 onEditModeChange={(mode) => {
@@ -1923,6 +2358,15 @@ function TabRuntime({
           )}
         </main>
 
+        {!ctxCollapsed ? (
+          <div
+            className="resize-handle"
+            data-side="right"
+            data-dragging={undefined}
+            onMouseDown={onCtxResizeDown}
+          />
+        ) : null}
+
         <ContextPanel
           settings={state.settings}
           usage={state.usage}
@@ -1940,10 +2384,11 @@ function TabRuntime({
           ready={state.ready}
           currency={currency}
           theme={theme}
+          themeStyle={themeStyle}
           jobs={state.jobs}
           jobsOpen={jobsOpen}
           onToggleJobs={() => setJobsOpen((v) => !v)}
-          onToggleTheme={onToggleTheme}
+          onSetThemeStyle={onSetThemeStyle}
           onToggleCurrency={onToggleCurrency}
           onOpenSettings={() => openSettingsAt("general")}
           onOpenWorkdir={(anchor) => {
@@ -1964,7 +2409,10 @@ function TabRuntime({
           recent={state.settings?.recentWorkspaces ?? []}
           current={state.settings?.workspaceDir}
           anchor={wdAnchor}
-          onPick={(path) => saveSettings({ workspaceDir: path })}
+          onPick={(path) => {
+            clearAbortDraft();
+            saveSettings({ workspaceDir: path });
+          }}
           onBrowse={pickWorkspace}
         />
 
@@ -1977,11 +2425,15 @@ function TabRuntime({
             usage={state.usage}
             currency={currency}
             theme={theme}
+            themeStyle={themeStyle}
             onSetTheme={onSetTheme}
+            onSetThemeStyle={onSetThemeStyle}
             fontScale={fontScale}
             onSetFontScale={onSetFontScale}
             fontFamily={fontFamily}
             onSetFontFamily={onSetFontFamily}
+            customFontFamily={customFontFamily}
+            onSetCustomFontFamily={onSetCustomFontFamily}
             initialPage={settingsPage}
             mcpSpecs={state.mcpSpecs}
             mcpBridged={state.mcpBridged}
@@ -2573,21 +3025,37 @@ function UpdateBanner({
   version,
   currentVersion,
   status,
+  progress,
   onInstall,
   onDismiss,
 }: {
   version: string;
   currentVersion: string;
   status: "idle" | "installing" | "error";
+  progress: { downloaded: number; total: number | null } | null;
   onInstall: () => void;
   onDismiss: () => void;
 }) {
   useLang();
+  const ratio =
+    progress && progress.total && progress.total > 0
+      ? Math.min(1, progress.downloaded / progress.total)
+      : null;
   const statusText =
-    status === "installing"
-      ? t("app.update.installing")
-      : status === "error"
-        ? t("app.update.failed")
+    status === "error"
+      ? t("app.update.failed")
+      : status === "installing"
+        ? progress
+          ? ratio !== null
+            ? t("app.update.downloading", {
+                downloaded: formatBytes(progress.downloaded),
+                total: formatBytes(progress.total ?? 0),
+                pct: Math.round(ratio * 100),
+              })
+            : t("app.update.downloadingUnknown", {
+                downloaded: formatBytes(progress.downloaded),
+              })
+          : t("app.update.installing")
         : t("app.update.clickToInstall");
   return (
     <div
@@ -2602,17 +3070,29 @@ function UpdateBanner({
           {t("app.update.available", { current: currentVersion, latest: version })}
         </div>
         <div className="s">{statusText}</div>
+        {status === "installing" && ratio !== null ? (
+          <div className="meter-mini" aria-label="download progress">
+            <span style={{ width: `${Math.round(ratio * 100)}%` }} />
+          </div>
+        ) : null}
       </div>
       <div className="prog">
         <button type="button" onClick={onInstall} disabled={status === "installing"}>
           {t("app.update.install")}
         </button>
-        <button type="button" onClick={onDismiss}>
+        <button type="button" onClick={onDismiss} disabled={status === "installing"}>
           {t("app.update.later")}
         </button>
       </div>
     </div>
   );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 type TabMeta = { id: string; workspaceDir?: string; busy?: boolean };
@@ -2631,13 +3111,25 @@ export function App() {
 
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const [updateStatus, setUpdateStatus] = useState<"idle" | "installing" | "error">("idle");
+  const [updateProgress, setUpdateProgress] = useState<{
+    downloaded: number;
+    total: number | null;
+  } | null>(null);
   const [currency, setCurrency] = useState<"CNY" | "USD">(() => {
     const v = localStorage.getItem("reasonix.currency");
     return v === "USD" ? "USD" : "CNY";
   });
   const [theme, setTheme] = useState<Theme>(() => {
     const v = localStorage.getItem("reasonix.theme");
-    return v === THEME.LIGHT ? THEME.LIGHT : THEME.DARK;
+    const style = localStorage.getItem("reasonix.themeStyle");
+    if (isThemeStyle(style)) return themeForStyle(style);
+    return isTheme(v) ? v : THEME.DARK;
+  });
+  const [themeStyle, setThemeStyle] = useState<ThemeStyle>(() => {
+    const style = localStorage.getItem("reasonix.themeStyle");
+    if (isThemeStyle(style)) return style;
+    const storedTheme = localStorage.getItem("reasonix.theme");
+    return defaultStyleForTheme(isTheme(storedTheme) ? storedTheme : THEME.DARK);
   });
   const [fontScale, setFontScale] = useState<FontScale>(() => {
     const v = localStorage.getItem("reasonix.fontScale");
@@ -2647,25 +3139,72 @@ export function App() {
     const v = localStorage.getItem("reasonix.fontFamily");
     return isFontFamily(v) ? v : FONT_FAMILY.SANS;
   });
-  const [sideCollapsed, setSideCollapsed] = useState(
-    () => localStorage.getItem("reasonix.sideCollapsed") === "1",
-  );
-  const [ctxCollapsed, setCtxCollapsed] = useState(
-    () => localStorage.getItem("reasonix.ctxCollapsed") === "1",
-  );
+  const [customFontFamily, setCustomFontFamily] = useState<string>(() => {
+    return localStorage.getItem("reasonix.customFontFamily") ?? "";
+  });
+  const {
+    collapsed: sideCollapsed,
+    toggle: onToggleSide,
+    requireCollapsed: requireSideCollapsed,
+    releaseCollapsed: releaseSideCollapsed,
+  } = useAutoCollapse("reasonix.sideCollapsed");
+  const {
+    collapsed: ctxCollapsed,
+    toggle: onToggleCtx,
+    requireCollapsed: requireCtxCollapsed,
+    releaseCollapsed: releaseCtxCollapsed,
+  } = useAutoCollapse("reasonix.ctxCollapsed");
+
+  const { width: sideWidth, onMouseDown: onSideResizeDown } = useResizable("side", sideCollapsed);
+  const { width: ctxWidth, onMouseDown: onCtxResizeDown } = useResizable("ctx", ctxCollapsed);
+  const visibleSide = sideCollapsed ? 0 : sideWidth;
+  const visibleCtx = ctxCollapsed ? 0 : ctxWidth;
+  const threadMaxWidth = Math.max(580, Math.min(window.innerWidth - visibleSide - visibleCtx - 80, 1120));
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.themeStyle = themeStyle;
     localStorage.setItem("reasonix.theme", theme);
-  }, [theme]);
+    localStorage.setItem("reasonix.themeStyle", themeStyle);
+  }, [theme, themeStyle]);
 
   useEffect(() => {
-    localStorage.setItem("reasonix.sideCollapsed", sideCollapsed ? "1" : "0");
-  }, [sideCollapsed]);
+    let raf = 0;
+    let prevStage: ResponsiveStage | null = null;
 
-  useEffect(() => {
-    localStorage.setItem("reasonix.ctxCollapsed", ctxCollapsed ? "1" : "0");
-  }, [ctxCollapsed]);
+    const sync = () => {
+      raf = 0;
+      const next = responsiveStage(window.innerWidth);
+      if (prevStage === next) return;
+      const prev = prevStage;
+      prevStage = next;
+
+      if (next === RESPONSIVE_STAGE.WIDE) {
+        releaseCtxCollapsed();
+        releaseSideCollapsed();
+      } else if (next === RESPONSIVE_STAGE.COMPACT) {
+        // Only force ctx collapse when entering compact from wider — coming
+        // from narrow, the user may have manually opened ctx and we keep that.
+        if (prev === null || prev === RESPONSIVE_STAGE.WIDE) requireCtxCollapsed();
+        releaseSideCollapsed();
+      } else {
+        requireCtxCollapsed();
+        requireSideCollapsed();
+      }
+    };
+
+    const onResize = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(sync);
+    };
+
+    sync();
+    window.addEventListener("resize", onResize);
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [requireCtxCollapsed, releaseCtxCollapsed, requireSideCollapsed, releaseSideCollapsed]);
 
   useEffect(() => {
     // Chromium webview supports `zoom`; scales every px-based size without touching CSS rules.
@@ -2674,10 +3213,15 @@ export function App() {
   }, [fontScale]);
 
   useEffect(() => {
-    // CSS rules use var(--font-sans); changing it here re-styles every sans surface in one shot. Mono stays put because code/transcripts hardcode "Geist Mono".
-    document.documentElement.style.setProperty("--font-sans", FONT_FAMILY_STACK[fontFamily]);
+    const custom = customFontFamily.trim();
+    const stack =
+      fontFamily === FONT_FAMILY.CUSTOM && custom
+        ? custom
+        : FONT_FAMILY_STACK[fontFamily] ?? FONT_FAMILY_STACK.sans;
+    document.documentElement.style.setProperty("--font-sans", stack);
     localStorage.setItem("reasonix.fontFamily", fontFamily);
-  }, [fontFamily]);
+    localStorage.setItem("reasonix.customFontFamily", customFontFamily);
+  }, [fontFamily, customFontFamily]);
 
   useEffect(() => {
     const onCur = (e: Event) => {
@@ -2730,8 +3274,19 @@ export function App() {
   const installUpdate = useCallback(async () => {
     if (!pendingUpdate) return;
     setUpdateStatus("installing");
+    setUpdateProgress(null);
     try {
-      await pendingUpdate.downloadAndInstall();
+      await pendingUpdate.downloadAndInstall((evt) => {
+        if (evt.event === "Started") {
+          setUpdateProgress({ downloaded: 0, total: evt.data.contentLength ?? null });
+        } else if (evt.event === "Progress") {
+          setUpdateProgress((p) =>
+            p ? { ...p, downloaded: p.downloaded + evt.data.chunkLength } : p,
+          );
+        } else if (evt.event === "Finished") {
+          setUpdateProgress((p) => (p ? { ...p, downloaded: p.total ?? p.downloaded } : p));
+        }
+      });
       await relaunch();
     } catch (err) {
       console.error("update failed", err);
@@ -2864,6 +3419,14 @@ export function App() {
       cleanups.push(...subs);
       try {
         await invoke("rpc_spawn");
+        // WebView reload (DevTools F5, host respawn) keeps the Node child
+        // alive but loses every $tab_opened / $settings / $needs_setup that
+        // already fired. Ask the desktop server to re-emit them.
+        if (!cancelled) {
+          await invoke("rpc_send", {
+            line: JSON.stringify({ cmd: "desktop_resync" }),
+          });
+        }
       } catch (err) {
         if (!cancelled) console.error("rpc_spawn failed", err);
       }
@@ -2918,22 +3481,30 @@ export function App() {
       } else if (mod && (e.key === "b" || e.key === "B")) {
         if (e.altKey) {
           e.preventDefault();
-          setCtxCollapsed((v) => !v);
+          onToggleCtx();
         } else {
           e.preventDefault();
-          setSideCollapsed((v) => !v);
+          onToggleSide();
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openTab, closeTab, activeTabId, tabs]);
+  }, [openTab, closeTab, activeTabId, tabs, onToggleCtx, onToggleSide]);
+
+  const onSetTheme = useCallback((nextTheme: Theme) => {
+    setTheme(nextTheme);
+    setThemeStyle(defaultStyleForTheme(nextTheme));
+  }, []);
+
+  const onSetThemeStyle = useCallback((nextStyle: ThemeStyle) => {
+    setThemeStyle(nextStyle);
+    setTheme(themeForStyle(nextStyle));
+  }, []);
 
   const onToggleTheme = useCallback(() => {
-    setTheme((currentTheme) =>
-      currentTheme === THEME.DARK ? THEME.LIGHT : THEME.DARK,
-    );
-  }, []);
+    onSetTheme(theme === THEME.DARK ? THEME.LIGHT : THEME.DARK);
+  }, [onSetTheme, theme]);
 
   const onToggleCurrency = useCallback(() => {
     setCurrency((c) => {
@@ -2954,6 +3525,7 @@ export function App() {
           currency={currency}
           pendingUpdate={pendingUpdate}
           updateStatus={updateStatus}
+          updateProgress={updateProgress}
           installUpdate={installUpdate}
           dismissUpdate={() => setPendingUpdate(null)}
           registerDispatch={registerDispatch}
@@ -2961,16 +3533,25 @@ export function App() {
           onCloseTab={() => closeTab(t.id)}
           canCloseTab={tabs.length > 1}
           theme={theme}
-          onSetTheme={setTheme}
+          themeStyle={themeStyle}
+          onSetTheme={onSetTheme}
+          onSetThemeStyle={onSetThemeStyle}
           onToggleTheme={onToggleTheme}
           fontScale={fontScale}
           onSetFontScale={setFontScale}
           fontFamily={fontFamily}
           onSetFontFamily={setFontFamily}
+          customFontFamily={customFontFamily}
+          onSetCustomFontFamily={setCustomFontFamily}
           sideCollapsed={sideCollapsed}
           ctxCollapsed={ctxCollapsed}
-          onToggleSide={() => setSideCollapsed((v) => !v)}
-          onToggleCtx={() => setCtxCollapsed((v) => !v)}
+          sideWidth={sideWidth}
+          ctxWidth={ctxWidth}
+          threadMaxWidth={threadMaxWidth}
+          onSideResizeDown={onSideResizeDown}
+          onCtxResizeDown={onCtxResizeDown}
+          onToggleSide={onToggleSide}
+          onToggleCtx={onToggleCtx}
           onToggleCurrency={onToggleCurrency}
           tabsList={tabs}
           activeTabId={activeTabId}

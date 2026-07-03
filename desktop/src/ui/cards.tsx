@@ -70,12 +70,27 @@ export type PlanItem = {
   note?: string;
 };
 
-function derivePlanBadge(items: PlanItem[]): { cls: "run" | "ok" | "warn" | "err"; label: string } {
-  if (items.some((x) => x.status === "failed")) return { cls: "err", label: t("planBadge.failed") };
-  if (items.some((x) => x.status === "blocked")) return { cls: "warn", label: t("planBadge.blocked") };
-  if (items.some((x) => x.status === "active")) return { cls: "run", label: t("planBadge.running") };
-  if (items.length > 0 && items.every((x) => x.status === "done")) return { cls: "ok", label: t("planBadge.done") };
-  return { cls: "run", label: t("planBadge.pending") };
+function derivePlanBadge(items: PlanItem[]): { state: "running" | "done" | "failed" | "waiting" | "blocked"; label: string } {
+  if (items.some((x) => x.status === "failed")) return { state: "failed", label: t("planBadge.failed") };
+  if (items.some((x) => x.status === "blocked")) return { state: "blocked", label: t("planBadge.blocked") };
+  if (items.some((x) => x.status === "active")) return { state: "running", label: t("planBadge.running") };
+  if (items.length > 0 && items.every((x) => x.status === "done")) return { state: "done", label: t("planBadge.done") };
+  return { state: "waiting", label: t("planBadge.pending") };
+}
+
+function StatusIcon({ state, label }: { state: "running" | "done" | "failed" | "waiting" | "blocked"; label: string }) {
+  switch (state) {
+    case "running":
+      return <span className="spin-meta" role="img" aria-label={label} title={label} />;
+    case "done":
+      return <I.check size={10} style={{ color: "var(--success)" }} aria-label={label} />;
+    case "failed":
+      return <I.x size={10} style={{ color: "var(--danger)" }} aria-label={label} />;
+    case "waiting":
+      return <span className="status-dot warn" role="img" aria-label={label} title={label} />;
+    case "blocked":
+      return <I.slash size={10} style={{ color: "var(--warning)" }} aria-label={label} />;
+  }
 }
 
 export function PlanCardView({ items, title }: { items: PlanItem[]; title?: string }) {
@@ -94,7 +109,8 @@ export function PlanCardView({ items, title }: { items: PlanItem[]; title?: stri
           <span>
             {done}/{items.length}
           </span>
-          <span className={`pill-tag ${badge.cls}`}>{badge.label}</span>
+          <StatusIcon state={badge.state} label={badge.label} />
+          <span className="meta-label">{badge.label}</span>
         </>
       }
     >
@@ -151,11 +167,9 @@ export function ReasoningCard({
             </span>
           ) : null}
           {streaming ? (
-            <span className="pill-tag warn">
-              <span className="shimmer">{t("cards.streaming")}</span>
-            </span>
+            <StatusIcon state="running" label={t("cards.streaming")} />
           ) : (
-            <span className="pill-tag ok">{t("cards.reasoningComplete")}</span>
+            <StatusIcon state="done" label={t("cards.reasoningComplete")} />
           )}
         </>
       }
@@ -215,7 +229,6 @@ export function ShellCard({
 }) {
   useLang();
   const tone: Tone = state === "failed" ? "danger" : state === "done" ? "success" : "warning";
-  const durationLabel = durationMs ? ` · ${(durationMs / 1000).toFixed(2)}s` : "";
   return (
     <Card
       tone={tone}
@@ -223,16 +236,22 @@ export function ShellCard({
       kind="shell"
       name="shell"
       compact
+      defaultOpen={state !== "done"}
       meta={
-        state === "await" ? (
-          <span className="pill-tag warn">{t("cards.shellAwaiting")}</span>
-        ) : state === "running" ? (
-          <span className="pill-tag run">{t("cards.shellRunning")}</span>
-        ) : state === "failed" ? (
-          <span className="pill-tag err">{t("cards.failed")}{durationLabel}</span>
-        ) : (
-          <span className="pill-tag ok">{t("cards.done")}{durationLabel}</span>
-        )
+        <>
+          {state === "await" ? (
+            <StatusIcon state="waiting" label={t("cards.shellAwaiting")} />
+          ) : state === "running" ? (
+            <StatusIcon state="running" label={t("cards.shellRunning")} />
+          ) : state === "failed" ? (
+            <StatusIcon state="failed" label={t("cards.failed")} />
+          ) : (
+            <StatusIcon state="done" label={t("cards.done")} />
+          )}
+          {(state === "done" || state === "failed") && durationMs ? (
+            <span className="meta-dur">{(durationMs / 1000).toFixed(2)}s</span>
+          ) : null}
+        </>
       }
     >
       <div className="shell">
@@ -286,6 +305,28 @@ export function ShellCard({
   );
 }
 
+// ---- Compaction ----
+
+export function CompactionCard({ summary }: { summary: string }) {
+  useLang();
+  const charCount = summary.length;
+  return (
+    <Card
+      tone="default"
+      icon={<I.archive size={12} />}
+      kind="compaction"
+      name={t("cards.compactionName")}
+      meta={<span>{t("cards.compactionMeta", { chars: charCount.toLocaleString() })}</span>}
+      defaultOpen={false}
+      compact
+    >
+      <div className="compaction-body">
+        <Markdown source={summary} />
+      </div>
+    </Card>
+  );
+}
+
 // ---- Generic Tool ----
 
 export function ToolCard({
@@ -304,7 +345,6 @@ export function ToolCard({
   useLang();
   const running = result === undefined;
   const tone: Tone = running ? "default" : ok === false ? "danger" : "success";
-  const dur = durationMs ? `${durationMs} ms` : "—";
   return (
     <Card
       tone={tone}
@@ -314,13 +354,18 @@ export function ToolCard({
       defaultOpen={false}
       compact
       meta={
-        running ? (
-          <span className="pill-tag run">{t("cards.running")}</span>
-        ) : ok === false ? (
-          <span className="pill-tag err">{t("cards.error")} · {dur}</span>
-        ) : (
-          <span className="pill-tag ok">{t("cards.done")} · {dur}</span>
-        )
+        <>
+          {running ? (
+            <StatusIcon state="running" label={t("cards.running")} />
+          ) : ok === false ? (
+            <StatusIcon state="failed" label={t("cards.error")} />
+          ) : (
+            <StatusIcon state="done" label={t("cards.done")} />
+          )}
+          {!running && durationMs !== undefined ? (
+            <span className="meta-dur">{durationMs} ms</span>
+          ) : null}
+        </>
       }
     >
       <div className="tool-call">
@@ -355,6 +400,70 @@ export type DiffLine =
   | { t: "add"; r: number; s: string }
   | { t: "rm"; l: number; s: string };
 
+export function parseEditResult(text: string): { filename: string; lines: DiffLine[] }[] {
+  const files: { filename: string; lines: DiffLine[] }[] = [];
+  const lines = text.split("\n");
+
+  let currentFilename = "";
+  let currentLines: DiffLine[] = [];
+  let hunkStartLeft = 0;
+  let hunkStartRight = 0;
+  let leftLine = 0;
+  let rightLine = 0;
+
+  const flush = () => {
+    if (currentLines.length > 0) {
+      files.push({ filename: currentFilename, lines: currentLines });
+    }
+    currentLines = [];
+    hunkStartLeft = 0;
+    hunkStartRight = 0;
+    leftLine = 0;
+    rightLine = 0;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+
+    if (line.startsWith("edited ") || line.startsWith("multi_edit:")) {
+      const m = line.match(/^edited\s+(.+?)\s+\(/);
+      if (m) currentFilename = m[1]!;
+      continue;
+    }
+
+    if (line.startsWith("# ")) {
+      flush();
+      currentFilename = line.slice(2);
+      continue;
+    }
+
+    const hunkMatch = line.match(/^@@\s+-(\d+),(\d+)\s+\+(\d+),(\d+)\s+@@/);
+    if (hunkMatch) {
+      hunkStartLeft = Number(hunkMatch[1]!);
+      hunkStartRight = Number(hunkMatch[3]!);
+      leftLine = hunkStartLeft;
+      rightLine = hunkStartRight;
+      currentLines.push({ t: "hunk", s: line });
+      continue;
+    }
+
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      currentLines.push({ t: "add", r: rightLine, s: line.slice(1) });
+      rightLine++;
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      currentLines.push({ t: "rm", l: leftLine, s: line.slice(1) });
+      leftLine++;
+    } else if (line.startsWith(" ")) {
+      currentLines.push({ t: "ctx", l: leftLine, r: rightLine, s: line.slice(1) });
+      leftLine++;
+      rightLine++;
+    }
+  }
+
+  flush();
+  return files;
+}
+
 export function DiffCard({
   filename,
   lines,
@@ -381,7 +490,11 @@ export function DiffCard({
         <>
           <span style={{ color: "var(--success)" }}>+{adds}</span>
           <span style={{ color: "var(--danger)" }}>−{rms}</span>
-          {applied ? <span className="pill-tag ok">{t("cards.applied")}</span> : <span className="pill-tag warn">{t("cards.diffAwaiting")}</span>}
+          {applied ? (
+            <StatusIcon state="done" label={t("cards.applied")} />
+          ) : (
+            <StatusIcon state="waiting" label={t("cards.diffAwaiting")} />
+          )}
         </>
       }
     >
@@ -520,11 +633,11 @@ export function SubagentCard({
             {done} / {children.length} {t("cards.subagentDoneProgress")}
           </span>
           {status === "done" ? (
-            <span className="pill-tag ok">{t("cards.subagentDone")}</span>
+            <StatusIcon state="done" label={t("cards.subagentDone")} />
           ) : status === "failed" ? (
-            <span className="pill-tag err">{t("cards.subagentFailed")}</span>
+            <StatusIcon state="failed" label={t("cards.subagentFailed")} />
           ) : (
-            <span className="pill-tag run">{t("cards.subagentRunning")}</span>
+            <StatusIcon state="running" label={t("cards.subagentRunning")} />
           )}
         </>
       }

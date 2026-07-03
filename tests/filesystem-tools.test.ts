@@ -387,6 +387,13 @@ describe("filesystem tools (built-in, sandbox-enforced)", () => {
       expect(out).toContain("node_modules/lib/marker.ts");
     });
 
+    it("walks .reasonix/ by default so user skills stay reachable (#1357)", async () => {
+      await fs.mkdir(join(root, ".reasonix", "skills"), { recursive: true });
+      await fs.writeFile(join(root, ".reasonix", "skills", "my-skill.md"), "# my-skill\n");
+      const out = await tools.dispatch("search_files", JSON.stringify({ pattern: "my-skill" }));
+      expect(out).toContain(".reasonix/skills/my-skill.md");
+    });
+
     it("honors AbortSignal during recursive search", async () => {
       await fs.mkdir(join(root, "src", "nested"), { recursive: true });
       await fs.writeFile(join(root, "src", "nested", "marker.ts"), "x");
@@ -1183,6 +1190,52 @@ describe("filesystem tools (built-in, sandbox-enforced)", () => {
       expect(out).toMatch(/applied 2 edits/);
       const disk = await fs.readFile(join(root, "a.txt"), "utf8");
       expect(disk).toBe("ONE\r\ntwo\r\nTHREE\r\n");
+    });
+
+    it("rolls back attempted files when a disk write fails mid-batch", async () => {
+      await fs.writeFile(join(root, "a.txt"), "alpha\n");
+      await fs.writeFile(join(root, "b.txt"), "bravo\n");
+
+      const originalWriteFile = fs.writeFile.bind(fs);
+      // First attempt to write b.txt fails; rollback retry passes through.
+      let bTxtFailed = false;
+      const spy = vi
+        .spyOn(fs, "writeFile")
+        .mockImplementation(
+          async (
+            path: string | URL | import("node:fs/promises").FileHandle,
+            data: any,
+            ...rest: any[]
+          ) => {
+            const resolved = typeof path === "string" ? path : path.toString();
+            if (resolved.endsWith("b.txt") && !bTxtFailed) {
+              bTxtFailed = true;
+              // Simulate partial write before failure (truncation from writeFile open).
+              await originalWriteFile(path, "PARTIAL", ...rest);
+              throw new Error("SIMULATED DISK FULL");
+            }
+            return originalWriteFile(path, data, ...rest);
+          },
+        );
+
+      try {
+        const out = await tools.dispatch(
+          "multi_edit",
+          JSON.stringify({
+            edits: [
+              { path: "a.txt", search: "alpha", replace: "ALPHA" },
+              { path: "b.txt", search: "bravo", replace: "BRAVO" },
+            ],
+          }),
+        );
+        expect(out).toMatch(/write failed/);
+        expect(out).toMatch(/rolled back/);
+      } finally {
+        spy.mockRestore();
+      }
+      // Both files must be restored to original content
+      expect(await fs.readFile(join(root, "a.txt"), "utf8")).toBe("alpha\n");
+      expect(await fs.readFile(join(root, "b.txt"), "utf8")).toBe("bravo\n");
     });
 
     it("refuses when an edit references a non-existent file (atomic — no other files written)", async () => {

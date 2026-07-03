@@ -1,16 +1,15 @@
 import { Box, Text, useStdout } from "ink";
 import React, { useContext } from "react";
-import { clipToCells } from "../../../frame/width.js";
 import { t } from "../../../i18n/index.js";
 import { countTokensBounded } from "../../../tokenizer.js";
 import { LiveExpandContext } from "../layout/LiveExpandContext.js";
-import { useReserveRows } from "../layout/viewport-budget.js";
 import { Markdown } from "../markdown.js";
 import { Card } from "../primitives/Card.js";
 import { CardHeader } from "../primitives/CardHeader.js";
 import { PILL_MODEL, Pill, modelBadgeFor } from "../primitives/Pill.js";
 import { Spinner } from "../primitives/Spinner.js";
 import type { StreamingCard as StreamingCardData } from "../state/cards.js";
+import { clipToCells } from "../text-width.js";
 import { FG, TONE, TONE_ACTIVE } from "../theme/tokens.js";
 import { useSlowTick } from "../ticker.js";
 import { useIncrementalWrap } from "./useIncrementalWrap.js";
@@ -99,11 +98,6 @@ export function StreamingCard({ card }: { card: StreamingCardData }): React.Reac
   const { stdout } = useStdout();
   const cols = stdout?.columns ?? 80;
   const expanded = useContext(LiveExpandContext);
-  const reserveCap = expanded ? EXPANDED_MAX_LINES + 2 : STREAMING_PREVIEW_LINES + 2;
-  useReserveRows("stream", {
-    min: STREAMING_PREVIEW_LINES + 1,
-    max: reserveCap,
-  });
   // Re-render at 1Hz so the rate keeps updating even when chunks stall.
   // Frozen once `card.done` is true — settled cards render via Static.
   useSlowTick();
