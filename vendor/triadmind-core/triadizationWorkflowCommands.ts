@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import inquirer from 'inquirer';
+import { assertInterrogationApproval } from './interrogation';
 import { collectProtocolSnapshotFiles, createSnapshot } from './snapshot';
 import { installAlwaysOnRules } from './rules';
 import {
@@ -162,6 +163,7 @@ class TriadizationWorkflowService {
 
             const previousMap = readCurrentTriadMap(paths);
             const protocol = validateDraftProtocol(paths);
+            assertInterrogationApproval(paths, protocol);
             const snapshot = createSnapshot(paths, 'before-apply', collectProtocolSnapshotFiles(paths, protocol));
             console.log(chalk.gray(`   - [Snapshot] created ${snapshot.id}`));
             console.log(chalk.cyan('[TriadMind] applying approved protocol...'));

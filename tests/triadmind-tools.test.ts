@@ -82,6 +82,51 @@ describe("TriadMind tools", () => {
     expect(calls).toEqual([["navigate", "add auth"]]);
   });
 
+  it("routes interrogation requests and review controls to the internal engine", async () => {
+    const calls: string[][] = [];
+    const registry = new ToolRegistry();
+    registerTriadMindTools(registry, {
+      rootDir: root,
+      config: { triadmind: { mode: "tools_only" } },
+      engine: fakeEngine((args) => jsonResult({ status: "ok", args }), calls),
+    });
+
+    expect(registry.has("triadmind_interrogate")).toBe(true);
+    expect(registry.has("triadmind_interrogate_review")).toBe(true);
+    expect(registry.has("triadmind_interrogate_approve")).toBe(true);
+
+    const interrogateRaw = await registry.dispatch("triadmind_interrogate", {
+      demand: "add requirement interrogation before topology apply",
+      answersFile: "docs/interrogation-answers.sample.json",
+      llm: "openai:gpt-5",
+      view: "leaf",
+      showIsolated: true,
+      fullContractEdges: true,
+    });
+    const interrogatePayload = JSON.parse(interrogateRaw);
+    expect(interrogatePayload.status).toBe("ok");
+
+    await registry.dispatch("triadmind_interrogate_review", {});
+    await registry.dispatch("triadmind_interrogate_approve", {});
+
+    expect(calls).toEqual([
+      [
+        "interrogate",
+        "add requirement interrogation before topology apply",
+        "--answers-file",
+        "docs/interrogation-answers.sample.json",
+        "--llm",
+        "openai:gpt-5",
+        "--view",
+        "leaf",
+        "--show-isolated",
+        "--full-contract-edges",
+      ],
+      ["interrogate-review"],
+      ["interrogate-approve"],
+    ]);
+  });
+
   it("preserves non-zero verify exits when JSON was still produced", async () => {
     const registry = new ToolRegistry();
     registerTriadMindTools(registry, {

@@ -132,6 +132,11 @@ import { PromptInput } from "./PromptInput.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { ShellConfirm, type ShellConfirmChoice } from "./ShellConfirm.js";
 import { useRenderTrace } from "./render-trace.js";
+import {
+  TerminalColumnsProvider,
+  splitPlanPanelColumns,
+  useTerminalColumns,
+} from "./terminal-width.js";
 
 import { SlashArgPicker } from "./SlashArgPicker.js";
 import { SlashSuggestions } from "./SlashSuggestions.js";
@@ -579,6 +584,7 @@ function AppInner({
     clear: clearToolProgressDisplay,
   } = useToolProgressDisplay(progressSink);
   const { stdout } = useStdout();
+  const terminalColumns = useTerminalColumns();
   // Subagent UI wiring: live activity row + sink ref the loop closure
   // captures. Must be declared BEFORE loop construction so the
   // subagentRunner closure can read the ref. The wallet-currency thunk
@@ -4467,6 +4473,9 @@ function AppInner({
   // Suspend cosmetic animations during modal interactions and idle so
   // a quiescent TUI is byte-stable.
   const tickerSuspended = modalOpen || (!busy && !isStreaming);
+  const panelColumns = planPanelOpen
+    ? splitPlanPanelColumns(terminalColumns)
+    : { mainColumns: terminalColumns, panelColumns: 0 };
 
   if (!bootReady) return <BootSplash />;
 
@@ -4478,433 +4487,439 @@ function AppInner({
             <Box
               flexDirection="column"
               flexGrow={planPanelOpen ? 0 : 1}
-              width={planPanelOpen ? "35%" : undefined}
+              width={planPanelOpen ? panelColumns.mainColumns : undefined}
             >
-              <Box flexDirection="column" flexGrow={1}>
-                <LiveExpandContext.Provider value={liveExpand}>
-                  <VerboseContext.Provider value={verboseMode}>
-                    {historyScrollMode === "app" ? (
-                      <CardStream suppressLive={modalOpen} />
-                    ) : (
-                      <StaticCardStream suppressLive={modalOpen} />
-                    )}
-                  </VerboseContext.Provider>
-                </LiveExpandContext.Provider>
-                {/*
+              <TerminalColumnsProvider columns={panelColumns.mainColumns}>
+                <Box flexDirection="column" flexGrow={1}>
+                  <LiveExpandContext.Provider value={liveExpand}>
+                    <VerboseContext.Provider value={verboseMode}>
+                      {historyScrollMode === "app" ? (
+                        <CardStream suppressLive={modalOpen} />
+                      ) : (
+                        <StaticCardStream suppressLive={modalOpen} />
+                      )}
+                    </VerboseContext.Provider>
+                  </LiveExpandContext.Provider>
+                  {/*
           Welcome card on the empty state. Visible only when nothing
           has happened yet (no past events, nothing in flight, no
           modal up). Removes the "what do I type?" friction without
           surviving past the first turn.
         */}
-                {!hasConversation && !busy && !isStreaming && slashMatches === null ? (
-                  <Box flexGrow={1} justifyContent="center">
-                    <WelcomeBanner
-                      inCodeMode={!!codeMode}
-                      workspaceRoot={codeMode ? currentRootDir : undefined}
-                      dashboardUrl={dashboardUrl}
-                      languageVersion={languageVersion}
-                    />
-                  </Box>
-                ) : null}
-                <LiveActivityArea
-                  noTakeoverOverlay={noTakeoverOverlay}
-                  suppressPlanLiveRow={planPanelOpen}
-                  ongoingTool={ongoingTool}
-                  toolProgress={toolProgress}
-                  subagentActivities={subagentActivities}
-                  statusLine={statusLine}
-                  busy={busy}
-                  isStreaming={isStreaming}
-                  activityLabel={activityLabel}
-                  undoBanner={undoBanner}
-                  hideUndo={
-                    !!(
-                      pendingShell ||
-                      pendingPlan ||
-                      pendingReviseEditor ||
-                      pendingSessionsPicker ||
-                      pendingCheckpointPicker ||
-                      pendingMcpHub ||
-                      stagedInput ||
-                      pendingEditReview ||
-                      pendingChoice ||
-                      stagedChoiceCustom ||
-                      pendingRevision ||
-                      stagedCheckpointRevise ||
-                      pendingCheckpoint
-                    )
-                  }
-                />
-              </Box>
-              {planPanelOpen ? (
-                <ComposerArea
-                  editMode={editMode}
-                  pendingCount={pendingCount}
-                  modeFlash={modeFlash}
-                  planMode={planMode}
-                  undoArmed={!!undoBanner || hasUndoable()}
-                  jobs={codeMode ? codeMode.jobs : undefined}
-                  activeLoop={activeLoop}
-                  statusBar={statusBar}
-                  showShortcuts={pendingShortcuts}
-                  mode={
-                    editMode === "yolo"
-                      ? t("statsPanel.modeYolo")
-                      : editMode === "auto"
-                        ? t("statsPanel.modeAuto")
-                        : editMode === "review"
-                          ? t("statsPanel.modeReview")
-                          : editMode
-                  }
-                  model={`${sessionModel} \u00b7 ${sessionEffort ?? loop.reasoningEffort}`}
-                  input={input}
-                  setInput={setInput}
-                  busy={busy}
-                  steerBusy={busy}
-                  onSubmit={handleSubmit}
-                  onHistoryPrev={handleHistoryPrev}
-                  onHistoryNext={handleHistoryNext}
-                  onOpenExternalEditor={handleOpenExternalEditor}
-                  onCursorChange={setComposerCursor}
-                  isHistoryMode={isHistoryMode}
-                  slashMatches={slashMatches}
-                  slashSelected={slashSelected}
-                  slashGroupMode={slashGroupMode}
-                  slashAdvancedHidden={slashAdvancedHidden}
-                  atState={atState}
-                  atSelected={atSelected}
-                  slashArgContext={slashArgContext}
-                  slashArgMatches={slashArgMatches}
-                  slashArgSelected={slashArgSelected}
-                />
-              ) : stagedChoiceCustom ? (
-                <PlanRefineInput
-                  mode="choice-custom"
-                  onSubmit={handleChoiceCustomSubmit}
-                  onCancel={handleChoiceCustomCancel}
-                />
-              ) : stagedCheckpointRevise ? (
-                <PlanRefineInput
-                  mode="checkpoint-revise"
-                  onSubmit={(text) => handleCheckpointReviseSubmit(text, stagedCheckpointRevise)}
-                  onCancel={handleCheckpointReviseCancel}
-                />
-              ) : pendingChoice ? (
-                <ChoiceConfirm
-                  question={pendingChoice.question}
-                  options={pendingChoice.options}
-                  allowCustom={pendingChoice.allowCustom}
-                  onChoose={stableHandleChoiceConfirm}
-                />
-              ) : pendingCheckpointPicker ? (
-                <CheckpointPicker
-                  checkpoints={checkpointPickerList}
-                  workspace={currentRootDir}
-                  pickerPorts={pickerPorts}
-                  onChoose={(outcome) => {
-                    if (outcome.kind === "quit") {
-                      setPendingCheckpointPicker(false);
-                      return;
+                  {!hasConversation && !busy && !isStreaming && slashMatches === null ? (
+                    <Box flexGrow={1} justifyContent="center">
+                      <WelcomeBanner
+                        inCodeMode={!!codeMode}
+                        workspaceRoot={codeMode ? currentRootDir : undefined}
+                        dashboardUrl={dashboardUrl}
+                        languageVersion={languageVersion}
+                      />
+                    </Box>
+                  ) : null}
+                  <LiveActivityArea
+                    noTakeoverOverlay={noTakeoverOverlay}
+                    suppressPlanLiveRow={planPanelOpen}
+                    ongoingTool={ongoingTool}
+                    toolProgress={toolProgress}
+                    subagentActivities={subagentActivities}
+                    statusLine={statusLine}
+                    busy={busy}
+                    isStreaming={isStreaming}
+                    activityLabel={activityLabel}
+                    undoBanner={undoBanner}
+                    hideUndo={
+                      !!(
+                        pendingShell ||
+                        pendingPlan ||
+                        pendingReviseEditor ||
+                        pendingSessionsPicker ||
+                        pendingCheckpointPicker ||
+                        pendingMcpHub ||
+                        stagedInput ||
+                        pendingEditReview ||
+                        pendingChoice ||
+                        stagedChoiceCustom ||
+                        pendingRevision ||
+                        stagedCheckpointRevise ||
+                        pendingCheckpoint
+                      )
                     }
-                    if (outcome.kind === "restore") {
-                      const target = checkpointPickerList.find((c) => c.id === outcome.id);
-                      setPendingCheckpointPicker(false);
-                      if (!target) return;
-                      const result = restoreCheckpoint(currentRootDir, target.id);
-                      const lines = [
-                        `restored "${target.name}" (${target.id.slice(0, 7)}, ${fmtAgo(target.createdAt)})`,
-                      ];
-                      if (result.restored.length > 0) {
-                        lines.push(
-                          `  wrote ${result.restored.length} file${result.restored.length === 1 ? "" : "s"}`,
-                        );
+                  />
+                </Box>
+                {planPanelOpen ? (
+                  <ComposerArea
+                    editMode={editMode}
+                    pendingCount={pendingCount}
+                    modeFlash={modeFlash}
+                    planMode={planMode}
+                    undoArmed={!!undoBanner || hasUndoable()}
+                    jobs={codeMode ? codeMode.jobs : undefined}
+                    activeLoop={activeLoop}
+                    statusBar={statusBar}
+                    showShortcuts={pendingShortcuts}
+                    mode={
+                      editMode === "yolo"
+                        ? t("statsPanel.modeYolo")
+                        : editMode === "auto"
+                          ? t("statsPanel.modeAuto")
+                          : editMode === "review"
+                            ? t("statsPanel.modeReview")
+                            : editMode
+                    }
+                    model={`${sessionModel} \u00b7 ${sessionEffort ?? loop.reasoningEffort}`}
+                    input={input}
+                    setInput={setInput}
+                    busy={busy}
+                    steerBusy={busy}
+                    onSubmit={handleSubmit}
+                    onHistoryPrev={handleHistoryPrev}
+                    onHistoryNext={handleHistoryNext}
+                    onOpenExternalEditor={handleOpenExternalEditor}
+                    onCursorChange={setComposerCursor}
+                    isHistoryMode={isHistoryMode}
+                    slashMatches={slashMatches}
+                    slashSelected={slashSelected}
+                    slashGroupMode={slashGroupMode}
+                    slashAdvancedHidden={slashAdvancedHidden}
+                    atState={atState}
+                    atSelected={atSelected}
+                    slashArgContext={slashArgContext}
+                    slashArgMatches={slashArgMatches}
+                    slashArgSelected={slashArgSelected}
+                  />
+                ) : stagedChoiceCustom ? (
+                  <PlanRefineInput
+                    mode="choice-custom"
+                    onSubmit={handleChoiceCustomSubmit}
+                    onCancel={handleChoiceCustomCancel}
+                  />
+                ) : stagedCheckpointRevise ? (
+                  <PlanRefineInput
+                    mode="checkpoint-revise"
+                    onSubmit={(text) => handleCheckpointReviseSubmit(text, stagedCheckpointRevise)}
+                    onCancel={handleCheckpointReviseCancel}
+                  />
+                ) : pendingChoice ? (
+                  <ChoiceConfirm
+                    question={pendingChoice.question}
+                    options={pendingChoice.options}
+                    allowCustom={pendingChoice.allowCustom}
+                    onChoose={stableHandleChoiceConfirm}
+                  />
+                ) : pendingCheckpointPicker ? (
+                  <CheckpointPicker
+                    checkpoints={checkpointPickerList}
+                    workspace={currentRootDir}
+                    pickerPorts={pickerPorts}
+                    onChoose={(outcome) => {
+                      if (outcome.kind === "quit") {
+                        setPendingCheckpointPicker(false);
+                        return;
                       }
-                      if (result.removed.length > 0) {
-                        lines.push(
-                          `  removed ${result.removed.length} file${result.removed.length === 1 ? "" : "s"}`,
-                        );
-                      }
-                      if (result.skipped.length > 0) {
-                        lines.push(
-                          `  skipped ${result.skipped.length} file${result.skipped.length === 1 ? "" : "s"}`,
-                        );
-                      }
-                      log.pushInfo(lines.join("\n"));
-                      return;
-                    }
-                    if (outcome.kind === "delete") {
-                      const target = checkpointPickerList.find((c) => c.id === outcome.id);
-                      if (!target) return;
-                      deleteCheckpoint(currentRootDir, target.id);
-                      setCheckpointPickerList([...listCheckpoints(currentRootDir)].reverse());
-                    }
-                  }}
-                />
-              ) : pendingWorkspacePicker ? (
-                <WorkspacePicker
-                  workspaces={workspacePickerList}
-                  currentWorkspace={currentRootDir}
-                  onChoose={(outcome) => {
-                    setPendingWorkspacePicker(false);
-                    if (outcome.kind === "quit") return;
-                    const result = switchWorkspaceRoot(outcome.path);
-                    log.pushInfo(result.info);
-                    if (!result.ok) return;
-                    setSessionsPickerList(listSessionsForWorkspace(outcome.path));
-                    setPendingSessionsPicker(true);
-                  }}
-                />
-              ) : pendingSessionsPicker ? (
-                <SessionPicker
-                  sessions={sessionsPickerList}
-                  workspace={currentRootDir}
-                  walletCurrency={walletCurrencyRef.current}
-                  pickerPorts={pickerPorts}
-                  onFocusChange={setSessionsPickerFocus}
-                  onChoose={(outcome) => {
-                    if (outcome.kind === "open") {
-                      setPendingSessionsPicker(false);
-                      if (onSwitchSession) {
-                        onSwitchSession(outcome.name);
-                      } else {
-                        log.pushInfo(
-                          `to switch to "${outcome.name}", quit and run: reasonix chat --session ${outcome.name}`,
-                        );
-                      }
-                      return;
-                    }
-                    if (outcome.kind === "new") {
-                      setPendingSessionsPicker(false);
-                      if (onSwitchSession) {
-                        onSwitchSession(freshSessionName(session));
-                      } else {
-                        log.pushInfo(
-                          "to start a fresh session, quit and run: reasonix chat (no --session flag)",
-                        );
-                      }
-                      return;
-                    }
-                    if (outcome.kind === "delete") {
-                      deleteSession(outcome.name);
-                      setSessionsPickerList(listSessionsForWorkspace(currentRootDir));
-                      return;
-                    }
-                    if (outcome.kind === "rename") {
-                      renameSession(outcome.name, outcome.newName);
-                      setSessionsPickerList(listSessionsForWorkspace(currentRootDir));
-                      return;
-                    }
-                    if (outcome.kind === "quit") {
-                      setPendingSessionsPicker(false);
-                    }
-                  }}
-                />
-              ) : pendingThemePicker ? (
-                <ThemePicker
-                  currentPreference={loadTheme() ?? "auto"}
-                  activeTheme={themeName}
-                  onChoose={(outcome) => {
-                    setPendingThemePicker(false);
-                    if (outcome.kind === "quit") return;
-                    saveTheme(outcome.value);
-                    const active = resolveThemePreference(
-                      outcome.value,
-                      process.env.REASONIX_THEME,
-                    );
-                    setThemeName(active);
-                    log.pushInfo(`theme saved: ${outcome.value}\n  active now: ${active}`);
-                  }}
-                />
-              ) : pendingEditPicker ? (
-                <EditPicker
-                  entries={pendingEditPicker}
-                  onChoose={(outcome) => {
-                    setPendingEditPicker(null);
-                    if (outcome.kind === "cancel") return;
-                    const userText = loop.rewindToUserTurn(outcome.entry.userTurnIndex);
-                    if (userText === null) {
-                      log.pushInfo(t("editPicker.empty"));
-                      return;
-                    }
-                    agentStore.dispatch({
-                      type: "session.fork",
-                      cardId: outcome.entry.cardId,
-                    });
-                    setInput(outcome.entry.text);
-                    log.pushInfo(t("editPicker.forked", { turn: outcome.entry.userTurnIndex + 1 }));
-                  }}
-                />
-              ) : pendingModelPicker ? (
-                <ModelPicker
-                  models={models}
-                  current={loop.model}
-                  currentEffort={loop.reasoningEffort}
-                  effortChoices={effortChoices}
-                  onRefresh={refreshModels}
-                  onChoose={(outcome) => {
-                    setPendingModelPicker(false);
-                    if (outcome.kind === "select") {
-                      loop.configure({ model: outcome.id });
-                      agentStore.dispatch({ type: "session.model.change", model: outcome.id });
-                      try {
-                        saveModel(outcome.id);
-                      } catch {
-                        /* disk full / perms — runtime change still took effect */
-                      }
-                      log.pushInfo(`model: ${outcome.id}`);
-                      return;
-                    }
-                    if (outcome.kind === "effort") {
-                      loop.configure({ reasoningEffort: outcome.effort });
-                      agentStore.dispatch({
-                        type: "session.effort.change",
-                        reasoningEffort: outcome.effort,
-                      });
-                      try {
-                        saveReasoningEffort(outcome.effort);
-                      } catch {
-                        /* disk full / perms — runtime change still took effect */
-                      }
-                      log.pushInfo(`effort: ${outcome.effort}`);
-                    }
-                  }}
-                />
-              ) : pendingMcpHub ? (
-                <McpHub
-                  initialTab={pendingMcpHub.tab}
-                  liveServers={liveMcpServers}
-                  configPath={defaultConfigPath()}
-                  pickerPorts={pickerPorts}
-                  onClose={() => setPendingMcpHub(null)}
-                  postInfo={(text) => log.pushInfo(text)}
-                  applyAppend={(target, addedTools) => {
-                    const updated = applyMcpAppend(loop, target, addedTools);
-                    setLiveMcpServers((prev) => replaceMcpServerSummary(prev, target, updated));
-                    return updated;
-                  }}
-                  reloadMcp={
-                    mcpRuntime
-                      ? async () => {
-                          const r = await mcpRuntime.reloadFromConfig(loop);
-                          setLiveMcpServers(r.summaries);
-                          return r;
+                      if (outcome.kind === "restore") {
+                        const target = checkpointPickerList.find((c) => c.id === outcome.id);
+                        setPendingCheckpointPicker(false);
+                        if (!target) return;
+                        const result = restoreCheckpoint(currentRootDir, target.id);
+                        const lines = [
+                          `restored "${target.name}" (${target.id.slice(0, 7)}, ${fmtAgo(target.createdAt)})`,
+                        ];
+                        if (result.restored.length > 0) {
+                          lines.push(
+                            `  wrote ${result.restored.length} file${result.restored.length === 1 ? "" : "s"}`,
+                          );
                         }
-                      : undefined
-                  }
-                />
-              ) : pendingShell ? (
-                <ShellConfirm
-                  prompt={toApprovalPrompt({
-                    id: pendingShell.id,
-                    kind: pendingShell.kind,
-                    payload: {
-                      command: pendingShell.command,
-                      cwd: pendingShell.cwd,
-                      timeoutSec: pendingShell.timeoutSec,
-                      waitSec: pendingShell.waitSec,
-                    },
-                  })}
-                  onChoose={handleShellConfirm}
-                />
-              ) : pendingPath ? (
-                <PathConfirm
-                  prompt={toApprovalPrompt({
-                    id: pendingPath.id,
-                    kind: "path_access",
-                    payload: {
-                      path: pendingPath.path,
-                      intent: pendingPath.intent,
-                      toolName: pendingPath.toolName,
-                      sandboxRoot: pendingPath.sandboxRoot,
-                      allowPrefix: pendingPath.allowPrefix,
-                    },
-                  })}
-                  onChoose={handlePathConfirm}
-                />
-              ) : pendingEditReview ? (
-                <EditConfirm
-                  block={pendingEditReview}
-                  onChoose={(choice, denyContext) => {
-                    const resolve = editReviewResolveRef.current;
-                    if (resolve) {
-                      editReviewResolveRef.current = null;
-                      resolve({ choice, denyContext });
+                        if (result.removed.length > 0) {
+                          lines.push(
+                            `  removed ${result.removed.length} file${result.removed.length === 1 ? "" : "s"}`,
+                          );
+                        }
+                        if (result.skipped.length > 0) {
+                          lines.push(
+                            `  skipped ${result.skipped.length} file${result.skipped.length === 1 ? "" : "s"}`,
+                          );
+                        }
+                        log.pushInfo(lines.join("\n"));
+                        return;
+                      }
+                      if (outcome.kind === "delete") {
+                        const target = checkpointPickerList.find((c) => c.id === outcome.id);
+                        if (!target) return;
+                        deleteCheckpoint(currentRootDir, target.id);
+                        setCheckpointPickerList([...listCheckpoints(currentRootDir)].reverse());
+                      }
+                    }}
+                  />
+                ) : pendingWorkspacePicker ? (
+                  <WorkspacePicker
+                    workspaces={workspacePickerList}
+                    currentWorkspace={currentRootDir}
+                    onChoose={(outcome) => {
+                      setPendingWorkspacePicker(false);
+                      if (outcome.kind === "quit") return;
+                      const result = switchWorkspaceRoot(outcome.path);
+                      log.pushInfo(result.info);
+                      if (!result.ok) return;
+                      setSessionsPickerList(listSessionsForWorkspace(outcome.path));
+                      setPendingSessionsPicker(true);
+                    }}
+                  />
+                ) : pendingSessionsPicker ? (
+                  <SessionPicker
+                    sessions={sessionsPickerList}
+                    workspace={currentRootDir}
+                    walletCurrency={walletCurrencyRef.current}
+                    pickerPorts={pickerPorts}
+                    onFocusChange={setSessionsPickerFocus}
+                    onChoose={(outcome) => {
+                      if (outcome.kind === "open") {
+                        setPendingSessionsPicker(false);
+                        if (onSwitchSession) {
+                          onSwitchSession(outcome.name);
+                        } else {
+                          log.pushInfo(
+                            `to switch to "${outcome.name}", quit and run: reasonix chat --session ${outcome.name}`,
+                          );
+                        }
+                        return;
+                      }
+                      if (outcome.kind === "new") {
+                        setPendingSessionsPicker(false);
+                        if (onSwitchSession) {
+                          onSwitchSession(freshSessionName(session));
+                        } else {
+                          log.pushInfo(
+                            "to start a fresh session, quit and run: reasonix chat (no --session flag)",
+                          );
+                        }
+                        return;
+                      }
+                      if (outcome.kind === "delete") {
+                        deleteSession(outcome.name);
+                        setSessionsPickerList(listSessionsForWorkspace(currentRootDir));
+                        return;
+                      }
+                      if (outcome.kind === "rename") {
+                        renameSession(outcome.name, outcome.newName);
+                        setSessionsPickerList(listSessionsForWorkspace(currentRootDir));
+                        return;
+                      }
+                      if (outcome.kind === "quit") {
+                        setPendingSessionsPicker(false);
+                      }
+                    }}
+                  />
+                ) : pendingThemePicker ? (
+                  <ThemePicker
+                    currentPreference={loadTheme() ?? "auto"}
+                    activeTheme={themeName}
+                    onChoose={(outcome) => {
+                      setPendingThemePicker(false);
+                      if (outcome.kind === "quit") return;
+                      saveTheme(outcome.value);
+                      const active = resolveThemePreference(
+                        outcome.value,
+                        process.env.REASONIX_THEME,
+                      );
+                      setThemeName(active);
+                      log.pushInfo(`theme saved: ${outcome.value}\n  active now: ${active}`);
+                    }}
+                  />
+                ) : pendingEditPicker ? (
+                  <EditPicker
+                    entries={pendingEditPicker}
+                    onChoose={(outcome) => {
+                      setPendingEditPicker(null);
+                      if (outcome.kind === "cancel") return;
+                      const userText = loop.rewindToUserTurn(outcome.entry.userTurnIndex);
+                      if (userText === null) {
+                        log.pushInfo(t("editPicker.empty"));
+                        return;
+                      }
+                      agentStore.dispatch({
+                        type: "session.fork",
+                        cardId: outcome.entry.cardId,
+                      });
+                      setInput(outcome.entry.text);
+                      log.pushInfo(
+                        t("editPicker.forked", { turn: outcome.entry.userTurnIndex + 1 }),
+                      );
+                    }}
+                  />
+                ) : pendingModelPicker ? (
+                  <ModelPicker
+                    models={models}
+                    current={loop.model}
+                    currentEffort={loop.reasoningEffort}
+                    effortChoices={effortChoices}
+                    onRefresh={refreshModels}
+                    onChoose={(outcome) => {
+                      setPendingModelPicker(false);
+                      if (outcome.kind === "select") {
+                        loop.configure({ model: outcome.id });
+                        agentStore.dispatch({ type: "session.model.change", model: outcome.id });
+                        try {
+                          saveModel(outcome.id);
+                        } catch {
+                          /* disk full / perms — runtime change still took effect */
+                        }
+                        log.pushInfo(`model: ${outcome.id}`);
+                        return;
+                      }
+                      if (outcome.kind === "effort") {
+                        loop.configure({ reasoningEffort: outcome.effort });
+                        agentStore.dispatch({
+                          type: "session.effort.change",
+                          reasoningEffort: outcome.effort,
+                        });
+                        try {
+                          saveReasoningEffort(outcome.effort);
+                        } catch {
+                          /* disk full / perms — runtime change still took effect */
+                        }
+                        log.pushInfo(`effort: ${outcome.effort}`);
+                      }
+                    }}
+                  />
+                ) : pendingMcpHub ? (
+                  <McpHub
+                    initialTab={pendingMcpHub.tab}
+                    liveServers={liveMcpServers}
+                    configPath={defaultConfigPath()}
+                    pickerPorts={pickerPorts}
+                    onClose={() => setPendingMcpHub(null)}
+                    postInfo={(text) => log.pushInfo(text)}
+                    applyAppend={(target, addedTools) => {
+                      const updated = applyMcpAppend(loop, target, addedTools);
+                      setLiveMcpServers((prev) => replaceMcpServerSummary(prev, target, updated));
+                      return updated;
+                    }}
+                    reloadMcp={
+                      mcpRuntime
+                        ? async () => {
+                            const r = await mcpRuntime.reloadFromConfig(loop);
+                            setLiveMcpServers(r.summaries);
+                            return r;
+                          }
+                        : undefined
                     }
-                  }}
-                />
-              ) : walkthroughActive && pendingEdits.current.length > 0 ? (
-                <EditConfirm
-                  // pendingTick re-keys the modal so each apply/discard
-                  // forces a remount with the NEW first block. Without it,
-                  // EditConfirm's internal scroll state would persist
-                  // across blocks, which is the wrong UX.
-                  key={`walk-${pendingTick}`}
-                  block={pendingEdits.current[0]!}
-                  onChoose={handleWalkChoice}
-                />
-              ) : (
-                <ComposerArea
-                  editMode={editMode}
-                  pendingCount={pendingCount}
-                  modeFlash={modeFlash}
-                  planMode={planMode}
-                  undoArmed={!!undoBanner || hasUndoable()}
-                  jobs={codeMode ? codeMode.jobs : undefined}
-                  activeLoop={activeLoop}
-                  statusBar={statusBar}
-                  showShortcuts={pendingShortcuts}
-                  mode={
-                    editMode === "yolo"
-                      ? t("statsPanel.modeYolo")
-                      : editMode === "auto"
-                        ? t("statsPanel.modeAuto")
-                        : editMode === "review"
-                          ? t("statsPanel.modeReview")
-                          : editMode
-                  }
-                  model={`${sessionModel} \u00b7 ${sessionEffort ?? loop.reasoningEffort}`}
-                  input={input}
-                  setInput={setInput}
-                  busy={busy}
-                  steerBusy={busy}
-                  onSubmit={handleSubmit}
-                  onHistoryPrev={handleHistoryPrev}
-                  onHistoryNext={handleHistoryNext}
-                  onOpenExternalEditor={handleOpenExternalEditor}
-                  onCursorChange={setComposerCursor}
-                  isHistoryMode={isHistoryMode}
-                  slashMatches={slashMatches}
-                  slashSelected={slashSelected}
-                  slashGroupMode={slashGroupMode}
-                  slashAdvancedHidden={slashAdvancedHidden}
-                  atState={atState}
-                  atSelected={atSelected}
-                  slashArgContext={slashArgContext}
-                  slashArgMatches={slashArgMatches}
-                  slashArgSelected={slashArgSelected}
-                />
-              )}
+                  />
+                ) : pendingShell ? (
+                  <ShellConfirm
+                    prompt={toApprovalPrompt({
+                      id: pendingShell.id,
+                      kind: pendingShell.kind,
+                      payload: {
+                        command: pendingShell.command,
+                        cwd: pendingShell.cwd,
+                        timeoutSec: pendingShell.timeoutSec,
+                        waitSec: pendingShell.waitSec,
+                      },
+                    })}
+                    onChoose={handleShellConfirm}
+                  />
+                ) : pendingPath ? (
+                  <PathConfirm
+                    prompt={toApprovalPrompt({
+                      id: pendingPath.id,
+                      kind: "path_access",
+                      payload: {
+                        path: pendingPath.path,
+                        intent: pendingPath.intent,
+                        toolName: pendingPath.toolName,
+                        sandboxRoot: pendingPath.sandboxRoot,
+                        allowPrefix: pendingPath.allowPrefix,
+                      },
+                    })}
+                    onChoose={handlePathConfirm}
+                  />
+                ) : pendingEditReview ? (
+                  <EditConfirm
+                    block={pendingEditReview}
+                    onChoose={(choice, denyContext) => {
+                      const resolve = editReviewResolveRef.current;
+                      if (resolve) {
+                        editReviewResolveRef.current = null;
+                        resolve({ choice, denyContext });
+                      }
+                    }}
+                  />
+                ) : walkthroughActive && pendingEdits.current.length > 0 ? (
+                  <EditConfirm
+                    // pendingTick re-keys the modal so each apply/discard
+                    // forces a remount with the NEW first block. Without it,
+                    // EditConfirm's internal scroll state would persist
+                    // across blocks, which is the wrong UX.
+                    key={`walk-${pendingTick}`}
+                    block={pendingEdits.current[0]!}
+                    onChoose={handleWalkChoice}
+                  />
+                ) : (
+                  <ComposerArea
+                    editMode={editMode}
+                    pendingCount={pendingCount}
+                    modeFlash={modeFlash}
+                    planMode={planMode}
+                    undoArmed={!!undoBanner || hasUndoable()}
+                    jobs={codeMode ? codeMode.jobs : undefined}
+                    activeLoop={activeLoop}
+                    statusBar={statusBar}
+                    showShortcuts={pendingShortcuts}
+                    mode={
+                      editMode === "yolo"
+                        ? t("statsPanel.modeYolo")
+                        : editMode === "auto"
+                          ? t("statsPanel.modeAuto")
+                          : editMode === "review"
+                            ? t("statsPanel.modeReview")
+                            : editMode
+                    }
+                    model={`${sessionModel} \u00b7 ${sessionEffort ?? loop.reasoningEffort}`}
+                    input={input}
+                    setInput={setInput}
+                    busy={busy}
+                    steerBusy={busy}
+                    onSubmit={handleSubmit}
+                    onHistoryPrev={handleHistoryPrev}
+                    onHistoryNext={handleHistoryNext}
+                    onOpenExternalEditor={handleOpenExternalEditor}
+                    onCursorChange={setComposerCursor}
+                    isHistoryMode={isHistoryMode}
+                    slashMatches={slashMatches}
+                    slashSelected={slashSelected}
+                    slashGroupMode={slashGroupMode}
+                    slashAdvancedHidden={slashAdvancedHidden}
+                    atState={atState}
+                    atSelected={atSelected}
+                    slashArgContext={slashArgContext}
+                    slashArgMatches={slashArgMatches}
+                    slashArgSelected={slashArgSelected}
+                  />
+                )}
+              </TerminalColumnsProvider>
             </Box>
             {planPanelOpen ? (
-              <PlanPanel
-                planBody={planBodyRef.current}
-                planSummary={planSummaryRef.current}
-                planSteps={planStepsRef.current}
-                completedStepIds={completedStepIdsRef.current}
-                pendingPlan={pendingPlan}
-                stagedInput={stagedInput}
-                pendingCheckpoint={pendingCheckpoint}
-                pendingRevision={pendingRevision}
-                pendingReviseEditor={pendingReviseEditor}
-                isExecuting={
-                  planStepsRef.current !== null && planStepsRef.current.length > 0 && !planMode
-                }
-                onPlanConfirm={stableHandlePlanConfirm}
-                onStagedInputSubmit={handleStagedInputSubmit}
-                onStagedInputCancel={handleStagedInputCancel}
-                onCheckpointChoose={stableHandleCheckpointConfirm}
-                onReviseConfirm={stableHandleReviseConfirm}
-              />
+              <TerminalColumnsProvider columns={panelColumns.panelColumns}>
+                <PlanPanel
+                  planBody={planBodyRef.current}
+                  planSummary={planSummaryRef.current}
+                  planSteps={planStepsRef.current}
+                  completedStepIds={completedStepIdsRef.current}
+                  pendingPlan={pendingPlan}
+                  stagedInput={stagedInput}
+                  pendingCheckpoint={pendingCheckpoint}
+                  pendingRevision={pendingRevision}
+                  pendingReviseEditor={pendingReviseEditor}
+                  isExecuting={
+                    planStepsRef.current !== null && planStepsRef.current.length > 0 && !planMode
+                  }
+                  onPlanConfirm={stableHandlePlanConfirm}
+                  onStagedInputSubmit={handleStagedInputSubmit}
+                  onStagedInputCancel={handleStagedInputCancel}
+                  onCheckpointChoose={stableHandleCheckpointConfirm}
+                  onReviseConfirm={stableHandleReviseConfirm}
+                />
+              </TerminalColumnsProvider>
             ) : null}
           </Box>
         </InflightProvider>

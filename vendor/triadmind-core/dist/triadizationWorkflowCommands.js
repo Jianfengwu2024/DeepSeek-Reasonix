@@ -40,6 +40,7 @@ exports.registerTriadizationWorkflowCommands = registerTriadizationWorkflowComma
 const chalk_1 = __importDefault(require("chalk"));
 const fs = __importStar(require("fs"));
 const inquirer_1 = __importDefault(require("inquirer"));
+const interrogation_1 = require("./interrogation");
 const snapshot_1 = require("./snapshot");
 const rules_1 = require("./rules");
 const cliSupport_1 = require("./cliSupport");
@@ -140,6 +141,7 @@ class TriadizationWorkflowService {
             }
             const previousMap = (0, cliSupport_1.readCurrentTriadMap)(paths);
             const protocol = (0, cliSupport_1.validateDraftProtocol)(paths);
+            (0, interrogation_1.assertInterrogationApproval)(paths, protocol);
             const snapshot = (0, snapshot_1.createSnapshot)(paths, 'before-apply', (0, snapshot_1.collectProtocolSnapshotFiles)(paths, protocol));
             console.log(chalk_1.default.gray(`   - [Snapshot] created ${snapshot.id}`));
             console.log(chalk_1.default.cyan('[TriadMind] applying approved protocol...'));

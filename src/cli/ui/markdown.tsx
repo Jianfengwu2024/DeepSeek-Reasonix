@@ -1,11 +1,12 @@
 /** Markdown → Ink. Parsing via marked; visual mapping mirrors dashboard/app.css `.md` rules. Code blocks pass through cli-highlight for ANSI syntax coloring. */
 
 import { highlight, supportsLanguage } from "cli-highlight";
-import { Box, type Color, Link, Text, useStdout } from "ink";
+import { Box, type Color, Link, Text } from "ink";
 import { type Token, type Tokens, marked } from "marked";
 import React from "react";
 import stringWidth from "string-width";
 import { decodeHtmlEntities } from "./html-entities.js";
+import { useAvailableColumns } from "./terminal-width.js";
 import { padToCells, wrapToCells } from "./text-width.js";
 import { FG, SURFACE, TONE } from "./theme/tokens.js";
 
@@ -17,7 +18,7 @@ const MarkdownWidthCtx = React.createContext<number | undefined>(undefined);
 function useWidth(): number {
   const ctx = React.useContext(MarkdownWidthCtx);
   if (ctx !== undefined) return ctx;
-  return (useStdout()?.stdout?.columns ?? process.stdout.columns ?? 80) - BODY_LEFT_CELLS;
+  return useAvailableColumns() - BODY_LEFT_CELLS;
 }
 
 marked.setOptions({ gfm: true, breaks: false });

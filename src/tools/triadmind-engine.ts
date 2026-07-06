@@ -56,6 +56,7 @@ interface CoreModules {
   workflow: any;
   cliSupport: any;
   triadization: any;
+  interrogation: any;
   runtimeExtract: any;
   runtimeWriter: any;
   viewMap: any;
@@ -148,6 +149,12 @@ async function runInternalCommand(
       return runConverge(paths);
     case "navigate":
       return runNavigate(core, paths, rest);
+    case "interrogate":
+      return runInterrogate(core, paths, rest);
+    case "interrogate-review":
+      return runInterrogateReview(core, paths);
+    case "interrogate-approve":
+      return runInterrogateApprove(core, paths);
     case "dream":
       return runDream(core, paths, rest);
     case "verify":
@@ -376,6 +383,43 @@ async function runNavigate(core: CoreModules, paths: any, args: string[]) {
     },
   });
   return jsonResult(result);
+}
+
+async function runInterrogate(core: CoreModules, paths: any, args: string[]) {
+  core.workflow.ensureTriadSpec(paths);
+  if (!existsSync(paths.mapFile)) core.cliSupport.syncProjectTopology(paths, false);
+  const demand = readDemand(args);
+  const result = await core.interrogation.runInterrogation(paths, demand, {
+    answersFile: readOption(args, "--answers-file"),
+    llm: readOption(args, "--llm"),
+    dashboardOptions: {
+      defaultView: readOption(args, "--view") === "leaf" ? "leaf" : "architecture",
+      showIsolatedCapabilities: hasFlag(args, "--show-isolated"),
+      fullContractEdges: hasFlag(args, "--full-contract-edges"),
+    },
+  });
+  return jsonResult(result);
+}
+
+function runInterrogateReview(core: CoreModules, paths: any) {
+  core.workflow.ensureTriadSpec(paths);
+  const state = core.interrogation.reviewInterrogation(paths);
+  if (!state) {
+    return jsonResult(
+      {
+        status: "missing",
+        message: "No interrogation state found.",
+        stateFile: paths.interrogationStateFile,
+      },
+      1,
+    );
+  }
+  return jsonResult(state);
+}
+
+function runInterrogateApprove(core: CoreModules, paths: any) {
+  core.workflow.ensureTriadSpec(paths);
+  return jsonResult(core.interrogation.approveInterrogation(paths));
 }
 
 async function runDream(core: CoreModules, paths: any, args: string[]) {
@@ -813,6 +857,7 @@ function loadCoreModules(corePath: string): CoreModules {
     workflow: load("workflow.js"),
     cliSupport: load("cliSupport.js"),
     triadization: load("triadization.js"),
+    interrogation: load("interrogation.js"),
     runtimeExtract: load("runtime/extractRuntimeTopology.js"),
     runtimeWriter: load("runtime/runtimeMapWriter.js"),
     viewMap: load("viewMap.js"),

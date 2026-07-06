@@ -154,6 +154,7 @@ const TRIADMIND_ROUTING = [
   "",
   "If TriadMind tools are available in this session, use them deliberately:",
   "",
+  "- For project creation, project modification, or ambiguous topology-heavy requests, start with `triadmind_interrogate` so the requirement is clarified before impact review. Use `triadmind_interrogate_review` to inspect the shock chain state, and `triadmind_interrogate_approve` only after the requirement is actually understood.",
   "- Before introducing a new module, abstraction, or workflow, prefer `triadmind_memory_search` / `triadmind_memory_recommend` to look for reuse opportunities first.",
   "- For architecture-heavy changes, use `triadmind_navigate` before editing so you can preview the impact shape instead of inventing structure ad hoc.",
   "- After topology-heavy edits, use `triadmind_verify` (and, when explicitly asked for deeper diagnostics, `triadmind_dream` / `triadmind_govern`) to check whether the architecture still holds together.",

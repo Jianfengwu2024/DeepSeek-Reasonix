@@ -1,4 +1,4 @@
-import { Box, type Color, Text, useStdout } from "ink";
+import { Box, type Color, Text } from "ink";
 import React from "react";
 import { type DiffDisplay, loadDiffDisplay } from "../../../config.js";
 import { t } from "../../../i18n/index.js";
@@ -9,6 +9,7 @@ import { PULSE_SQUARE, Pulse } from "../primitives/Pulse.js";
 import type { ToolCard as ToolCardData } from "../state/cards.js";
 import { useIsInflight } from "../state/inflight-context.js";
 import { VerboseContext } from "../state/verbose-context.js";
+import { useAvailableColumns } from "../terminal-width.js";
 import { clipToCells } from "../text-width.js";
 import { FG, TONE, TONE_ACTIVE } from "../theme/tokens.js";
 import { selectToolPreviewLines } from "../tool-summary.js";
@@ -72,8 +73,7 @@ function tailLinesFor(name: string): number {
 }
 
 export function ToolCard({ card }: { card: ToolCardData }): React.ReactElement {
-  const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 80;
+  const cols = useAvailableColumns();
   const lineCells = Math.max(20, cols - 4);
   const argsLabel = formatArgsSummary(card.args);
 

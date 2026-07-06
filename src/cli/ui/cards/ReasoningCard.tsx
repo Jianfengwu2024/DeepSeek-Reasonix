@@ -1,4 +1,4 @@
-import { Box, Text, useStdout } from "ink";
+import { Box, Text } from "ink";
 import React from "react";
 import { t } from "../../../i18n/index.js";
 import { Card } from "../primitives/Card.js";
@@ -7,6 +7,7 @@ import { Pill, modelBadgeFor, pillModel } from "../primitives/Pill.js";
 import { PULSE_DIAMOND, Pulse } from "../primitives/Pulse.js";
 import type { ReasoningCard as ReasoningCardData } from "../state/cards.js";
 import { VerboseContext } from "../state/verbose-context.js";
+import { useAvailableColumns } from "../terminal-width.js";
 import { clipToCells } from "../text-width.js";
 import { FG, TONE, TONE_ACTIVE } from "../theme/tokens.js";
 import { useIncrementalWrap } from "./useIncrementalWrap.js";
@@ -24,8 +25,7 @@ export function ReasoningCard({
   card: ReasoningCardData;
   expanded: boolean;
 }): React.ReactElement {
-  const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 80;
+  const cols = useAvailableColumns();
   const lineCells = Math.max(20, cols - 4);
   const verbose = React.useContext(VerboseContext);
 

@@ -1,5 +1,7 @@
 node_modules/
 dist/
+!vendor/triadmind-core/dist/
+!vendor/triadmind-core/dist/**
 coverage/
 .stryker-tmp/
 .env

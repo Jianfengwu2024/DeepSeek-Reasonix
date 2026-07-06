@@ -1,11 +1,23 @@
 import { isCompactionSummary, stripCompactionMarker } from "@reasonix/core-utils/compaction";
 import { derivePrefix } from "@reasonix/core-utils/derive-prefix";
-import { memo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { Copy } from "lucide-react";
 import { I } from "../icons";
 import { t, useLang } from "../i18n";
 import type { AssistantSegment, ActivePlan, PendingPlan, PendingCheckpoint, PendingRevision, PendingConfirm, PendingChoice, SkillOrigin } from "../App";
-import { AssistantText, CompactionCard, PlanCardView, ReasoningCard, ShellCard, ToolCard, type PlanItem } from "./cards";
+import {
+  AssistantText,
+  CompactionCard,
+  PlanCardView,
+  ReasoningCard,
+  ShellCard,
+  ToolCard,
+  TriadMindGraphActions,
+  TriadMindGraphHubCard,
+  extractVisualizerLinks,
+  type PlanItem,
+  type VisualizerLink,
+} from "./cards";
 import { ApprovalCard, TaskCard, type TaskStepView } from "./extra-cards";
 
 export function TurnDivider({ label }: { label: string }) {
@@ -87,6 +99,7 @@ export const AssistantMsg = memo(function AssistantMsg({
   onAlwaysAllowConfirm: (id: number, prefix: string) => void;
   pendingConfirms: PendingConfirm[];
 }) {
+  const lang = useLang();
   const [copied, setCopied] = useState(false);
   const content = segments
     .filter((s): s is AssistantSegment & { kind: "text" } => s.kind === "text")
@@ -101,6 +114,16 @@ export const AssistantMsg = memo(function AssistantMsg({
       /* ignore */
     }
   };
+  const graphLinks = useMemo(() => {
+    const unique = new Map<string, VisualizerLink>();
+    for (const segment of segments) {
+      if (segment.kind !== "tool" || !segment.result) continue;
+      for (const link of extractVisualizerLinks(segment.result)) {
+        if (!unique.has(link.path)) unique.set(link.path, link);
+      }
+    }
+    return [...unique.values()];
+  }, [segments, lang]);
   return (
     <div className="msg assistant">
       <div className="avatar">DS</div>
@@ -110,6 +133,7 @@ export const AssistantMsg = memo(function AssistantMsg({
           {model ? <span className="model">{model}</span> : null}
           {time ? <span className="time">{time}</span> : null}
         </div>
+        {graphLinks.length > 0 ? <TriadMindGraphHubCard links={graphLinks} /> : null}
         {segments.map((s, i) => {
           if (s.kind === "text") {
             if (!s.text.trim()) return null;
@@ -260,13 +284,57 @@ export function ActivePlanCard({ plan }: { plan: ActivePlan }) {
 
 // ---- Approval bindings ----
 
+function TriadMindApprovalPreview({
+  links,
+}: {
+  links: VisualizerLink[];
+}) {
+  useLang();
+  if (!links.length) return null;
+  return (
+    <TriadMindGraphActions
+      links={links}
+      variant="approval"
+      title={t("thread.graphActionsTitle")}
+      detail={t("thread.graphActionsDetail")}
+    />
+  );
+}
+
+function TriadMindApprovalHint({
+  links,
+}: {
+  links: VisualizerLink[];
+}) {
+  useLang();
+  if (!links.length) return null;
+  return (
+    <div
+      style={{
+        marginBottom: 8,
+        padding: "8px 10px",
+        borderRadius: 8,
+        background: "var(--panel)",
+        border: "1px solid var(--border)",
+        color: "var(--fg-2)",
+        fontSize: 12,
+        lineHeight: 1.6,
+      }}
+    >
+      {t("thread.graphActionsInlineHint")}
+    </div>
+  );
+}
+
 export function PlanApprovalCard({
   p,
+  graphLinks = [],
   onApprove,
   onRefine,
   onCancel,
 }: {
   p: PendingPlan;
+  graphLinks?: VisualizerLink[];
   onApprove: () => void;
   onRefine: () => void;
   onCancel: () => void;
@@ -280,8 +348,10 @@ export function PlanApprovalCard({
       tone="info"
       title={t("thread.startPlan")}
       sub={sub}
+      preview={graphLinks.length > 0 ? <TriadMindApprovalPreview links={graphLinks} /> : undefined}
       body={
         <>
+          <TriadMindApprovalHint links={graphLinks} />
           {p.summary ? <div style={{ marginBottom: 6 }}>{p.summary}</div> : null}
           <div style={{ whiteSpace: "pre-wrap" }}>{p.plan}</div>
         </>
@@ -299,11 +369,13 @@ export function PlanApprovalCard({
 
 export function CheckpointApprovalCard({
   c,
+  graphLinks = [],
   onContinue,
   onRevise,
   onStop,
 }: {
   c: PendingCheckpoint;
+  graphLinks?: VisualizerLink[];
   onContinue: () => void;
   onRevise: () => void;
   onStop: () => void;
@@ -315,8 +387,10 @@ export function CheckpointApprovalCard({
       tone="brand"
       title={c.title ?? t("thread.checkpointTitle", { completed: c.completed, total: c.total })}
       sub={t("thread.checkpointSub", { completed: c.completed, total: c.total })}
+      preview={graphLinks.length > 0 ? <TriadMindApprovalPreview links={graphLinks} /> : undefined}
       body={
         <>
+          <TriadMindApprovalHint links={graphLinks} />
           <div style={{ whiteSpace: "pre-wrap" }}>{c.result}</div>
           {c.notes ? (
             <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--muted)" }}>{c.notes}</div>
@@ -336,10 +410,12 @@ export function CheckpointApprovalCard({
 
 export function RevisionApprovalCard({
   r,
+  graphLinks = [],
   onAccept,
   onReject,
 }: {
   r: PendingRevision;
+  graphLinks?: VisualizerLink[];
   onAccept: () => void;
   onReject: () => void;
 }) {
@@ -350,8 +426,10 @@ export function RevisionApprovalCard({
       tone="warn"
       title={t("thread.rewritePlan")}
       sub={t("thread.keepSteps", { n: r.remainingSteps.length })}
+      preview={graphLinks.length > 0 ? <TriadMindApprovalPreview links={graphLinks} /> : undefined}
       body={
         <>
+          <TriadMindApprovalHint links={graphLinks} />
           <div style={{ marginBottom: 8 }}>{r.reason}</div>
           {r.summary ? (
             <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>{r.summary}</div>
@@ -473,10 +551,12 @@ export function PathAccessApprovalCard({
 
 export function ChoiceApprovalCard({
   c,
+  graphLinks = [],
   onPick,
   onCancel,
 }: {
   c: PendingChoice;
+  graphLinks?: VisualizerLink[];
   onPick: (optionId: string) => void;
   onCancel: () => void;
 }) {
@@ -487,9 +567,12 @@ export function ChoiceApprovalCard({
       tone="info"
       title={c.question}
       sub={t("thread.optionCount", { count: c.options.length })}
+      preview={graphLinks.length > 0 ? <TriadMindApprovalPreview links={graphLinks} /> : undefined}
       body={
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {c.options.map((o) => (
+        <>
+          <TriadMindApprovalHint links={graphLinks} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {c.options.map((o) => (
             <button
               key={o.id}
               type="button"
@@ -506,8 +589,9 @@ export function ChoiceApprovalCard({
                 ) : null}
               </div>
             </button>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       }
       primaryLabel={t("thread.cancel")}
       onPrimary={onCancel}

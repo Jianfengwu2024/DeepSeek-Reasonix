@@ -2718,6 +2718,78 @@ html:not([data-platform="macos"]) .shortcut kbd[data-key="mod"] {
 .tool-call .row .v .num {
   color: var(--violet);
 }
+.visualizer-cta {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.visualizer-cta.is-hub {
+  margin-top: 0;
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 32%, var(--panel));
+}
+.visualizer-cta.is-approval {
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.visualizer-cta.is-approval .visualizer-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.visualizer-cta.is-approval .visualizer-btn {
+  justify-content: flex-start;
+}
+.visualizer-copy {
+  display: grid;
+  gap: 6px;
+}
+.visualizer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+.visualizer-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.visualizer-detail {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg-2);
+}
+.visualizer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.visualizer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+.visualizer-file {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+}
 
 /* ---- Image / attachment card ---- */
 

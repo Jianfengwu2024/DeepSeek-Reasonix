@@ -56,6 +56,7 @@ const fs = __importStar(require("fs"));
 const workspace_1 = require("../workspace");
 const workflow_1 = require("../workflow");
 const sync_1 = require("../sync");
+const interrogation_1 = require("../interrogation");
 const navigator_1 = require("../navigator");
 const dream_1 = require("../dream");
 const govern_1 = require("../govern");
@@ -97,6 +98,33 @@ const TOOLS = [
                 demand: {
                     type: 'string',
                     description: 'Natural language description of the feature or change to analyze.',
+                },
+            },
+            required: ['projectRoot', 'demand'],
+        },
+    },
+    {
+        name: 'triadmind_interrogate',
+        description: 'Run requirement interrogation before implementation. ' +
+            'Seeds follow-up questions, merges answered state when provided, and renders an impact map once the request is precise enough.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                projectRoot: {
+                    type: 'string',
+                    description: 'Absolute path to the project root directory.',
+                },
+                demand: {
+                    type: 'string',
+                    description: 'Natural language description of the requested project creation or modification work.',
+                },
+                answersFile: {
+                    type: 'string',
+                    description: 'Optional path to a JSON answers file to merge into interrogation-state.json.',
+                },
+                llm: {
+                    type: 'string',
+                    description: 'Optional navigator provider:model descriptor used when generating the impact protocol.',
                 },
             },
             required: ['projectRoot', 'demand'],
@@ -226,6 +254,38 @@ async function handleNavigate(params) {
         impactProtocolFile: result.impactProtocolFile,
         impactVisualizerFile: result.impactVisualizerFile,
         summary: result.summary,
+    };
+}
+async function handleInterrogate(params) {
+    const projectRoot = String(params.projectRoot || process.cwd());
+    const demand = String(params.demand || '').trim();
+    const answersFile = params.answersFile != null ? String(params.answersFile).trim() : undefined;
+    const llm = params.llm != null ? String(params.llm).trim() : undefined;
+    if (!demand) {
+        throw new Error('demand parameter is required for interrogate');
+    }
+    if (!fs.existsSync(projectRoot)) {
+        throw new Error(`Project root does not exist: ${projectRoot}`);
+    }
+    const paths = (0, workspace_1.getWorkspacePaths)(projectRoot);
+    (0, workflow_1.ensureTriadSpec)(paths);
+    if (!fs.existsSync(paths.mapFile)) {
+        (0, sync_1.syncTriadMap)(paths, true);
+    }
+    const result = await (0, interrogation_1.runInterrogation)(paths, demand, {
+        answersFile,
+        llm,
+        dashboardOptions: { defaultView: 'architecture' },
+    });
+    return {
+        status: result.status,
+        demand: result.demand,
+        promptFile: result.promptFile,
+        stateFile: result.stateFile,
+        impactMapFile: result.impactMapFile ?? null,
+        impactVisualizerFile: result.impactVisualizerFile ?? null,
+        summary: result.summary,
+        state: result.state,
     };
 }
 async function handleDream(params) {
@@ -369,6 +429,7 @@ function handleVisualize(params) {
 const TOOL_HANDLERS = {
     triadmind_sync: handleSync,
     triadmind_navigate: handleNavigate,
+    triadmind_interrogate: handleInterrogate,
     triadmind_dream: handleDream,
     triadmind_govern: handleGovern,
     triadmind_verify: handleVerify,
@@ -427,7 +488,7 @@ function handleRequest(request) {
                 return;
             }
             try {
-                Promise.resolve(handler(toolArgs))
+                Promise.resolve(runToolHandlerSilently(handler, toolArgs))
                     .then((result) => {
                     sendResponse({
                         jsonrpc: '2.0',
@@ -461,6 +522,22 @@ function handleRequest(request) {
             sendError(id, -32601, `Method not found: ${method}`);
             break;
         }
+    }
+}
+async function runToolHandlerSilently(handler, toolArgs) {
+    const originalLog = console.log;
+    const originalInfo = console.info;
+    const originalWarn = console.warn;
+    console.log = () => { };
+    console.info = () => { };
+    console.warn = () => { };
+    try {
+        return await handler(toolArgs);
+    }
+    finally {
+        console.log = originalLog;
+        console.info = originalInfo;
+        console.warn = originalWarn;
     }
 }
 function processBuffer() {

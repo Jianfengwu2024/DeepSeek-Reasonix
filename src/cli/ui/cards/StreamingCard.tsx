@@ -1,4 +1,4 @@
-import { Box, Text, useStdout } from "ink";
+import { Box, Text } from "ink";
 import React, { useContext } from "react";
 import { t } from "../../../i18n/index.js";
 import { countTokensBounded } from "../../../tokenizer.js";
@@ -9,6 +9,7 @@ import { CardHeader } from "../primitives/CardHeader.js";
 import { Pill, modelBadgeFor, pillModel, pillPath } from "../primitives/Pill.js";
 import { PULSE_CIRCLE, Pulse } from "../primitives/Pulse.js";
 import type { StreamingCard as StreamingCardData } from "../state/cards.js";
+import { useAvailableColumns } from "../terminal-width.js";
 import { clipToCells } from "../text-width.js";
 import { FG, TONE, TONE_ACTIVE } from "../theme/tokens.js";
 import { useIncrementalWrap } from "./useIncrementalWrap.js";
@@ -94,8 +95,7 @@ function useLiveTokenRate(card: StreamingCardData, enabled: boolean): TokenRate 
 const pillRate = pillPath;
 
 export function StreamingCard({ card }: { card: StreamingCardData }): React.ReactElement {
-  const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 80;
+  const cols = useAvailableColumns();
   const expanded = useContext(LiveExpandContext);
   const liveRate = useLiveTokenRate(card, !card.done && !card.aborted);
   const lineCells = Math.max(20, cols - 4);

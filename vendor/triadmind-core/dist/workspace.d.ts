@@ -54,6 +54,8 @@ export interface WorkspacePaths {
     impactProtocolFile: string;
     impactPromptFile: string;
     impactVisualizerFile: string;
+    interrogationPromptFile: string;
+    interrogationStateFile: string;
     draftFile: string;
     macroSplitFile: string;
     mesoSplitFile: string;

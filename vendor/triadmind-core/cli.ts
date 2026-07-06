@@ -6,6 +6,7 @@ import {
     runAutoDreamAfterCommand
 } from './cliWorkflowSupport';
 import { registerDreamCommands } from './dreamCommands';
+import { registerInterrogationCommands } from './interrogationCommands';
 import { registerMaintenanceCommands } from './maintenanceCommands';
 import { registerMemoryCommands } from './memoryCommands';
 import { registerNavigatorCommands } from './navigatorCommands';
@@ -25,6 +26,7 @@ registerWorkspaceLifecycleCommands(program);
 
 registerPromptWorkflowCommands(program);
 registerNavigatorCommands(program);
+registerInterrogationCommands(program);
 registerRuntimeGovernanceCommands(program);
 registerDreamCommands(program);
 registerTriadizationWorkflowCommands(program, {

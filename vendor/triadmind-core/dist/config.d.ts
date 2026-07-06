@@ -50,6 +50,9 @@ export interface TriadImpactTiersConfig {
     mediumChainMax: number;
     forceTier: Record<string, TriadImpactTier>;
 }
+export interface TriadInterrogationConfig {
+    autoApproveMaxImpactEdgeCount: number;
+}
 export interface TriadGovernanceScopeConfig {
     scope: 'full' | 'impact';
 }
@@ -167,6 +170,7 @@ export interface TriadConfig {
         matureStableSourcePaths: string[];
         matureStableSourcePathPatterns: string[];
     };
+    interrogation: TriadInterrogationConfig;
     impactTiers: TriadImpactTiersConfig;
     governance: TriadGovernanceScopeConfig;
     profile?: TriadProfile;

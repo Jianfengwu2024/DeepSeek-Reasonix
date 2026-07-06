@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { isWebRuntime } from "./lib/tauri-bridge";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { CommandPalette, Toast, buildCommands, useCommandPalette } from "./CommandPalette";
 import { WorkspaceProvider } from "./Markdown";
 import { getLang, getLangLabel, getSupportedLangs, setLang, t, useLang } from "./i18n";
@@ -50,6 +50,7 @@ import { AboutModal } from "./ui/about";
 import { SettingsModal, type PageId as SettingsPageId } from "./ui/settings";
 import { Sidebar } from "./ui/sidebar";
 import { Shortcut, localizeShortcutText, shortcutText } from "./ui/shortcut";
+import { extractVisualizerLinks, type VisualizerLink } from "./ui/cards";
 import { Splash, shouldShowSplash } from "./ui/splash";
 import { StatusBar } from "./ui/statusbar";
 import {
@@ -1209,7 +1210,7 @@ function TabRuntime({
     queuedSends: [],
     retryNonce: 0,
   });
-  useLang();
+  const lang = useLang();
   useDisableTextAssist();
   const [draft, setDraft] = useState("");
   const [toast, setToast] = useState<{ msg: string; yolo?: boolean } | null>(null);
@@ -1230,6 +1231,21 @@ function TabRuntime({
   // pull off disk; without this the click looks dead.
   const [loadingSession, setLoadingSession] = useState<string | null>(null);
   const [workdirModalOpen, setWorkdirModalOpen] = useState(false);
+  const latestGraphLinks = useMemo(() => {
+    for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+      const message = state.messages[index];
+      if (message.kind !== "assistant") continue;
+      const unique = new Map<string, VisualizerLink>();
+      for (const segment of message.segments) {
+        if (segment.kind !== "tool" || !segment.result) continue;
+        for (const link of extractVisualizerLinks(segment.result)) {
+          if (!unique.has(link.path)) unique.set(link.path, link);
+        }
+      }
+      if (unique.size > 0) return [...unique.values()];
+    }
+    return [] as VisualizerLink[];
+  }, [state.messages, lang]);
   useEffect(() => {
     if (loadingSession && state.currentSession === loadingSession) {
       setLoadingSession(null);
@@ -2054,6 +2070,7 @@ function TabRuntime({
                     <PlanApprovalCard
                       key={`pp-${p.id}`}
                       p={p}
+                      graphLinks={latestGraphLinks}
                       onApprove={() => resolvePlan(p.id, { type: "approve" })}
                       onRefine={() => resolvePlan(p.id, { type: "refine" })}
                       onCancel={() => resolvePlan(p.id, { type: "cancel" })}
@@ -2063,6 +2080,7 @@ function TabRuntime({
                     <CheckpointApprovalCard
                       key={`cp-${c.id}`}
                       c={c}
+                      graphLinks={latestGraphLinks}
                       onContinue={() => resolveCheckpoint(c.id, { type: "continue" })}
                       onRevise={() => resolveCheckpoint(c.id, { type: "revise" })}
                       onStop={() => resolveCheckpoint(c.id, { type: "stop" })}
@@ -2072,6 +2090,7 @@ function TabRuntime({
                     <RevisionApprovalCard
                       key={`rv-${r.id}`}
                       r={r}
+                      graphLinks={latestGraphLinks}
                       onAccept={() => resolveRevision(r.id, { type: "accepted" })}
                       onReject={() => resolveRevision(r.id, { type: "rejected" })}
                     />
@@ -2102,6 +2121,7 @@ function TabRuntime({
                     <ChoiceApprovalCard
                       key={`ch-${c.id}`}
                       c={c}
+                      graphLinks={latestGraphLinks}
                       onPick={(optionId) => resolveChoice(c.id, { type: "pick", optionId })}
                       onCancel={() => resolveChoice(c.id, { type: "cancel" })}
                     />

@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { handleEvents } from "./api/events.js";
+import { loadWorkspaceArtifact } from "./artifact.js";
 import { renderIndexHtml, serveAsset } from "./assets.js";
 import type { DashboardContext } from "./context.js";
 import { handleApi } from "./router.js";
@@ -155,6 +156,22 @@ export async function dispatch(
   // SSE event stream — special-cased BEFORE the normal `/api/*` branch
   // because it keeps the response open and writes its own frames; the
   // normal path would try to JSON-encode and end the response.
+  if (path === "/artifact") {
+    const fail = checkAuth(req, expectedToken, false);
+    if (fail) {
+      res.writeHead(fail.status, { "content-type": "application/json" });
+      res.end(fail.body);
+      return;
+    }
+    const artifact = loadWorkspaceArtifact(ctx, url.searchParams.get("path") ?? "");
+    res.writeHead(artifact.status, {
+      "content-type": artifact.contentType,
+      "cache-control": "no-store",
+    });
+    res.end(artifact.body);
+    return;
+  }
+
   if (path === "/api/events") {
     const fail = checkAuth(req, expectedToken, false);
     if (fail) {

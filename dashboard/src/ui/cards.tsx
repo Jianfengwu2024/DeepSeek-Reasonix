@@ -1,10 +1,295 @@
-import { memo, useState, type ReactNode } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { I } from "../icons";
 import { Markdown } from "../Markdown";
 import { t, useLang } from "../i18n";
 import { Shortcut } from "./shortcut";
 
 type Tone = "default" | "success" | "warning" | "danger" | "accent" | "violet";
+
+export type VisualizerKind =
+  | "impact"
+  | "runtime"
+  | "dream"
+  | "renormalize"
+  | "topology"
+  | "html";
+
+export type VisualizerLink = {
+  path: string;
+  label: string;
+  filename: string;
+  kind: VisualizerKind;
+};
+
+function basename(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  return parts[parts.length - 1] ?? path;
+}
+
+function classifyVisualizerKind(path: string): VisualizerKind {
+  const lower = basename(path).toLowerCase();
+  if (lower.includes("impact-visualizer")) return "impact";
+  if (lower.includes("runtime-visualizer")) return "runtime";
+  if (lower.includes("dream")) return "dream";
+  if (lower.includes("renormalize-visualizer")) return "renormalize";
+  if (lower.includes("visualizer")) return "topology";
+  return "html";
+}
+
+function classifyVisualizerLabel(path: string): string {
+  switch (classifyVisualizerKind(path)) {
+    case "impact":
+      return t("cards.visualizerImpact");
+    case "runtime":
+      return t("cards.visualizerRuntime");
+    case "dream":
+      return t("cards.visualizerDream");
+    case "renormalize":
+      return t("cards.visualizerRenormalize");
+    case "topology":
+      return t("cards.visualizerTopology");
+    default:
+      return t("cards.visualizerOpenHtml");
+  }
+}
+
+function visualizerSortWeight(kind: VisualizerKind): number {
+  switch (kind) {
+    case "impact":
+      return 0;
+    case "topology":
+      return 1;
+    case "runtime":
+      return 2;
+    case "dream":
+      return 3;
+    case "renormalize":
+      return 4;
+    default:
+      return 5;
+  }
+}
+
+function sortVisualizerLinks(links: VisualizerLink[]): VisualizerLink[] {
+  return [...links].sort((left, right) => {
+    const weight = visualizerSortWeight(left.kind) - visualizerSortWeight(right.kind);
+    if (weight !== 0) return weight;
+    return left.filename.localeCompare(right.filename);
+  });
+}
+
+function isHtmlArtifactPath(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return /\.html?(?:[?#].*)?$/i.test(trimmed);
+}
+
+function collectHtmlArtifactPaths(value: unknown, out: Set<string>) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (isHtmlArtifactPath(trimmed)) out.add(trimmed);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectHtmlArtifactPaths(item, out);
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const nested of Object.values(value)) collectHtmlArtifactPaths(nested, out);
+  }
+}
+
+function extractHtmlPathsFromText(text: string): string[] {
+  const matches = text.match(/(?:[A-Za-z]:[\\/][^\s"'`]+\.html?|\/[^\s"'`]+\.html?|(?:[\w.-]+[\\/])+[\w.-]+\.html?)/g) ?? [];
+  return matches.filter((item) => isHtmlArtifactPath(item));
+}
+
+function parseJsonIfPossible(text: string | undefined): unknown {
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+export function extractVisualizerLinks(result: string | undefined): VisualizerLink[] {
+  if (!result) return [];
+  const unique = new Set<string>();
+  collectHtmlArtifactPaths(parseJsonIfPossible(result), unique);
+  for (const path of extractHtmlPathsFromText(result)) unique.add(path);
+  return [...unique].map((path) => ({
+    path,
+    label: classifyVisualizerLabel(path),
+    filename: basename(path),
+    kind: classifyVisualizerKind(path),
+  }));
+}
+
+function buildArtifactUrl(path: string): string {
+  const current = new URL(window.location.href);
+  const artifact = new URL("/artifact", current.origin);
+  artifact.searchParams.set("path", path);
+  const token = current.searchParams.get("token");
+  if (token) artifact.searchParams.set("token", token);
+  return artifact.toString();
+}
+
+export async function openArtifact(path: string): Promise<void> {
+  const url = buildArtifactUrl(path);
+  try {
+    await openUrl(url);
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
+type TriadMindGraphActionsVariant = "default" | "hub" | "approval";
+
+export function TriadMindGraphActions({
+  links,
+  title,
+  detail,
+  badgeLabel,
+  variant = "default",
+}: {
+  links: VisualizerLink[];
+  title: string;
+  detail: string;
+  badgeLabel?: string;
+  variant?: TriadMindGraphActionsVariant;
+}) {
+  useLang();
+  const orderedLinks = useMemo(() => sortVisualizerLinks(links), [links]);
+  if (!orderedLinks.length) return null;
+  const variantClass =
+    variant === "hub" ? " is-hub" : variant === "approval" ? " is-approval" : "";
+  return (
+    <div className={`visualizer-cta${variantClass}`}>
+      <div className="visualizer-copy">
+        <span className="visualizer-badge">
+          <I.layers size={11} />
+          {badgeLabel ?? t("cards.visualizerBadge")}
+        </span>
+        <div className="visualizer-title">{title}</div>
+        <div className="visualizer-detail">{detail}</div>
+      </div>
+      <div className="visualizer-actions">
+        {orderedLinks.map((link, index) => (
+          <button
+            key={`${link.path}-${index}`}
+            type="button"
+            className={`btn ${index === 0 ? "primary" : "ghost"} visualizer-btn`}
+            onClick={() => {
+              void openArtifact(link.path);
+            }}
+            title={link.path}
+          >
+            <I.branch size={12} />
+            <span>{link.label}</span>
+            <span className="visualizer-file">{link.filename}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function TriadMindGraphHubCard({
+  links,
+}: {
+  links: VisualizerLink[];
+}) {
+  useLang();
+  if (!links.length) return null;
+  return (
+    <Card
+      tone="accent"
+      icon={<I.layers size={12} />}
+      kind="triadmind"
+      name={t("cards.graphHubName")}
+      defaultOpen
+    >
+      <TriadMindGraphActions
+        links={links}
+        variant="hub"
+        badgeLabel={t("cards.graphHubBadge")}
+        title={t("cards.graphHubTitle")}
+        detail={t("cards.graphHubDetail")}
+      />
+    </Card>
+  );
+}
+
+function deriveVisualizerPrompt(
+  name: string,
+  result: string | undefined,
+  links: VisualizerLink[],
+): {
+  title: string;
+  detail: string;
+} {
+  const parsed = parseJsonIfPossible(result) as
+    | {
+        status?: string;
+        summary?: unknown;
+        state?: { status?: string } | null;
+      }
+    | undefined;
+  const summaryLines = Array.isArray(parsed?.summary)
+    ? parsed.summary.filter((item): item is string => typeof item === "string")
+    : [];
+  const stateStatus = parsed?.state?.status ?? parsed?.status ?? "";
+  const autoApproved =
+    stateStatus === "approved_for_development" ||
+    summaryLines.some((line) => /small-impact demand is approved/i.test(line));
+  const kinds = new Set(links.map((link) => link.kind));
+  const mentionsPrimaryGraphs =
+    kinds.has("topology") ||
+    kinds.has("runtime") ||
+    kinds.has("impact") ||
+    kinds.has("dream");
+  if (autoApproved) {
+    return {
+      title: t("cards.visualizerSmallApprovedTitle"),
+      detail: t("cards.visualizerSmallApprovedDetail"),
+    };
+  }
+  if (mentionsPrimaryGraphs && links.length > 1) {
+    return {
+      title: t("cards.visualizerReadyTitle"),
+      detail: t("cards.visualizerReadyDetail"),
+    };
+  }
+  if (
+    name.startsWith("triadmind_interrogate") ||
+    name === "triadmind_navigate" ||
+    name === "triadmind_visualize"
+  ) {
+    return {
+      title: t("cards.visualizerReviewTitle"),
+      detail: t("cards.visualizerReviewDetail"),
+    };
+  }
+  if (name === "triadmind_runtime") {
+    return {
+      title: t("cards.visualizerRuntimeTitle"),
+      detail: t("cards.visualizerRuntimeDetail"),
+    };
+  }
+  if (name === "triadmind_dream" || name === "triadmind_dream_daemon") {
+    return {
+      title: t("cards.visualizerDreamTitle"),
+      detail: t("cards.visualizerDreamDetail"),
+    };
+  }
+  return {
+    title: t("cards.visualizerDefaultTitle"),
+    detail: t("cards.visualizerDefaultDetail"),
+  };
+}
 
 export function Card({
   tone = "default",
@@ -341,9 +626,14 @@ export function ToolCard({
   ok?: boolean;
   durationMs?: number;
 }) {
-  useLang();
+  const lang = useLang();
   const running = result === undefined;
   const tone: Tone = running ? "default" : ok === false ? "danger" : "success";
+  const visualizerLinks = useMemo(() => extractVisualizerLinks(result), [result, lang]);
+  const visualizerPrompt = useMemo(
+    () => deriveVisualizerPrompt(name, result, visualizerLinks),
+    [name, result, visualizerLinks],
+  );
   return (
     <Card
       tone={tone}
@@ -385,6 +675,13 @@ export function ToolCard({
               </span>
             </span>
           </div>
+        ) : null}
+        {visualizerLinks.length > 0 ? (
+          <TriadMindGraphActions
+            links={visualizerLinks}
+            title={visualizerPrompt.title}
+            detail={visualizerPrompt.detail}
+          />
         ) : null}
       </div>
     </Card>

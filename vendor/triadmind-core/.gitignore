@@ -1,5 +1,4 @@
 node_modules/
-dist/
 *.tgz
 
 # Keep declarative project inputs and learned Dream feedback under .triadmind.

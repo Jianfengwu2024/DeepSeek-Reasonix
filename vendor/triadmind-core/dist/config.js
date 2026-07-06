@@ -292,6 +292,9 @@ const DEFAULT_CONFIG = {
         matureStableSourcePaths: [],
         matureStableSourcePathPatterns: []
     },
+    interrogation: {
+        autoApproveMaxImpactEdgeCount: 6
+    },
     impactTiers: {
         shortChainMax: 2,
         mediumChainMax: 5,
@@ -746,6 +749,7 @@ function mergeWithDefault(value) {
             matureStableSourcePaths: normalizeStringArray(value.topologyRisk?.matureStableSourcePaths).map((entry) => normalizeStableSourcePath(entry)),
             matureStableSourcePathPatterns: normalizeStringArray(value.topologyRisk?.matureStableSourcePathPatterns)
         },
+        interrogation: normalizeInterrogationConfig(value.interrogation),
         impactTiers: normalizeImpactTiers(value.impactTiers),
         governance: {
             scope: value.governance?.scope === 'impact' ? 'impact' : DEFAULT_CONFIG.governance.scope
@@ -876,6 +880,11 @@ function normalizeImpactTiers(value) {
         shortChainMax,
         mediumChainMax,
         forceTier: normalizeForceTier(value?.forceTier)
+    };
+}
+function normalizeInterrogationConfig(value) {
+    return {
+        autoApproveMaxImpactEdgeCount: normalizeNonNegativeInteger(value?.autoApproveMaxImpactEdgeCount, DEFAULT_CONFIG.interrogation.autoApproveMaxImpactEdgeCount)
     };
 }
 function normalizeForceTier(value) {

@@ -12,6 +12,9 @@ export const TRIADMIND_TOOL_NAMES = [
   "triadmind_sync",
   "triadmind_watch",
   "triadmind_navigate",
+  "triadmind_interrogate",
+  "triadmind_interrogate_review",
+  "triadmind_interrogate_approve",
   "triadmind_dream",
   "triadmind_dream_daemon",
   "triadmind_govern",
@@ -68,16 +71,43 @@ export function createTriadMindSupport(opts: TriadMindSupportOptions): TriadMind
   const rootDir = resolve(opts.rootDir);
   const config = opts.config ?? {};
   const mode = normalizeMode(config.triadmind?.mode);
-  const triadmind = resolveTriadMindEngine({ rootDir, config, engine: opts.engine });
   let advisoryRunning = false;
 
+  if (mode === "disabled") {
+    return {
+      enabled: false,
+      mode,
+      status: () =>
+        JSON.stringify(
+          {
+            enabled: false,
+            mode,
+            rootDir,
+            engine: "internal",
+            source: null,
+            corePath: null,
+            advisoryForceSync: false,
+          },
+          null,
+          2,
+        ),
+      registerTools: (registry) => registry,
+      runInternalText: async () => {
+        throw new Error("TriadMind integration is disabled for this Reasonix workspace.");
+      },
+      runAdvisory: async () => null,
+    };
+  }
+
+  const triadmind = resolveTriadMindEngine({ rootDir, config, engine: opts.engine });
+
   const support: TriadMindSupport = {
-    enabled: mode !== "disabled",
+    enabled: true,
     mode,
     status: () =>
       JSON.stringify(
         {
-          enabled: mode !== "disabled",
+          enabled: true,
           mode,
           rootDir,
           engine: "internal",
@@ -89,8 +119,6 @@ export function createTriadMindSupport(opts: TriadMindSupportOptions): TriadMind
         2,
       ),
     registerTools: (registry) => {
-      if (mode === "disabled") return registry;
-
       registry.register({
         name: "triadmind_status",
         description:
@@ -171,6 +199,82 @@ export function createTriadMindSupport(opts: TriadMindSupportOptions): TriadMind
             commandArgs.push("--view", args.view.trim());
           return runTriadMindJsonString(triadmind, commandArgs);
         },
+      });
+
+      registry.register({
+        name: "triadmind_interrogate",
+        description:
+          "Run the in-process TriadMind requirement interrogation flow before implementation. Use this for project creation, project modification, or any topology-heavy demand that needs clarification before impact review.",
+        parameters: {
+          type: "object",
+          properties: {
+            demand: {
+              type: "string",
+              description: "Requested project creation or modification demand to clarify.",
+            },
+            answersFile: {
+              type: "string",
+              description: "Optional JSON answers file to merge into the interrogation state.",
+            },
+            llm: {
+              type: "string",
+              description: "Optional TriadMind LLM backend descriptor used for impact generation.",
+            },
+            view: {
+              type: "string",
+              enum: ["architecture", "leaf"],
+              description: "Preferred impact visualizer view.",
+            },
+            showIsolated: {
+              type: "boolean",
+              description: "Show isolated capability nodes in architecture view.",
+            },
+            fullContractEdges: {
+              type: "boolean",
+              description: "Disable contract-edge capping in the impact visualizer.",
+            },
+          },
+          required: ["demand"],
+        },
+        fn: async (args: {
+          demand: string;
+          answersFile?: string;
+          llm?: string;
+          view?: string;
+          showIsolated?: boolean;
+          fullContractEdges?: boolean;
+        }) => {
+          const commandArgs = ["interrogate", "--json", requireNonEmpty(args.demand, "demand")];
+          if (typeof args.answersFile === "string" && args.answersFile.trim()) {
+            commandArgs.push("--answers-file", args.answersFile.trim());
+          }
+          if (typeof args.llm === "string" && args.llm.trim()) {
+            commandArgs.push("--llm", args.llm.trim());
+          }
+          if (typeof args.view === "string" && args.view.trim()) {
+            commandArgs.push("--view", args.view.trim());
+          }
+          if (args.showIsolated) commandArgs.push("--show-isolated");
+          if (args.fullContractEdges) commandArgs.push("--full-contract-edges");
+          return runTriadMindJsonString(triadmind, commandArgs);
+        },
+      });
+
+      registry.register({
+        name: "triadmind_interrogate_review",
+        description:
+          "Read the current TriadMind interrogation state, including whether the shock chain is still under review or already approved for development.",
+        parameters: { type: "object", properties: {} },
+        readOnly: true,
+        fn: async () => runTriadMindJsonString(triadmind, ["interrogate-review", "--json"]),
+      });
+
+      registry.register({
+        name: "triadmind_interrogate_approve",
+        description:
+          "Approve the current TriadMind interrogation review so downstream development can continue when manual approval is required.",
+        parameters: { type: "object", properties: {} },
+        fn: async () => runTriadMindJsonString(triadmind, ["interrogate-approve", "--json"]),
       });
 
       registry.register({

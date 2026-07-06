@@ -1,7 +1,8 @@
-import { type Color, Text, useStdout } from "ink";
+import { type Color, Text } from "ink";
 // biome-ignore lint/style/useImportType: tsconfig jsx=react needs React in value scope for JSX compilation
 import React from "react";
 import { t } from "../../i18n/index.js";
+import { useAvailableColumns } from "./terminal-width.js";
 import { COLOR } from "./theme.js";
 import { FG } from "./theme/tokens.js";
 
@@ -12,8 +13,7 @@ import { FG } from "./theme/tokens.js";
  * top chrome bar, the replay StatsPanel, and the bottom ctx footer.
  */
 export function ChromeRule(): React.ReactElement {
-  const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 80;
+  const cols = useAvailableColumns();
   const w = Math.max(20, cols - 2);
   return <Text color={FG.faint}>{"─".repeat(w)}</Text>;
 }

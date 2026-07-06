@@ -56,6 +56,8 @@ export interface WorkspacePaths {
     impactProtocolFile: string;
     impactPromptFile: string;
     impactVisualizerFile: string;
+    interrogationPromptFile: string;
+    interrogationStateFile: string;
     draftFile: string;
     macroSplitFile: string;
     mesoSplitFile: string;
@@ -282,6 +284,8 @@ const TRIAD_FILE_MAP = {
     impactProtocolFile: 'impact-protocol.json',
     impactPromptFile: 'impact-prompt.md',
     impactVisualizerFile: 'impact-visualizer.html',
+    interrogationPromptFile: 'interrogation-prompt.md',
+    interrogationStateFile: 'interrogation-state.json',
     draftFile: 'draft-protocol.json',
     macroSplitFile: 'macro-split.json',
     mesoSplitFile: 'meso-split.json',

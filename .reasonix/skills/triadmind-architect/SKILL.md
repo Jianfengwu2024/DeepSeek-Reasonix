@@ -22,6 +22,7 @@ Every code change falls into exactly one of three categories:
 **Rule: REUSE first, MODIFY second, CREATE_CHILD last.**
 
 Before writing any new code, pause and call `triadmind_memory_search` (if available) to check if an existing abstraction already does what you need.
+If the request is creating or modifying a project workflow and the demand is still ambiguous, call `triadmind_interrogate` first so TriadMind can clarify the requirement and produce a reviewable shock chain before implementation.
 
 ## Phase 2 — Draw the topology sketch
 
@@ -42,6 +43,7 @@ Affected by: [List of nodes that will need to change]
 After implementing, if `triadmind_verify` is available, run it:
 
 - Ghost nodes? Contract breaks? Cyclic dependencies? Unmatched routes?
+- If the request went through interrogation review, inspect `triadmind_interrogate_review` and only use `triadmind_interrogate_approve` when the clarified requirement is ready to pass into development.
 
 ## Plan integration
 

@@ -1,4 +1,4 @@
-import { Box, type DOMElement, Text, useBoxMetrics, useStdout } from "ink";
+import { Box, type DOMElement, Text, useBoxMetrics } from "ink";
 import React, { useEffect, useMemo, useRef } from "react";
 import stringWidth from "string-width";
 import { t } from "../../../i18n/index.js";
@@ -6,6 +6,7 @@ import { CardRenderer } from "../cards/CardRenderer.js";
 import type { Card } from "../state/cards.js";
 import { useChatScrollActions, useChatScrollState } from "../state/chat-scroll-provider.js";
 import { useAgentState } from "../state/provider.js";
+import { useAvailableColumns } from "../terminal-width.js";
 import { FG, SURFACE, TONE } from "../theme/tokens.js";
 
 export const VISIBLE_BUFFER_ROWS = 30;
@@ -154,8 +155,7 @@ function ScrollIndicator({
       : t("cardStream.scrollAbovePlural", { scroll: scrollRows, max: maxScroll });
   const more = remaining > 0 ? t("cardStream.scrollMore", { remaining }) : "";
   const text = `${above}${more}${t("cardStream.scrollPgUp")}${t("cardStream.scrollCopy")}`;
-  const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 80;
+  const cols = useAvailableColumns();
   const pad = Math.max(0, cols - stringWidth(text));
   return (
     <Text color={hot ? TONE.accent : FG.faint} backgroundColor={SURFACE.bgElev}>

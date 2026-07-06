@@ -78,6 +78,10 @@ export interface TriadImpactTiersConfig {
     forceTier: Record<string, TriadImpactTier>;
 }
 
+export interface TriadInterrogationConfig {
+    autoApproveMaxImpactEdgeCount: number;
+}
+
 export interface TriadGovernanceScopeConfig {
     scope: 'full' | 'impact';
 }
@@ -197,6 +201,7 @@ export interface TriadConfig {
         matureStableSourcePaths: string[];
         matureStableSourcePathPatterns: string[];
     };
+    interrogation: TriadInterrogationConfig;
     impactTiers: TriadImpactTiersConfig;
     governance: TriadGovernanceScopeConfig;
     profile?: TriadProfile;
@@ -440,6 +445,9 @@ const DEFAULT_CONFIG: TriadConfig = {
         matureStableNodePatterns: [],
         matureStableSourcePaths: [],
         matureStableSourcePathPatterns: []
+    },
+    interrogation: {
+        autoApproveMaxImpactEdgeCount: 6
     },
     impactTiers: {
         shortChainMax: 2,
@@ -1050,6 +1058,7 @@ function mergeWithDefault(value: Partial<TriadConfig>): TriadConfig {
             ),
             matureStableSourcePathPatterns: normalizeStringArray(value.topologyRisk?.matureStableSourcePathPatterns)
         },
+        interrogation: normalizeInterrogationConfig(value.interrogation),
         impactTiers: normalizeImpactTiers(value.impactTiers),
         governance: {
             scope: value.governance?.scope === 'impact' ? 'impact' : DEFAULT_CONFIG.governance.scope
@@ -1215,6 +1224,15 @@ function normalizeImpactTiers(value: Partial<TriadImpactTiersConfig> | undefined
         shortChainMax,
         mediumChainMax,
         forceTier: normalizeForceTier(value?.forceTier)
+    };
+}
+
+function normalizeInterrogationConfig(value: Partial<TriadInterrogationConfig> | undefined): TriadInterrogationConfig {
+    return {
+        autoApproveMaxImpactEdgeCount: normalizeNonNegativeInteger(
+            value?.autoApproveMaxImpactEdgeCount,
+            DEFAULT_CONFIG.interrogation.autoApproveMaxImpactEdgeCount
+        )
     };
 }
 
