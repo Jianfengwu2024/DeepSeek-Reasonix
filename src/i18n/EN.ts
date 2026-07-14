@@ -441,7 +441,8 @@ export const EN: TranslationSchema = {
     },
     triadmind: {
       description: "inspect or run TriadMind architecture-governance commands for this workspace",
-      argsHint: "[status|config|sync|verify|visualize|memory|toolkit] [...]",
+      argsHint:
+        "[status|config|sync|verify|visualize|rules|memory|toolkit|dream|govern|navigate] [...]",
     },
     jobs: { description: "list background jobs started by run_background" },
     kill: {

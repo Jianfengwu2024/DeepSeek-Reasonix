@@ -52,9 +52,10 @@ cd 你的项目
 triadmind init                # 创建 .triadmind 配置
 triadmind sync                # 扫描代码库，构建拓扑图
 triadmind verify              # 检查架构健康度
+triadmind plan --no-open      # 生成 .triadmind/visualizer.html
 ```
 
-三个命令之后，打开 `.triadmind/visualizer.html` 可以看到整个项目的拓扑结构。
+完成后，打开 `.triadmind/visualizer.html` 可以看到整个项目的拓扑结构。
 
 ---
 
@@ -151,15 +152,15 @@ triadmind renormalize                      # 循环依赖检测 + 修复协议
 triadmind memory sync                      # 建立抽象记忆
 triadmind memory search "撮合引擎"         # 搜索可复用节点
 triadmind memory recommend                 # AI 推荐可复用抽象
-triadmind toolkit sync                     # 导出为项目抽象工具包
-triadmind toolkit search "数据管道"        # 搜索工具包
+triadmind memory toolkit sync              # 导出为项目抽象工具包
+triadmind memory toolkit search "数据管道" # 搜索工具包
 ```
 
 ### Dream 自动治理
 
 ```bash
 triadmind dream                           # 手动触发一次分析
-triadmind dream --fast                    # 快速模式
+triadmind dream fast                      # 快速模式
 triadmind dream daemon start              # 后台定时巡检
 triadmind dream daemon stop
 triadmind dream daemon status

@@ -1,9 +1,13 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../src/tools.js";
-import type { TriadMindEngine, TriadMindEngineResult } from "../src/tools/triadmind-engine.js";
+import {
+  type TriadMindEngine,
+  type TriadMindEngineResult,
+  createInternalTriadMindEngine,
+} from "../src/tools/triadmind-engine.js";
 import { createTriadMindSupport, registerTriadMindTools } from "../src/tools/triadmind.js";
 
 function fakeEngine(
@@ -175,6 +179,50 @@ describe("TriadMind tools", () => {
     ]);
   });
 
+  it("creates a missing draft template before generating the internal visualizer", async () => {
+    const triadDir = join(root, ".triadmind");
+    mkdirSync(triadDir, { recursive: true });
+    writeFileSync(
+      join(triadDir, "triad-map.json"),
+      JSON.stringify([
+        {
+          nodeId: "Sample.module_pipeline",
+          category: "core",
+          sourcePath: "src/sample.ts",
+          fission: {
+            problem: "Workflow Capability: sample",
+            demand: ["input"],
+            answer: ["output"],
+            evidence: { promotionReasons: ["business_semantic"] },
+          },
+        },
+      ]),
+      "utf8",
+    );
+
+    const engine = createInternalTriadMindEngine({
+      rootDir: root,
+      config: { triadmind: { mode: "tools_only" } },
+    });
+    const result = await engine.run(["plan", "--view", "leaf"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.text).toContain("draft template created");
+    expect(existsSync(join(triadDir, "draft-protocol.json"))).toBe(true);
+    expect(existsSync(join(triadDir, "visualizer.html"))).toBe(true);
+  });
+
+  it("reports the correct command name when interrogate demand is missing", async () => {
+    const engine = createInternalTriadMindEngine({
+      rootDir: root,
+      config: { triadmind: { mode: "tools_only" } },
+    });
+
+    await expect(engine.run(["interrogate"])).rejects.toThrow(
+      "TriadMind interrogate demand is required.",
+    );
+  });
+
   it("registers internal runtime governance and rule management tools", async () => {
     const calls: string[][] = [];
     const registry = new ToolRegistry();
@@ -223,6 +271,64 @@ describe("TriadMind tools", () => {
       ["memory", "toolkit", "whitelist", "add", "core", "protocol"],
     ]);
   });
+
+  it("keeps explicit memory/toolkit queries ahead of demand fallback", async () => {
+    const calls: string[][] = [];
+    const registry = new ToolRegistry();
+    registerTriadMindTools(registry, {
+      rootDir: root,
+      config: { triadmind: { mode: "tools_only" } },
+      engine: fakeEngine((args) => jsonResult({ args }), calls),
+    });
+
+    await registry.dispatch("triadmind_memory_search", { query: "auth cache", demand: true });
+    await registry.dispatch("triadmind_memory_recommend", {
+      query: "billing pipeline",
+      demand: true,
+      focusNode: "Billing.Node",
+    });
+    await registry.dispatch("triadmind_memory_actions", { query: "checkout", demand: true });
+    await registry.dispatch("triadmind_toolkit_search", { query: "ingestion", demand: true });
+    await registry.dispatch("triadmind_memory_search", { demand: true });
+
+    expect(calls).toEqual([
+      ["memory", "search", "auth cache"],
+      ["memory", "recommend", "--focus-node", "Billing.Node", "billing pipeline"],
+      ["memory", "actions", "checkout"],
+      ["memory", "toolkit", "search", "ingestion"],
+      ["memory", "search", "--demand"],
+    ]);
+  });
+
+  it("marks mutating TriadMind rules and coverage calls accurately", async () => {
+    const registry = new ToolRegistry();
+    registerTriadMindTools(registry, {
+      rootDir: root,
+      config: { triadmind: { mode: "tools_only" } },
+      engine: fakeEngine((args) => jsonResult({ args })),
+    });
+
+    const rules = registry.get("triadmind_rules");
+    expect(rules?.readOnly).toBeUndefined();
+    expect(rules?.readOnlyCheck?.({ checkConflicts: true })).toBe(true);
+    expect(rules?.readOnlyCheck?.({ expire: true })).toBe(false);
+    expect(rules?.readOnlyCheck?.({ deactivate: "rule-1" })).toBe(false);
+    expect(rules?.readOnlyCheck?.({ deduplicate: true })).toBe(false);
+    expect(registry.get("triadmind_coverage")?.readOnly).toBeUndefined();
+  });
+
+  it("applies triadmind.timeoutMs to tool invocations", async () => {
+    const registry = new ToolRegistry();
+    registerTriadMindTools(registry, {
+      rootDir: root,
+      config: { triadmind: { mode: "tools_only", timeoutMs: 5 } },
+      engine: fakeEngine(() => new Promise<TriadMindEngineResult>(() => {})),
+    });
+
+    const raw = await registry.dispatch("triadmind_verify", {});
+    expect(JSON.parse(raw).error).toContain("timed out after 5ms");
+  });
+
   it("runs advisory sync + verify in advisory mode", async () => {
     const calls: string[][] = [];
     const support = createTriadMindSupport({

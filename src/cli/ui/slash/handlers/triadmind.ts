@@ -130,10 +130,14 @@ function toTriadMindArgs(sub: string, rest: string[]): string[] | null {
   switch (sub) {
     case "sync":
     case "verify":
-    case "dream":
     case "govern":
     case "navigate":
       return [sub, ...rest];
+    case "dream":
+      if (rest.includes("--fast")) {
+        return ["dream", "fast", ...rest.filter((arg) => arg !== "--fast")];
+      }
+      return ["dream", ...rest];
     case "visualize":
     case "viz":
       return ["plan", "--no-open", ...rest];

@@ -103,4 +103,18 @@ describe("handleSlash /triadmind", () => {
     expect(r.info).toBe("> internal triadmind memory toolkit sync started");
     expect(calls).toEqual([["memory", "toolkit", "sync"]]);
   });
+
+  it("normalizes /triadmind dream --fast to the internal fast subcommand", () => {
+    const calls: string[][] = [];
+    const r = handleSlash("triadmind", ["dream", "--fast", "--json"], makeLoop(), {
+      runTriadMindInternal: async (args) => {
+        calls.push(args);
+        return "fast";
+      },
+      postInfo: () => {},
+    });
+
+    expect(r.info).toBe("> internal triadmind dream fast --json started");
+    expect(calls).toEqual([["dream", "fast", "--json"]]);
+  });
 });

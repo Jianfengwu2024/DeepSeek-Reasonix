@@ -50,6 +50,26 @@ interface InternalTriadMindTask {
 }
 
 const internalTasks = new Map<string, InternalTriadMindTask>();
+const POSITIONAL_BOOLEAN_FLAGS = new Set([
+  "--check-conflicts",
+  "--deduplicate",
+  "--deep",
+  "--demand",
+  "--dry-run",
+  "--expire",
+  "--fast",
+  "--force",
+  "--full",
+  "--full-contract-edges",
+  "--hide-isolated",
+  "--include-weak",
+  "--json",
+  "--no-open",
+  "--prompt",
+  "--show-isolated",
+  "--strict",
+  "--visualize",
+]);
 
 interface CoreModules {
   workspace: any;
@@ -373,7 +393,7 @@ function runConverge(paths: any) {
 }
 async function runNavigate(core: CoreModules, paths: any, args: string[]) {
   core.workflow.ensureTriadSpec(paths);
-  const demand = readDemand(args);
+  const demand = readDemand(args, "navigate");
   const result = await core.navigator.runNavigator(paths, demand, {
     protocolPath: readOption(args, "--protocol"),
     llm: readOption(args, "--llm"),
@@ -387,8 +407,8 @@ async function runNavigate(core: CoreModules, paths: any, args: string[]) {
 
 async function runInterrogate(core: CoreModules, paths: any, args: string[]) {
   core.workflow.ensureTriadSpec(paths);
+  const demand = readDemand(args, "interrogate");
   if (!existsSync(paths.mapFile)) core.cliSupport.syncProjectTopology(paths, false);
-  const demand = readDemand(args);
   const result = await core.interrogation.runInterrogation(paths, demand, {
     answersFile: readOption(args, "--answers-file"),
     llm: readOption(args, "--llm"),
@@ -425,6 +445,7 @@ function runInterrogateApprove(core: CoreModules, paths: any) {
 async function runDream(core: CoreModules, paths: any, args: string[]) {
   const sub = args[0] && !args[0].startsWith("--") ? args[0] : "run";
   const rest = args.slice(args[0] && !args[0].startsWith("--") ? 1 : 0);
+  const fast = sub === "fast" || hasFlag(rest, "--fast");
   if (sub === "review") {
     return jsonResult(core.dream.loadLatestDreamReport(paths) ?? { status: "missing" });
   }
@@ -454,10 +475,10 @@ async function runDream(core: CoreModules, paths: any, args: string[]) {
   }
   const result = await core.dream.runDreamAnalysis(paths, {
     mode: readOption(rest, "--mode") === "idle" ? "idle" : "manual",
-    force: hasFlag(rest, "--force") || sub === "fast",
+    force: hasFlag(rest, "--force") || fast,
     maxProposals: readNumberOption(rest, "--max-proposals"),
     minConfidence: readNumberOption(rest, "--min-confidence"),
-    impactThreshold: sub === "fast" ? 3 : readNumberOption(rest, "--impact-threshold"),
+    impactThreshold: fast ? 3 : readNumberOption(rest, "--impact-threshold"),
   });
   if (hasFlag(rest, "--visualize")) {
     core.dreamVisualizer.generateDreamDashboard(result.report, paths.dreamVisualizerFile, {
@@ -652,12 +673,23 @@ function runGovern(core: CoreModules, paths: any, args: string[]) {
 }
 
 function runVisualize(core: CoreModules, paths: any, args: string[]) {
+  core.workflow.ensureTriadSpec(paths);
+  if (!existsSync(paths.mapFile)) {
+    core.cliSupport.syncProjectTopology(paths);
+  }
+  core.triadization.writeTriadizationArtifacts(paths);
+  let createdDraft = false;
+  if (!existsSync(paths.draftFile)) {
+    core.workflow.createDraftTemplate(paths);
+    createdDraft = true;
+  }
   core.visualizer.generateDashboard(paths.mapFile, paths.draftFile, paths.visualizerFile, {
     defaultView: readOption(args, "--view") === "leaf" ? "leaf" : "architecture",
     showIsolatedCapabilities: hasFlag(args, "--show-isolated"),
     fullContractEdges: hasFlag(args, "--full-contract-edges"),
   });
-  return textResult(`TriadMind visualizer written internally: ${paths.visualizerFile}`);
+  const suffix = createdDraft ? `; draft template created: ${paths.draftFile}` : "";
+  return textResult(`TriadMind visualizer written internally: ${paths.visualizerFile}${suffix}`);
 }
 
 function runMemory(core: CoreModules, paths: any, args: string[]) {
@@ -1041,10 +1073,10 @@ function readScope(args: string[], flag: string): "full" | "impact" | undefined 
   return option === "impact" || option === "full" ? option : undefined;
 }
 
-function readDemand(args: string[]) {
+function readDemand(args: string[], command: "navigate" | "interrogate") {
   const positional = getPositionals(args);
   const demand = positional.at(-1)?.trim();
-  if (!demand) throw new Error("TriadMind navigate demand is required.");
+  if (!demand) throw new Error(`TriadMind ${command} demand is required.`);
   return demand;
 }
 
@@ -1067,6 +1099,7 @@ function getPositionals(args: string[]) {
     const arg = args[index];
     if (!arg) continue;
     if (arg.startsWith("--")) {
+      if (POSITIONAL_BOOLEAN_FLAGS.has(arg)) continue;
       const next = args[index + 1];
       if (next && !next.startsWith("--")) index++;
       continue;

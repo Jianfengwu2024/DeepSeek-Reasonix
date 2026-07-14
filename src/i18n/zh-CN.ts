@@ -422,7 +422,8 @@ export const zhCN: TranslationSchema = {
     },
     triadmind: {
       description: "查看或运行当前工作区的 TriadMind 架构治理命令",
-      argsHint: "[status|config|sync|verify|visualize|memory|toolkit] [...]",
+      argsHint:
+        "[status|config|sync|verify|visualize|rules|memory|toolkit|dream|govern|navigate] [...]",
     },
     jobs: { description: "列出 run_background 启动的后台作业" },
     kill: {

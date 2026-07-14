@@ -79,7 +79,7 @@ export async function buildCodeToolset(opts: CodeToolsetOpts): Promise<CodeTools
   const jobs = new JobRegistry();
   let triadmindSupport: TriadMindSupport = registerTriadMindTools(tools, {
     rootDir: opts.rootDir,
-    config: readConfig(),
+    config: readConfig(opts.configPath),
   });
 
   const outlineThresholdBytes = loadFilesystemOutlineThresholdBytes();

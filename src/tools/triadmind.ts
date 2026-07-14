@@ -57,6 +57,7 @@ interface TriadMindEngineSpec {
   rootDir: string;
   source: string;
   advisoryForceSync: boolean;
+  timeoutMs: number;
   engine: TriadMindEngine;
 }
 
@@ -114,6 +115,7 @@ export function createTriadMindSupport(opts: TriadMindSupportOptions): TriadMind
           source: triadmind.source,
           corePath: triadmind.engine.corePath,
           advisoryForceSync: triadmind.advisoryForceSync,
+          timeoutMs: triadmind.timeoutMs,
         },
         null,
         2,
@@ -476,7 +478,14 @@ export function createTriadMindSupport(opts: TriadMindSupportOptions): TriadMind
             prompt: { type: "boolean" },
           },
         },
-        readOnly: true,
+        readOnlyCheck: (args: {
+          expire?: boolean;
+          deactivate?: string;
+          deduplicate?: boolean;
+        }) =>
+          !args.expire &&
+          !args.deduplicate &&
+          !(typeof args.deactivate === "string" && args.deactivate.trim()),
         fn: async (args: {
           expire?: boolean;
           deactivate?: string;
@@ -592,7 +601,6 @@ function registerRuntimeGovernanceTools(
     name: "triadmind_coverage",
     description: "Run TriadMind topology coverage checks internally.",
     parameters: { type: "object", properties: {} },
-    readOnly: true,
     fn: async () => runTriadMindJsonString(triadmind, ["coverage", "--json"]),
   });
 
@@ -665,9 +673,10 @@ function registerMemoryTools(registry: ToolRegistry, triadmind: TriadMindEngineS
     },
     fn: async (args: { query?: string; limit?: number; demand?: boolean }) => {
       const commandArgs = ["memory", "search", "--json"];
+      const query = typeof args.query === "string" ? args.query.trim() : "";
       if (Number.isFinite(args.limit)) commandArgs.push("--limit", String(args.limit));
-      if (args.demand) commandArgs.push("--demand");
-      if (typeof args.query === "string" && args.query.trim()) commandArgs.push(args.query.trim());
+      if (args.demand && !query) commandArgs.push("--demand");
+      if (query) commandArgs.push(query);
       return runTriadMindJsonString(triadmind, commandArgs);
     },
   });
@@ -685,11 +694,12 @@ function registerMemoryTools(registry: ToolRegistry, triadmind: TriadMindEngineS
     },
     fn: async (args: { query?: string; limit?: number; demand?: boolean; focusNode?: string }) => {
       const commandArgs = ["memory", "recommend", "--json"];
+      const query = typeof args.query === "string" ? args.query.trim() : "";
       if (Number.isFinite(args.limit)) commandArgs.push("--limit", String(args.limit));
-      if (args.demand) commandArgs.push("--demand");
+      if (args.demand && !query) commandArgs.push("--demand");
       if (typeof args.focusNode === "string" && args.focusNode.trim())
         commandArgs.push("--focus-node", args.focusNode.trim());
-      if (typeof args.query === "string" && args.query.trim()) commandArgs.push(args.query.trim());
+      if (query) commandArgs.push(query);
       return runTriadMindJsonString(triadmind, commandArgs);
     },
   });
@@ -707,11 +717,12 @@ function registerMemoryTools(registry: ToolRegistry, triadmind: TriadMindEngineS
     },
     fn: async (args: { query?: string; limit?: number; demand?: boolean; focusNode?: string }) => {
       const commandArgs = ["memory", "actions", "--json"];
+      const query = typeof args.query === "string" ? args.query.trim() : "";
       if (Number.isFinite(args.limit)) commandArgs.push("--limit", String(args.limit));
-      if (args.demand) commandArgs.push("--demand");
+      if (args.demand && !query) commandArgs.push("--demand");
       if (typeof args.focusNode === "string" && args.focusNode.trim())
         commandArgs.push("--focus-node", args.focusNode.trim());
-      if (typeof args.query === "string" && args.query.trim()) commandArgs.push(args.query.trim());
+      if (query) commandArgs.push(query);
       return runTriadMindJsonString(triadmind, commandArgs);
     },
   });
@@ -735,9 +746,10 @@ function registerMemoryTools(registry: ToolRegistry, triadmind: TriadMindEngineS
     },
     fn: async (args: { query?: string; limit?: number; demand?: boolean }) => {
       const commandArgs = ["memory", "toolkit", "search", "--json"];
+      const query = typeof args.query === "string" ? args.query.trim() : "";
       if (Number.isFinite(args.limit)) commandArgs.push("--limit", String(args.limit));
-      if (args.demand) commandArgs.push("--demand");
-      if (typeof args.query === "string" && args.query.trim()) commandArgs.push(args.query.trim());
+      if (args.demand && !query) commandArgs.push("--demand");
+      if (query) commandArgs.push(query);
       return runTriadMindJsonString(triadmind, commandArgs);
     },
   });
@@ -782,7 +794,7 @@ async function runTriadMindText(
   triadmind: TriadMindEngineSpec,
   toolArgs: string[],
 ): Promise<string> {
-  const result = await triadmind.engine.run(stripJsonFlag(toolArgs), { mode: "text" });
+  const result = await runEngineWithTimeout(triadmind, stripJsonFlag(toolArgs), { mode: "text" });
   if (result.exitCode !== 0)
     throw new Error(formatEngineFailure(triadmind.label, toolArgs, result));
   return (
@@ -795,7 +807,7 @@ async function runTriadMindJson(
   triadmind: TriadMindEngineSpec,
   toolArgs: string[],
 ): Promise<TriadMindJsonResult> {
-  const result = await triadmind.engine.run(stripJsonFlag(toolArgs), { mode: "json" });
+  const result = await runEngineWithTimeout(triadmind, stripJsonFlag(toolArgs), { mode: "json" });
   if (result.data === undefined)
     throw new Error(formatEngineFailure(triadmind.label, toolArgs, result));
   return {
@@ -873,8 +885,38 @@ function resolveTriadMindEngine(opts: {
     rootDir: opts.rootDir,
     source: engine.source,
     advisoryForceSync: engine.advisoryForceSync,
+    timeoutMs: normalizeTimeoutMs(opts.config.triadmind?.timeoutMs),
     engine,
   };
+}
+
+function normalizeTimeoutMs(value: number | undefined): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : 120_000;
+}
+
+async function runEngineWithTimeout(
+  triadmind: TriadMindEngineSpec,
+  toolArgs: string[],
+  options: { mode: "text" | "json" },
+): Promise<TriadMindEngineResult> {
+  const timeoutMs = Math.max(1, triadmind.timeoutMs);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      triadmind.engine.run(toolArgs, options),
+      new Promise<TriadMindEngineResult>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(
+            new Error(
+              `${renderInternalOperation(triadmind.label, toolArgs)} timed out after ${timeoutMs}ms`,
+            ),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function normalizeMode(mode: string | undefined): TriadMindMode {
