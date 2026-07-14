@@ -25,6 +25,7 @@ import { listSessions } from "../memory/session.js";
 import { applyMemoryStack } from "../memory/user.js";
 import { installProxyIfConfigured } from "../net/proxy.js";
 import { escalationContract } from "../prompt-fragments.js";
+import { inferSshDashboardBindHost } from "../server/dashboard-url.js";
 import { startCpuProfile, stopAndSaveCpuProfile } from "./cpu-prof.js";
 import { resolveBareCommandMode, resolveContinueFlag, resolveDefaults } from "./resolve.js";
 import { markPhase } from "./startup-profile.js";
@@ -124,7 +125,7 @@ function resolveDashboardPort(
     : undefined;
 }
 
-/** Resolution order: flag → REASONIX_DASHBOARD_HOST env → config.dashboard.host → undefined (server defaults to 127.0.0.1). */
+/** Resolution order: flag → REASONIX_DASHBOARD_HOST env → config.dashboard.host → SSH auto-bind → undefined (server defaults to 127.0.0.1). */
 function resolveDashboardHost(
   flagValue: string | undefined,
   noConfig: boolean,
@@ -133,8 +134,23 @@ function resolveDashboardHost(
   if (fromFlag) return fromFlag;
   const fromEnv = process.env.REASONIX_DASHBOARD_HOST?.trim();
   if (fromEnv) return fromEnv;
-  if (noConfig) return undefined;
+  if (noConfig) return inferSshDashboardBindHost();
   const fromCfg = readConfig().dashboard?.host;
+  if (typeof fromCfg === "string" && fromCfg.trim()) return fromCfg.trim();
+  return inferSshDashboardBindHost();
+}
+
+/** Resolution order: flag → REASONIX_DASHBOARD_URL env → config.dashboard.publicUrl → undefined. */
+function resolveDashboardPublicUrl(
+  flagValue: string | undefined,
+  noConfig: boolean,
+): string | undefined {
+  const fromFlag = flagValue?.trim();
+  if (fromFlag) return fromFlag;
+  const fromEnv = process.env.REASONIX_DASHBOARD_URL?.trim();
+  if (fromEnv) return fromEnv;
+  if (noConfig) return undefined;
+  const fromCfg = readConfig().dashboard?.publicUrl;
   return typeof fromCfg === "string" && fromCfg.trim() ? fromCfg.trim() : undefined;
 }
 
@@ -207,7 +223,11 @@ program
   .option("--dashboard-port <port>", t("ui.dashboardPortHint"))
   .option(
     "--dashboard-host <host>",
-    "bind address for the dashboard (default 127.0.0.1; use 0.0.0.0 for LAN access — the URL token is then the only auth)",
+    "bind address for the dashboard (default 127.0.0.1 locally; SSH sessions auto-bind to the remote server address; use 0.0.0.0 for LAN access — the URL token is then the only auth)",
+  )
+  .option(
+    "--dashboard-url <url>",
+    "public dashboard URL to print/open (for SSH tunnels, reverse proxies, or remote hosts where 127.0.0.1 is not usable)",
   )
   .option("--system-append <prompt>", t("ui.systemAppendHint"))
   .option("--system-append-file <path>", t("ui.systemAppendFileHint"))
@@ -266,6 +286,7 @@ program
         openDashboard: opts.openDashboard === true,
         dashboardPort: resolveDashboardPort(parseDashboardPortFlag(opts.dashboardPort), false),
         dashboardHost: resolveDashboardHost(opts.dashboardHost, false),
+        dashboardPublicUrl: resolveDashboardPublicUrl(opts.dashboardUrl, false),
         dashboardToken: resolveDashboardToken(false),
         noMouse: opts.mouse === false,
         systemAppend: opts.systemAppend,
@@ -304,7 +325,11 @@ program
   .option("--dashboard-port <port>", t("ui.dashboardPortHint"))
   .option(
     "--dashboard-host <host>",
-    "bind address for the dashboard (default 127.0.0.1; use 0.0.0.0 for LAN access — the URL token is then the only auth)",
+    "bind address for the dashboard (default 127.0.0.1 locally; SSH sessions auto-bind to the remote server address; use 0.0.0.0 for LAN access — the URL token is then the only auth)",
+  )
+  .option(
+    "--dashboard-url <url>",
+    "public dashboard URL to print/open (for SSH tunnels, reverse proxies, or remote hosts where 127.0.0.1 is not usable)",
   )
   .option(
     "--profile [path]",
@@ -356,6 +381,7 @@ program
           opts.config === false,
         ),
         dashboardHost: resolveDashboardHost(opts.dashboardHost, opts.config === false),
+        dashboardPublicUrl: resolveDashboardPublicUrl(opts.dashboardUrl, opts.config === false),
         dashboardToken: resolveDashboardToken(opts.config === false),
         noMouse: opts.mouse === false,
       });

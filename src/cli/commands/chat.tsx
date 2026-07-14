@@ -115,6 +115,8 @@ export interface ChatOptions {
   dashboardPort?: number;
   /** Dashboard bind address (#968). `undefined` keeps the default 127.0.0.1. */
   dashboardHost?: string;
+  /** Public dashboard URL printed/opened for SSH tunnels, proxies, or remote hosts. */
+  dashboardPublicUrl?: string;
   /** Stable dashboard URL token (#968). `undefined` mints a fresh per-boot token. */
   dashboardToken?: string;
   /** Disable SGR mouse tracking so the terminal keeps native selection and right-click behavior. */
@@ -258,6 +260,7 @@ function Root({
         openDashboard={appProps.openDashboard}
         dashboardPort={appProps.dashboardPort}
         dashboardHost={appProps.dashboardHost}
+        dashboardPublicUrl={appProps.dashboardPublicUrl}
         dashboardToken={appProps.dashboardToken}
         qqChannel={appProps.qqChannel}
         telegramChannel={appProps.telegramChannel}

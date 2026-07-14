@@ -45,6 +45,8 @@ export interface CodeOptions {
   dashboardPort?: number;
   /** Dashboard bind address (#968). `undefined` keeps the default 127.0.0.1. */
   dashboardHost?: string;
+  /** Public dashboard URL printed/opened for SSH tunnels, proxies, or remote hosts. */
+  dashboardPublicUrl?: string;
   /** Stable dashboard URL token (#968). `undefined` mints a fresh per-boot token. */
   dashboardToken?: string;
   /** Inline string appended to the code system prompt after the generated base prompt. */
@@ -178,6 +180,7 @@ export async function codeCommand(opts: CodeOptions = {}): Promise<void> {
     openDashboard: opts.openDashboard,
     dashboardPort: opts.dashboardPort,
     dashboardHost: opts.dashboardHost,
+    dashboardPublicUrl: opts.dashboardPublicUrl,
     dashboardToken: opts.dashboardToken,
     noMouse: opts.noMouse,
   });

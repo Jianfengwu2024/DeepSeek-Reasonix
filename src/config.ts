@@ -284,6 +284,8 @@ export interface ReasonixConfig {
     port?: number;
     /** Bind address (#968). Defaults to 127.0.0.1 (loopback only). Set to 0.0.0.0 / :: / a LAN IP to expose to other devices; the URL token is then the only auth, so keep it secret. */
     host?: string;
+    /** Public URL printed/opened for the dashboard, useful for SSH tunnels, reverse proxies, or remote hosts where 127.0.0.1 would point at the user's local machine. */
+    publicUrl?: string;
     /** Stable URL token (#968). If unset, a fresh token is minted each boot. Min 16 chars enforced at load time. */
     token?: string;
   };

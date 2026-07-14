@@ -7,16 +7,16 @@ import { handleEvents } from "./api/events.js";
 import { loadWorkspaceArtifact } from "./artifact.js";
 import { renderIndexHtml, serveAsset } from "./assets.js";
 import type { DashboardContext } from "./context.js";
+import { LOOPBACK_DASHBOARD_HOSTS, buildDashboardUrl } from "./dashboard-url.js";
 import { handleApi } from "./router.js";
-
-/** Strict loopback set — anything outside this gets the LAN-exposure warning. */
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 
 export interface StartDashboardOptions {
   /** Force a specific port. 0 = ephemeral. Default: 0. */
   port?: number;
   /** Host to bind. Default 127.0.0.1. Set to 0.0.0.0 / :: / a LAN IP to expose to other devices (#968) — the URL token then becomes the only auth. */
   host?: string;
+  /** Public URL to print/open when the bind address is not browser-reachable directly, e.g. SSH tunnels or reverse proxies. */
+  publicUrl?: string;
   /** Pin a token across boots (#968). When unset, mintToken() generates a fresh 32-byte hex string. Min 16 chars; the caller enforces. */
   token?: string;
 }
@@ -235,8 +235,19 @@ export function startDashboardServer(
     server.listen(port, host, () => {
       const addr = server.address() as AddressInfo;
       const finalPort = addr.port;
-      const url = `http://${host}:${finalPort}/?token=${token}`;
-      if (!LOOPBACK_HOSTS.has(host)) {
+      let url: string;
+      try {
+        url = buildDashboardUrl({
+          bindHost: host,
+          port: finalPort,
+          token,
+          publicUrl: opts.publicUrl,
+        });
+      } catch (error) {
+        server.close(() => reject(error));
+        return;
+      }
+      if (!LOOPBACK_DASHBOARD_HOSTS.has(host)) {
         process.stderr.write(
           `▲ Dashboard bound to ${host}:${finalPort} (non-loopback). The URL token is the only auth — keep it secret.\n`,
         );

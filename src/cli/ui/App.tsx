@@ -316,6 +316,8 @@ export interface AppProps {
   dashboardPort?: number;
   /** Dashboard bind address (#968). `undefined` keeps the default 127.0.0.1. */
   dashboardHost?: string;
+  /** Public dashboard URL printed/opened for SSH tunnels, proxies, or remote hosts. */
+  dashboardPublicUrl?: string;
   /** Stable dashboard URL token (#968). `undefined` mints a fresh per-boot token. */
   dashboardToken?: string;
   /** Mid-chat session swap — Root remounts App with the new session via key. */
@@ -478,6 +480,7 @@ function AppInner({
   openDashboard,
   dashboardPort,
   dashboardHost,
+  dashboardPublicUrl,
   dashboardToken,
   onSwitchSession,
   startupInfoHints,
@@ -2544,6 +2547,7 @@ function AppInner({
         startDashboardServer(buildCtx(), {
           port,
           host: dashboardHost,
+          publicUrl: dashboardPublicUrl,
           token: dashboardToken,
         });
       let handle: Awaited<ReturnType<typeof tryStart>>;
@@ -2599,6 +2603,7 @@ function AppInner({
     onSwitchSession,
     dashboardPort,
     dashboardHost,
+    dashboardPublicUrl,
     dashboardToken,
   ]);
 
