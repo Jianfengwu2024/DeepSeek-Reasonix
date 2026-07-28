@@ -766,6 +766,26 @@ describe("dashboard server: chat bridge", () => {
     ac.abort();
   });
 
+  it("cleans up a disconnected SSE subscription exactly once", async () => {
+    let unsubscribeCalls = 0;
+    const base = await boot({
+      isBusy: () => false,
+      subscribeEvents: () => () => {
+        unsubscribeCalls++;
+      },
+    });
+    const ac = new AbortController();
+    const res = await fetch(`${base}api/events?token=${TOKEN}`, { signal: ac.signal });
+    expect(res.status).toBe(200);
+    ac.abort();
+    for (let attempt = 0; attempt < 20 && unsubscribeCalls === 0; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(unsubscribeCalls).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(unsubscribeCalls).toBe(1);
+  });
+
   it("GET /api/events replays the active modal so mid-modal connects see the gate (#1770)", async () => {
     const base = await boot({
       isBusy: () => false,

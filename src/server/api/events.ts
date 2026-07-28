@@ -24,7 +24,7 @@ export function handleEvents(
   });
 
   const writeEvent = (event: DashboardEvent): void => {
-    if (res.writableEnded) return;
+    if (res.destroyed || res.writableEnded || !res.writable) return;
     try {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     } catch {
@@ -48,7 +48,10 @@ export function handleEvents(
   // Don't keep the process alive just for the heartbeat.
   ping.unref?.();
 
+  let cleanedUp = false;
   const cleanup = (): void => {
+    if (cleanedUp) return;
+    cleanedUp = true;
     clearInterval(ping);
     try {
       unsubscribe();
@@ -65,6 +68,8 @@ export function handleEvents(
   };
 
   req.on("close", cleanup);
+  req.on("aborted", cleanup);
   req.on("error", cleanup);
   res.on("close", cleanup);
+  res.on("error", cleanup);
 }

@@ -225,11 +225,19 @@ export function startDashboardServer(
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       dispatch(req, res, ctxRef.current, token).catch((err) => {
+        if (res.destroyed || res.writableEnded || !res.writable) return;
         if (!res.headersSent) {
           res.writeHead(500, { "content-type": "application/json" });
         }
-        res.end(JSON.stringify({ error: (err as Error).message }));
+        try {
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        } catch {
+          res.destroy();
+        }
       });
+    });
+    server.on("clientError", (_err, socket) => {
+      if (!socket.destroyed) socket.destroy();
     });
     server.on("error", reject);
     server.listen(port, host, () => {

@@ -40,6 +40,7 @@ let sseTurnStarted = false;
 let sseReconnectAttempts = 0;
 const SSE_MAX_RECONNECT_ATTEMPTS = 10;
 const SSE_RECONNECT_BASE_DELAY = 1000;
+let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 let cliDisconnected = false;
 
@@ -229,6 +230,10 @@ function sseToIncoming(ev: any): Record<string, any>[] {
 }
 
 function connectSSE(): void {
+  if (sseReconnectTimer) {
+    clearTimeout(sseReconnectTimer);
+    sseReconnectTimer = null;
+  }
   if (sse) sse.close();
   const token =
     document.querySelector('meta[name="reasonix-token"]')?.getAttribute("content") ?? "";
@@ -237,6 +242,10 @@ function connectSSE(): void {
       ? `/api/events?token=${encodeURIComponent(token)}`
       : "/api/events";
   sse = new EventSource(sseUrl);
+  sse.onopen = () => {
+    sseReconnectAttempts = 0;
+    notifyCliStatus(true);
+  };
   sse.onmessage = (msg: MessageEvent) => {
     try {
       const dashboardEvent = JSON.parse(msg.data);
@@ -275,7 +284,12 @@ function connectSSE(): void {
     }
 
     const delay = SSE_RECONNECT_BASE_DELAY * Math.pow(2, sseReconnectAttempts - 1);
-    setTimeout(connectSSE, Math.min(delay, 30000));
+    if (!sseReconnectTimer) {
+      sseReconnectTimer = setTimeout(() => {
+        sseReconnectTimer = null;
+        connectSSE();
+      }, Math.min(delay, 30000));
+    }
   };
 
   // SSE 连接成功后，开始定期轮询 overview/sessions 更新右侧状态和会话列表
